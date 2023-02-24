@@ -10,7 +10,8 @@ import numpy as np
 
 import models
 from utils import arg_parser
-
+from dataset import BimanualDataset
+from torch_geometric.loader import DataLoader
 import time
 import random
 
@@ -29,11 +30,11 @@ def train(model, train_loader):
     model.train()
 
     for data in train_loader:  # Iterate in batches over the training dataset.
+        optimizer.zero_grad()  # Clear gradients.
         out = model(data)  # Perform a single forward pass.
-        loss = criterion(out, data.y)  # Compute the loss.
+        loss = criterion(out, data[-1].y)  # Compute the loss.
         loss.backward()  # Derive gradients.
         optimizer.step()  # Update parameters based on gradients.
-        optimizer.zero_grad()  # Clear gradients.
 
 def test(model, loader):
     model.eval()
@@ -48,18 +49,22 @@ def test(model, loader):
 
 if __name__ == "__main__":
     args=arg_parser()
+    
+    bimdataset=BimanualDataset(".")
+    dataloader=DataLoader(bimdataset, args.batch_size)
+    
     edge_linear_in=16
     model = models.GNN(edge_linear_in=edge_linear_in,
                        edge_linear_out=args.edge_linear_out,
                        conv_in=args.conv_in,
                        conv_out=args.conv_out,
                        hidden_size=args.hidden_size,
-                       batch_size=16)
+                       batch_size=args.batch_size)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
     criterion = torch.nn.CrossEntropyLoss()
 
-    # for epoch in range(1, 171):
-    #     train(model, train_loader)
-    #     train_acc = test(model, train_loader)
-    #     test_acc = test(test_loader)
-    #     print(f'Epoch: {epoch:03d}, Train Acc: {train_acc:.4f}, Test Acc: {test_acc:.4f}')
+    for epoch in range(1, 3000):
+        train(model, train_loader)
+        train_acc = test(model, train_loader)
+        test_acc = test(test_loader)
+        print(f'Epoch: {epoch:03d}, Train Acc: {train_acc:.4f}, Test Acc: {test_acc:.4f}')

@@ -33,17 +33,17 @@ ACTIONS = ['idle', 'approach', 'retreat', 'lift', 'place', 'hold', 'pour', 'cut'
 NONE_COUNT_IN_ACTION=0
 
 def crawl_dataset():
-    for subject in ['subject_{}'.format(i) for i in range(1, 2)]:
-        for task in ['task_1_k_cooking', 'task_2_k_cooking_with_bowls']:
-        # for task in ['task_1_k_cooking', 'task_2_k_cooking_with_bowls', 'task_3_k_pouring',
-        #              'task_4_k_wiping', 'task_5_k_cereals', 'task_6_w_hard_drive',
-        #              'task_7_w_free_hard_drive', 'task_8_w_hammering', 'task_9_w_sawing']:
-            for take in ['take_{}'.format(take_i) for take_i in range(3)]: # 10 
+    for subject in ['subject_{}'.format(i) for i in range(1, 7)]:
+        # for task in ['task_1_k_cooking', 'task_2_k_cooking_with_bowls']:
+        for task in ['task_1_k_cooking', 'task_2_k_cooking_with_bowls', 'task_3_k_pouring',
+                     'task_4_k_wiping', 'task_5_k_cereals', 'task_6_w_hard_drive',
+                     'task_7_w_free_hard_drive', 'task_8_w_hammering', 'task_9_w_sawing']:
+            for take in ['take_{}'.format(take_i) for take_i in range(10)]: # 10 
                 yield subject, task, take
 
 
 class BimanualDataset(Dataset):
-    def __init__(self, root: str, process_anyway: bool, temporal_lenght: int):
+    def __init__(self, root: str, process_anyway: bool, temporal_lenght: int=10):
         self.temporal_lenght = temporal_lenght
         self.process_anyway = process_anyway
         print("temporal_lenght: ", temporal_lenght)
@@ -94,7 +94,8 @@ class BimanualDataset(Dataset):
         # initialize "Data" params
         x = torch.zeros((len(curr_objects), len(OBJECTS)), dtype=torch.float)
         # y = torch.zeros((2), dtype=torch.long)
-        y = torch.zeros((2, 2), dtype=torch.long)
+        # y = torch.zeros((2, 2), dtype=torch.long)
+        y = torch.zeros((2, len(ACTIONS)), dtype=torch.long)
 
         edge_index = []
 
@@ -129,8 +130,10 @@ class BimanualDataset(Dataset):
         left_act, right_act = self._get_actions(gt_action_json, frame)
         # y[0]=left_act
         # y[1]=right_act
-        y[0]=torch.tensor([left_act, int(subject[-1]+task[5]+take[-1]+str(frame))], dtype=torch.long)
-        y[1]=torch.tensor([right_act, int(subject[-1]+task[5]+take[-1]+str(frame))],dtype=torch.long)
+        # y[0]=torch.tensor([left_act, int(subject[-1]+task[5]+take[-1]+str(frame))], dtype=torch.long)
+        # y[1]=torch.tensor([right_act, int(subject[-1]+task[5]+take[-1]+str(frame))],dtype=torch.long)
+        y[0, left_act]=1
+        y[1, right_act]=1
         
 
         data = Data(x=x, edge_index=edge_index.t().contiguous(),
@@ -215,8 +218,8 @@ class BimanualDataset(Dataset):
                 # data_list_mirrored.append(self._get_mirrored_data(graph))
 
                 if len(data_list) == self.temporal_lenght:
-                    # torch.save(data_list, opj(self.processed_dir, f'data_{idx}.pt'))
-                    torch.save(data_list, opj(self.processed_dir, f'data_{subject}_{task}_{take}_f{frame}_{idx}.pt'))
+                    torch.save(data_list, opj(self.processed_dir, f'data_{idx}.pt'))
+                    # torch.save(data_list, opj(self.processed_dir, f'data_{subject}_{task}_{take}_f{frame}_{idx}.pt'))
                     idx += 1
                     # torch.save(data_list_mirrored, opj(self.processed_dir, f'data_{subject}_{task}_{take}_f{frame}_{idx}.pt'))
                     # idx += 1
@@ -271,17 +274,17 @@ def printDataPoint(data: Data):
 
 
 
-bm = BimanualDataset(".", True, 10)
+# bm = BimanualDataset(".", True, 10)
 
-print(f"{NONE_COUNT_IN_ACTION=}")
+# print(f"{NONE_COUNT_IN_ACTION=}")
 
-loader = DataLoader(bm, batch_size=4, shuffle=True)
-batch=next(iter(loader))
+# loader = DataLoader(bm, batch_size=4, shuffle=True)
+# batch=next(iter(loader))
 
 
-for b in batch:
-    print("#### batch ####")
-    for g in b.to_data_list():
-        print("#### gs ####")
-        print(g.y)
-        # printDataPoint(g)
+# for b in batch:
+#     print("#### batch ####")
+#     for g in b.to_data_list():
+#         print("#### gs ####")
+#         print(g.y)
+#         printDataPoint(g)
