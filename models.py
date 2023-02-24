@@ -10,6 +10,8 @@ class GNN(torch.nn.Module):
         nn = Sequential(Linear(edge_linear_in, edge_linear_out), ReLU())
         self.conv = NNConv(conv_in, conv_out, nn, aggr='mean')
 
+        self.act = SELU()
+
         self.hidden_layer_size = hidden_layer_size
         self.rnn = LSTM(conv_out, hidden_layer_size, num_rnn_layers, batch_first=True)
 
@@ -17,7 +19,8 @@ class GNN(torch.nn.Module):
         x, edge_attr, edge_index = data.x, data.edge_attr, data.edge_index
         n_samples = y.size(0)
 
-        x = SELU(self.conv(x, edge_index, edge_attr)) # x dim -> [n, d]
+        x = self.act(self.conv(x, edge_index, edge_attr)) # x dim -> [n, d]
+        out = torch.mean(x, dim=0, keepdim=True)
 
         h_t = torch.zeros(n_samples, self.hidden_layer_size, dtype=torch.float32)
         c_t = torch.zeros(n_samples, self.hidden_layer_size, dtype=torch.float32)
