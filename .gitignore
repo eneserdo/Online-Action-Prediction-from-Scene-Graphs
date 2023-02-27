@@ -137,3 +137,5 @@ processed/
 .idea/Online-Action-Prediction-from-Scene-Graphs.iml
 .idea/modules.xml
 .idea/inspectionProfiles/Project_Default.xml
+
+.vscode/

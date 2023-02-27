@@ -10,7 +10,7 @@ from dataset import OBJECTS
 # TODO: Single MLP to learn both action simultaneousluy
 
 class GNN(torch.nn.Module):
-    def __init__(self, num_edge_feat, conv_in, conv_hidden, conv_out,  batch_size, num_action_classes=15,  hidden_size=1, num_rnn_layers=1):
+    def __init__(self,*, num_edge_feat, conv_in, conv_hidden, conv_out,  batch_size, num_action_classes,  hidden_size, num_rnn_layers):
         super().__init__()
 
         self.conv_out=conv_out
@@ -25,7 +25,7 @@ class GNN(torch.nn.Module):
         self.act1 = SELU()
         self.act2 = SELU()
 
-        self.rnn = LSTM(conv_out, hidden_size, num_rnn_layers, batch_first=True)
+        self.rnn = LSTM(conv_out, hidden_size, num_rnn_layers)
 
         self.pred_left=Sequential(Linear(hidden_size, num_action_classes), Softmax())
         self.pred_right=Sequential(Linear(hidden_size, num_action_classes), Softmax())
@@ -63,7 +63,7 @@ class GNN(torch.nn.Module):
             graph_embedding = global_mean_pool(H2, batch) 
             # graph_embedding = self._hands_pooling(x=x, embedding=H2, batch=batch) 
             
-            assert graph_embedding.shape[0]==self.batch_size and graph_embedding.shape[1]==self.conv_out
+            # assert graph_embedding.shape[0]==self.batch_size and graph_embedding.shape[1]==self.conv_out
 
             embedding_list.append(graph_embedding)
 
@@ -73,7 +73,6 @@ class GNN(torch.nn.Module):
         # c_t = torch.zeros(n_samples, self.hidden_layer_size, dtype=torch.float32)
 
         y, (hn, cn) = self.rnn(sequencial_embeddings)
+        # y[-1] is equal to hn (checked)
 
-        print("y_pred[-1]==hn: ", y[-1]==hn)
-
-        return self.pred_left(y), self.pred_right(y)
+        return self.pred_left(hn), self.pred_right(hn)
