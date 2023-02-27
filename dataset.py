@@ -72,9 +72,7 @@ class BimanualDataset(Dataset):
         return ["bimacs_rgbd_data_ground_truth/subject_1/task_1_k_cooking/take_0.json"]
 
     @property
-    def processed_file_names(self):
-        print("processed_file_names called")
-        
+    def processed_file_names(self):        
         if self.is_processed:
             # addr = [os.path.basename(x) for x in glob.glob(opj(self.processed_dir, 'data*.pt'))]
             # addr = [opj(self.split, a) for a in addr]

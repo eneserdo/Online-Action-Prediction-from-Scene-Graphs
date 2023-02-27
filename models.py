@@ -27,8 +27,8 @@ class GNN(torch.nn.Module):
 
         self.rnn = LSTM(conv_out, hidden_size, num_rnn_layers)
 
-        self.pred_left=Sequential(Linear(hidden_size, num_action_classes), Softmax())
-        self.pred_right=Sequential(Linear(hidden_size, num_action_classes), Softmax())
+        self.pred_left=Sequential(Linear(hidden_size, num_action_classes), Softmax(dim=1))
+        self.pred_right=Sequential(Linear(hidden_size, num_action_classes), Softmax(dim=1))
 
     def _hands_pooling(self, x, embedding, batch):
         left_hand=torch.zeros((1, len(OBJECTS)))
