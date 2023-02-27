@@ -5,7 +5,7 @@ Online Action Prediction from Scene Graphs
 
 ## Requirements
 
-pytorch 1.12
-pyg 2.2
-visdom
-tqdm
+- pytorch 1.12
+- pyg 2.2
+- visdom
+- tqdm
