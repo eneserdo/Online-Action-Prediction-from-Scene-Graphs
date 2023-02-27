@@ -4,6 +4,8 @@
     - make it fully deterministic (ask arda hoca)
     - implement cProfile
     - weight init appropriately
+    - add loss graph
+    - add required mechanisms for restored model
 """
 
 import math
@@ -34,6 +36,7 @@ MODEL_RES_PATH = "./res"
 
 def train(model, train_loader):
     model.train()
+    loss_track=[]
 
     for data in train_loader:  
         optimizer.zero_grad()  
@@ -42,9 +45,11 @@ def train(model, train_loader):
         # data[-1].y means labels of last frames
         # data[-1].y[::2] means even indexed elements (left hands)  
         # data[-1].y[1::2] means odd indexed elements (right hands)  
-
+        loss_track.append(loss)
         loss.backward()
-        optimizer.step()  
+        optimizer.step()
+
+    return loss_track
 
 def test(model, loader):
     model.eval()
@@ -60,7 +65,7 @@ def test(model, loader):
 if __name__ == "__main__":
     args=arg_parser()
     
-    train_set, test_set, val_set = get_bimanual_dataset_splits(root=".", is_processed=True ,test_subject=args.test_subject, validation_take=args.validation_take, temporal_length=args.temporal_length)
+    train_set, test_set, val_set = get_bimanual_dataset_splits(root=".", is_processed=False ,test_subject=args.test_subject, validation_take=args.validation_take, temporal_length=args.temporal_length)
     
     train_loader=DataLoader(train_set, args.batch_size, shuffle=True)
     test_loader=DataLoader(test_set, args.batch_size, shuffle=True)
@@ -79,7 +84,7 @@ if __name__ == "__main__":
     criterion = torch.nn.CrossEntropyLoss()
 
     for epoch in range(1, 3):
-        train(model, train_loader)
+        loss_track=train(model, train_loader)
         # train_acc = test(model, train_loader) # FIXME: Bu şekilde yapmak inanılmaz  inefficient
         # test_acc = test(test_loader)  
         # print(f'Epoch: {epoch:03d}, Train Acc: {train_acc:.4f}, Test Acc: {test_acc:.4f}')

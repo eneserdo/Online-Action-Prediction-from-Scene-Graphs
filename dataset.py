@@ -204,9 +204,7 @@ class BimanualDataset(Dataset):
         raise NotImplementedError
 
     def _check_validity(self, data: Data) -> bool:
-        # Checks: both hands exists, action != null, has edge, not empty
-        
-        data.validate(raise_on_error=True) 
+        # Checks: both hands exists, action != null, has edge, not empty 
         
         global MISSING_HAND_COUNT, NULL_COUNT, EMPTY_COUNT, NO_EDGE_COUNT
 
@@ -287,6 +285,7 @@ class BimanualDataset(Dataset):
                 
                 TOTAL_FRAME_COUNT+=1
                 graph = self._get_graph(relation_json, object_json, gt_action_json, frame, subject, task, take)
+                
 
                 # if the graph is not approptiate, resets the sequence and continues
                 if not self._check_validity(graph):
@@ -315,7 +314,7 @@ class BimanualDataset(Dataset):
                     # idx += 1
                     # torch.save(data_list_mirrored, opj(self.processed_dir, f'data_{subject}_{task}_{take}_f{frame}_{idx}.pt'))
                     # idx += 1
-                    
+                    data_list[0].validate(raise_on_error=True)
                     data_list.pop(0)
                     # data_list_mirrored.pop(0)
 
@@ -360,6 +359,7 @@ def get_bimanual_dataset_splits(*, root: str, is_processed: bool, test_subject: 
     test_set=BimanualDataset(root=root, is_processed=True, split="test", test_subject=test_subject, validation_take=validation_take, temporal_length=temporal_length)
     val_set=BimanualDataset(root=root, is_processed=True, split="val", test_subject=test_subject, validation_take=validation_take, temporal_length=temporal_length)
     
+    print("Datasets are ready")
     return train_set, test_set, val_set
 
 
