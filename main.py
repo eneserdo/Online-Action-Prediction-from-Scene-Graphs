@@ -48,9 +48,8 @@ def train(model:torch.nn.Module, train_loader: DataLoader):
         # data[-1].y[1::2] means odd indexed elements (right hands)  
         loss.backward()
         optimizer.step()
-        viz.line(Y=[loss.item()],X=[step], win=loss_window, update="append")
-
-    return loss_track
+        if visdom_enabled:
+            viz.line(Y=[loss.item()],X=[step], win=loss_window, update="append")
 
 def test(model, loader):
     model.eval()
@@ -62,10 +61,15 @@ def test(model, loader):
         correct += int((pred == data.y).sum())  # Check against ground-truth labels.
     return correct / len(loader.dataset)  # Derive ratio of correct predictions.
 
+def validate(model, loader):
+    model.eval()
+    pass
 
 if __name__ == "__main__":
+    visdom_enabled = False
+
     args=arg_parser()
-        
+    
     train_set, test_set, val_set = get_bimanual_dataset_splits(root=".", is_processed=True ,test_subject=args.test_subject, validation_take=args.validation_take, temporal_length=args.temporal_length)
     
     train_loader=DataLoader(train_set, args.batch_size, shuffle=True)
@@ -84,13 +88,21 @@ if __name__ == "__main__":
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
     criterion = torch.nn.CrossEntropyLoss()
 
-    viz = visdom.Visdom()
-    loss_window = viz.line(X=[0], Y=[0], opts=dict(xlabel='Step', ylabel='Loss', title='Training Loss')) 
+    
+    
+        
+
+    if visdom_enabled:    
+        viz = visdom.Visdom() # To make this work run "visdom" in another terminal
+        loss_window = viz.line(X=[0], Y=[0], opts=dict(xlabel='Step', ylabel='Loss', title='Training Loss')) 
 
     step=0
     for epoch in range(1, 3):
-        loss_track=train(model, train_loader)
+        train(model, train_loader)
         # train_acc = test(model, train_loader) # FIXME: Bu şekilde yapmak inanılmaz  inefficient
-        # test_acc = test(test_loader)  
         # print(f'Epoch: {epoch:03d}, Train Acc: {train_acc:.4f}, Test Acc: {test_acc:.4f}')
+        validate(model, val_loader)
         print(f'Epoch: {epoch:03d}')
+    
+    
+    # test_acc = test(test_loader)  
