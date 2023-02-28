@@ -6,6 +6,7 @@
     - weight init appropriately
     - add loss graph
     - add required mechanisms for restored model
+    - calculate num of parameter in the model
 """
 
 import math
@@ -36,6 +37,8 @@ MODEL_RES_PATH = "./res"
 def train(model:torch.nn.Module, train_loader: DataLoader):
     global step
     model.train()
+    correct=0
+    total=0
 
     for data in train_loader:
         step+=1
@@ -50,18 +53,32 @@ def train(model:torch.nn.Module, train_loader: DataLoader):
         # data[-1].y[1::2] means odd indexed elements (right hands)  
         loss.backward()
         optimizer.step()
+
+        pred = left_right_pred.argmax(dim=1)
+        ground_truth=data[-1].y.argmax(dim=1)
+        correct = correct + int((pred[:args.batch_size] == ground_truth[::2]).sum()) + int((pred[args.batch_size :] == ground_truth[1::2]).sum())  # Check against ground-truth labels.
+        total=total +2 * args.batch_size # prone to error due to last epoch's unexpected batch_size
+
         if visdom_enabled:
             viz.line(Y=[loss.item()],X=[step], win=loss_window, update="append")
+            viz.line(Y=[correct/total],X=[step], win=acc_window, update="append", name="train_acc")
 
 def test(model, loader):
     model.eval()
-
     correct = 0
+    total=0
     for data in loader:  # Iterate in batches over the training/test dataset.
-        left_pred, right_pred = model(data)
-        pred = out.argmax(dim=1)  # Use the class with highest probability.
-        correct += int((pred == data.y).sum())  # Check against ground-truth labels.
-    return correct / len(loader.dataset)  # Derive ratio of correct predictions.
+        data=[d.to(device) for d in data]
+
+        left_right_pred = model(data)
+        pred = left_right_pred.argmax(dim=1) 
+        ground_truth=data[-1].y.argmax(dim=1)
+        correct = correct + int((pred[:args.batch_size] == ground_truth[::2]).sum()) + int((pred[args.batch_size :] == ground_truth[1::2]).sum())  # Check against ground-truth labels.
+        total=total +2 * args.batch_size # prone to error due to last epoch's unexpected batch_size
+
+    if visdom_enabled:
+        viz.line(Y=[correct/total],X=[step], win=acc_window, update="append", name="test_acc")
+    # return correct / len(loader.dataset)  # Derive ratio of correct predictions.
 
 def validate(model, loader):
     model.eval()
@@ -87,7 +104,7 @@ if __name__ == "__main__":
                         hidden_size=args.hidden_size, 
                         num_rnn_layers=1).to(device=device)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     criterion = torch.nn.CrossEntropyLoss()
 
     
@@ -97,16 +114,18 @@ if __name__ == "__main__":
     if visdom_enabled:    
         viz = visdom.Visdom() # To make this work run "visdom" in another terminal
         loss_window = viz.line(X=[0], Y=[0], opts=dict(xlabel='Step', ylabel='Loss', title='Training Loss')) 
+        acc_window = viz.line(X=[0], Y=[0], opts=dict(xlabel='Step', ylabel='Accuracy', title='Accuracy')) 
 
     step=0
-    for epoch in range(1, 3):
+    for epoch in range(1, 5):
+        print(f'Epoch: {epoch:03d}')
         start=time.perf_counter()
         train(model, train_loader)
         stop1=time.perf_counter()
         # train_acc = test(model, train_loader) # FIXME: Bu şekilde yapmak inanılmaz  inefficient
         # print(f'Epoch: {epoch:03d}, Train Acc: {train_acc:.4f}, Test Acc: {test_acc:.4f}')
         # validate(model, val_loader)
-        print(f'Epoch: {epoch:03d}')
+        test(model, test_loader)
         print("time: ", stop1-start)
     
     
