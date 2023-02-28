@@ -2,7 +2,7 @@
     TODO
     - mirrored graph
     - remove data.verify and unnecessary asserts
-    - bimanual paper sample count: 442216
+    - bimanual paper sample count: 442216 vs our: 421610 
 """
 import glob
 import json
@@ -39,12 +39,12 @@ NO_EDGE_COUNT=0
 
 
 def crawl_dataset():
-    for subject in ['subject_{}'.format(i) for i in range(1, 3)]:
-        for task in ['task_1_k_cooking', 'task_2_k_cooking_with_bowls']:
-        # for task in ['task_1_k_cooking', 'task_2_k_cooking_with_bowls', 'task_3_k_pouring',
-        #              'task_4_k_wiping', 'task_5_k_cereals', 'task_6_w_hard_drive',
-        #              'task_7_w_free_hard_drive', 'task_8_w_hammering', 'task_9_w_sawing']:
-            for take in ['take_{}'.format(take_i) for take_i in range(6,10)]: # 10 
+    for subject in ['subject_{}'.format(i) for i in range(1, 7)]: # (1, 7)
+        # for task in ['task_1_k_cooking', 'task_2_k_cooking_with_bowls']:
+        for task in ['task_1_k_cooking', 'task_2_k_cooking_with_bowls', 'task_3_k_pouring',
+                     'task_4_k_wiping', 'task_5_k_cereals', 'task_6_w_hard_drive',
+                     'task_7_w_free_hard_drive', 'task_8_w_hammering', 'task_9_w_sawing']:
+            for take in ['take_{}'.format(take_i) for take_i in range(10)]: # 10 
                 yield subject, task, take
 
 
@@ -116,12 +116,12 @@ class BimanualDataset(Dataset):
         x = torch.zeros((len(curr_objects), len(OBJECTS)), dtype=torch.float)
         x_mirrored = torch.zeros((len(curr_objects), len(OBJECTS)), dtype=torch.float)
         
-        # y = torch.zeros((2, len(ACTIONS)), dtype=torch.float)
-        # y_mirrored = torch.zeros((2, len(ACTIONS)), dtype=torch.float)
+        y = torch.zeros((2, len(ACTIONS)), dtype=torch.float)
+        y_mirrored = torch.zeros((2, len(ACTIONS)), dtype=torch.float)
 
         # To debug add embed some info
-        y = torch.zeros((2, len(ACTIONS)+1), dtype=torch.float)
-        y_mirrored = torch.zeros((2, len(ACTIONS)+1), dtype=torch.float)
+        # y = torch.zeros((2, len(ACTIONS)+1), dtype=torch.float)
+        # y_mirrored = torch.zeros((2, len(ACTIONS)+1), dtype=torch.float)
 
         edge_index = []
         edge_index_mirrored = []
@@ -195,8 +195,8 @@ class BimanualDataset(Dataset):
             y_mirrored[1, left_act]=1
             
             # To debug
-            y[0, -1]=int("1"+graph_str)
-            y_mirrored[1, -1]=int("2"+graph_str)
+            # y[0, -1]=int("1"+graph_str)
+            # y_mirrored[1, -1]=int("2"+graph_str)
 
 
         if right_act is not None:
@@ -204,8 +204,8 @@ class BimanualDataset(Dataset):
             y_mirrored[0, right_act] = 1
 
             # To debug
-            y[1, -1] = int("1"+graph_str)
-            y_mirrored[0, -1] = int("2"+graph_str)
+            # y[1, -1] = int("1"+graph_str)
+            # y_mirrored[0, -1] = int("2"+graph_str)
         
 
         data = Data(x=x, edge_index=edge_index.t().contiguous(),

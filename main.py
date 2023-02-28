@@ -9,7 +9,7 @@
 """
 
 import math
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 
 import os
 import torch
@@ -41,8 +41,10 @@ def train(model:torch.nn.Module, train_loader: DataLoader):
         step+=1
         optimizer.zero_grad()
         data=[d.to(device) for d in data]  
-        left_pred, right_pred = model(data) 
-        loss = criterion(left_pred[0], data[-1].y[::2]) + criterion(right_pred[0], data[-1].y[1::2])
+        # left_pred, right_pred = model(data) 
+        left_right_pred = model(data) 
+        # loss = criterion(left_pred[0], data[-1].y[::2]) + criterion(right_pred[0], data[-1].y[1::2])
+        loss = criterion(left_right_pred[:args.batch_size], data[-1].y[::2]) + criterion(left_right_pred[args.batch_size:], data[-1].y[1::2])
         # data[-1].y means labels of last frames
         # data[-1].y[::2] means even indexed elements (left hands)  
         # data[-1].y[1::2] means odd indexed elements (right hands)  
@@ -66,15 +68,15 @@ def validate(model, loader):
     pass
 
 if __name__ == "__main__":
-    visdom_enabled = False
 
     args=arg_parser()
+    visdom_enabled = args.use_visdom
     
-    train_set, test_set, val_set = get_bimanual_dataset_splits(root=".", is_processed=True ,test_subject=args.test_subject, validation_take=args.validation_take, temporal_length=args.temporal_length)
+    train_set, test_set, val_set = get_bimanual_dataset_splits(root=".", is_processed=not args.process_it ,test_subject=args.test_subject, validation_take=args.validation_take, temporal_length=args.temporal_length)
     
-    train_loader=DataLoader(train_set, args.batch_size, shuffle=True)
-    test_loader=DataLoader(test_set, args.batch_size, shuffle=True)
-    val_loader=DataLoader(val_set, args.batch_size, shuffle=True)
+    train_loader=DataLoader(train_set, args.batch_size, shuffle=True, num_workers=2)
+    test_loader=DataLoader(test_set, args.batch_size, shuffle=True, num_workers=2)
+    val_loader=DataLoader(val_set, args.batch_size, shuffle=True, num_workers=2)
     
     model = models.GNN(num_edge_feat=len(RELATIONS),
                         conv_in=len(OBJECTS),
@@ -98,11 +100,14 @@ if __name__ == "__main__":
 
     step=0
     for epoch in range(1, 3):
+        start=time.perf_counter()
         train(model, train_loader)
+        stop1=time.perf_counter()
         # train_acc = test(model, train_loader) # FIXME: Bu şekilde yapmak inanılmaz  inefficient
         # print(f'Epoch: {epoch:03d}, Train Acc: {train_acc:.4f}, Test Acc: {test_acc:.4f}')
-        validate(model, val_loader)
+        # validate(model, val_loader)
         print(f'Epoch: {epoch:03d}')
+        print("time: ", stop1-start)
     
     
-    # test_acc = test(test_loader)  
+    # test_acc = test(test_loader)
