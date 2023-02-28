@@ -24,34 +24,3 @@ def arg_parser():
     ap.add_argument("-hs", "--hidden_size", type=int, default=64, help="...")
 
     return ap.parse_args()
-
-
-# Simple tests
-def printDataPoint(data: Data):
-
-    print("Summary:")
-    print(f"{data.num_nodes=}")
-    print(f"{data.num_edges=}")
-    print(f"{data.num_node_features=}")
-    print(f"{data.is_directed()=}")
-
-    print("validate: ", data.validate(raise_on_error=True))
-
-    print("\nObjects:")
-    for i in torch.argmax(data.x, dim=1):
-        print(OBJECTS[i])
-
-    assert data.edge_index.shape[1] == data.edge_attr.shape[0]
-
-    print("\nEdges:", end="")
-    for i in range(len(data.edge_index.t())):
-        obj1, obj2 = data.edge_index.t()[i]
-        print("\n\n", obj1.item(), " to ", obj2.item(), ": ", end="")
-
-        for j in torch.nonzero(data.edge_attr[i]):
-            print(RELATIONS[j], end=", ")
-
-    print("\n\nActions:")
-    print("Left: ", ACTIONS[torch.argmax(data.y[0], dim=1)], ", Right: ", ACTIONS[torch.argmax(data.y[0], dim=1)])
-
-    # print("Graph id: ", data.y[0,1].item())

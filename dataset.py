@@ -1,10 +1,8 @@
 """
     TODO
     - mirrored graph
-    - compare with json
-    - randomly check for the sequentiality
-    - fix processed_file_names
-    - remove data.verify 
+    - remove data.verify and unnecessary asserts
+    - bimanual paper sample count: 442216
 """
 import glob
 import json
@@ -20,6 +18,7 @@ import torch
 from torch_geometric.data import Data, Dataset, download_url, extract_zip
 from torch_geometric.loader import DataLoader
 
+
 # Global variables
 OBJECTS = ['bowl', 'knife', 'screwdriver', 'cuttingboard', 'whisk', 'hammer', 'bottle', 'cup',
            'banana', 'cereals', 'sponge', 'woodenwedge', 'saw', 'harddrive', 'LeftHand',
@@ -32,21 +31,20 @@ ACTIONS = ['idle', 'approach', 'retreat', 'lift', 'place', 'hold', 'pour', 'cut'
            'stir', 'screw', 'drink', 'wipe']
 
 
-
-
 MISSING_HAND_COUNT=0
 NULL_COUNT=0
 TOTAL_FRAME_COUNT=0
 EMPTY_COUNT=0
 NO_EDGE_COUNT=0
 
+
 def crawl_dataset():
-    for subject in ['subject_{}'.format(i) for i in range(1, 7)]:
-        # for task in ['task_1_k_cooking', 'task_2_k_cooking_with_bowls']:
-        for task in ['task_1_k_cooking', 'task_2_k_cooking_with_bowls', 'task_3_k_pouring',
-                     'task_4_k_wiping', 'task_5_k_cereals', 'task_6_w_hard_drive',
-                     'task_7_w_free_hard_drive', 'task_8_w_hammering', 'task_9_w_sawing']:
-            for take in ['take_{}'.format(take_i) for take_i in range(10)]: # 10 
+    for subject in ['subject_{}'.format(i) for i in range(1, 3)]:
+        for task in ['task_1_k_cooking', 'task_2_k_cooking_with_bowls']:
+        # for task in ['task_1_k_cooking', 'task_2_k_cooking_with_bowls', 'task_3_k_pouring',
+        #              'task_4_k_wiping', 'task_5_k_cereals', 'task_6_w_hard_drive',
+        #              'task_7_w_free_hard_drive', 'task_8_w_hammering', 'task_9_w_sawing']:
+            for take in ['take_{}'.format(take_i) for take_i in range(6,10)]: # 10 
                 yield subject, task, take
 
 
@@ -69,7 +67,6 @@ class BimanualDataset(Dataset):
 
         super().__init__(root, transform, pre_transform, pre_filter)
 
-
     @property
     def raw_file_names(self):
         return ["bimacs_rgbd_data_ground_truth/subject_1/task_1_k_cooking/take_0.json"]
@@ -83,6 +80,7 @@ class BimanualDataset(Dataset):
             return addr
         else:
             if os.path.isdir(self.processed_dir):
+                print()
                 if not self.deleted_once:
                     print("Deleting processed_dir...")
                     shutil.rmtree(self.processed_dir)
@@ -118,7 +116,6 @@ class BimanualDataset(Dataset):
         x = torch.zeros((len(curr_objects), len(OBJECTS)), dtype=torch.float)
         x_mirrored = torch.zeros((len(curr_objects), len(OBJECTS)), dtype=torch.float)
         
-
         # y = torch.zeros((2, len(ACTIONS)), dtype=torch.float)
         # y_mirrored = torch.zeros((2, len(ACTIONS)), dtype=torch.float)
 
@@ -198,8 +195,8 @@ class BimanualDataset(Dataset):
             y_mirrored[1, left_act]=1
             
             # To debug
-            y[0, -1]=int("0"+graph_str)
-            y_mirrored[1, -1]=int("1"+graph_str)
+            y[0, -1]=int("1"+graph_str)
+            y_mirrored[1, -1]=int("2"+graph_str)
 
 
         if right_act is not None:
@@ -207,8 +204,8 @@ class BimanualDataset(Dataset):
             y_mirrored[0, right_act] = 1
 
             # To debug
-            y[1, -1] = int("0"+graph_str)
-            y_mirrored[0, -1] = int("1"+graph_str)
+            y[1, -1] = int("1"+graph_str)
+            y_mirrored[0, -1] = int("2"+graph_str)
         
 
         data = Data(x=x, edge_index=edge_index.t().contiguous(),
@@ -252,10 +249,6 @@ class BimanualDataset(Dataset):
             left_act = actions_json["left_hand"][-2]
 
         return left_act, right_act
-
-    def _get_mirrored_data(self, data: Data) -> Data:
-        # To replicate the Bimanual paper, mirror the graph i.e. switch left_hand with right_hand; right_of with left_of  
-        raise NotImplementedError
 
     def _check_validity(self, data: Data) -> bool:
         # Checks: both hands exists, action != null, has edge, not empty 
@@ -407,6 +400,36 @@ class BimanualDataset(Dataset):
         return data
 
 
+# Simple test
+def print_data_point(data: Data):
+
+    print("Summary:")
+    print(f"{data.num_nodes=}")
+    print(f"{data.num_edges=}")
+    print(f"{data.num_node_features=}")
+    print(f"{data.is_directed()=}")
+
+    print("validate: ", data.validate(raise_on_error=True))
+
+    print("\nObjects:")
+    for i in torch.argmax(data.x, dim=1):
+        print(OBJECTS[i])
+
+    assert data.edge_index.shape[1] == data.edge_attr.shape[0]
+
+    print("\nEdges:", end="")
+    for i in range(len(data.edge_index.t())):
+        obj1, obj2 = data.edge_index.t()[i]
+        print("\n\n", obj1.item(), " to ", obj2.item(), ": ", end="")
+
+        for j in torch.nonzero(data.edge_attr[i]):
+            print(RELATIONS[j], end=", ")
+
+    print("\n\nActions:")
+    print("Left:", ACTIONS[torch.argmax(data.y[0, :-1], dim=0)], ", Right: ", ACTIONS[torch.argmax(data.y[1, :-1], dim=0)])
+
+    print("Graph id: ", data.y[0,-1].item())
+
 
 def get_bimanual_dataset_splits(*, root: str, is_processed: bool, test_subject: int, validation_take: int , temporal_length: int) -> Tuple[Dataset, Dataset, Dataset]:
     # Wrapper function to prepare dataset splits (train, test, validation)
@@ -419,7 +442,7 @@ def get_bimanual_dataset_splits(*, root: str, is_processed: bool, test_subject: 
     return train_set, test_set, val_set
 
 
-# bm = BimanualDataset(root=".", split="train",  test_subject=1, validation_take=7, is_processed=False, temporal_length=10)
+# bm = BimanualDataset(root=".", split="train",  test_subject=1, validation_take=7, is_processed=True, temporal_length=10)
 
 # # train_pseudo=bm[500:]
 # # test_pseudo=bm[:500]
@@ -427,8 +450,14 @@ def get_bimanual_dataset_splits(*, root: str, is_processed: bool, test_subject: 
 # loader = DataLoader(bm, batch_size=4, shuffle=True)
 # batch=next(iter(loader))
 
-# for b in batch:
-#     print("#### batch ####")
-#     for g in b.to_data_list():
-#         print("#### gs ####")
-#         print(g.y)
+# import numpy as np
+# all=np.zeros((10,4))
+
+# for i, b in enumerate(batch):
+#     # print("\n\n#### batch ####")
+#     for j, g in enumerate(b.to_data_list()):
+#         # print("#### gs ####")
+#         # print(g.y[0,-1].item())
+#         all[i, j]=g.y[0,-1].item()
+
+# print(all)
