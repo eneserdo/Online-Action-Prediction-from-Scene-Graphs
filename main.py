@@ -49,8 +49,7 @@ def train(model: torch.nn.Module, train_loader: DataLoader):
         # left_pred, right_pred = model(data) 
         left_right_pred = model(data)
         # loss = criterion(left_pred[0], data[-1].y[::2]) + criterion(right_pred[0], data[-1].y[1::2])
-        loss = criterion(left_right_pred[:args.batch_size], data[-1].y[::2]) + criterion(
-            left_right_pred[args.batch_size:], data[-1].y[1::2])
+        loss = criterion(left_right_pred[:args.batch_size], data[-1].y[::2]) + criterion(left_right_pred[args.batch_size:], data[-1].y[1::2])
         # data[-1].y means labels of last frames
         # data[-1].y[::2] means even indexed elements (left hands)  
         # data[-1].y[1::2] means odd indexed elements (right hands)  
@@ -59,8 +58,7 @@ def train(model: torch.nn.Module, train_loader: DataLoader):
 
         pred = left_right_pred.argmax(dim=1)
         ground_truth = data[-1].y.argmax(dim=1)
-        correct = correct + int((pred[:args.batch_size] == ground_truth[::2]).sum()) + int(
-            (pred[args.batch_size:] == ground_truth[1::2]).sum())  # Check against ground-truth labels.
+        correct = correct + int((pred[:args.batch_size] == ground_truth[::2]).sum()) + int((pred[args.batch_size:] == ground_truth[1::2]).sum())  # Check against ground-truth labels.
         total = total + 2 * args.batch_size  # prone to error due to last epoch's unexpected batch_size
 
         if visdom_enabled:
@@ -125,9 +123,9 @@ if __name__ == "__main__":
                                                                validation_take=args.validation_take,
                                                                temporal_length=args.temporal_length)
 
-    train_loader = DataLoader(train_set, args.batch_size, shuffle=True, num_workers=2)
-    test_loader = DataLoader(test_set, args.batch_size, shuffle=True, num_workers=2)
-    val_loader = DataLoader(val_set, args.batch_size, shuffle=True, num_workers=2)
+    train_loader = DataLoader(train_set, args.batch_size, shuffle=True, num_workers=2, drop_last=True)
+    test_loader = DataLoader(test_set, args.batch_size, shuffle=True, num_workers=2, drop_last=True)
+    val_loader = DataLoader(val_set, args.batch_size, shuffle=True, num_workers=2, drop_last=True)
 
     model = models.GNN(num_edge_feat=len(RELATIONS),
                        conv_in=len(OBJECTS),
@@ -154,8 +152,9 @@ if __name__ == "__main__":
         stop1 = time.perf_counter()
         # train_acc = test(model, train_loader) # FIXME: Bu şekilde yapmak inanılmaz  inefficient
         # print(f'Epoch: {epoch:03d}, Train Acc: {train_acc:.4f}, Test Acc: {test_acc:.4f}')
-        # validate(model, val_loader)
-        test(model, test_loader)
+        validate(model, val_loader)
+        
         print("time: ", stop1 - start)
 
+    test(model, test_loader)
     # test_acc = test(test_loader)

@@ -445,7 +445,6 @@ def get_bimanual_dataset_splits(*, root: str, is_processed: bool, test_subject: 
     print("Datasets are ready")
     return train_set, test_set, val_set
 
-
 # bm = BimanualDataset(root=".", split="train",  test_subject=1, validation_take=7, is_processed=True, temporal_length=10)
 
 # # train_pseudo=bm[500:]

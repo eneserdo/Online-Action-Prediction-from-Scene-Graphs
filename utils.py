@@ -7,7 +7,7 @@ def arg_parser():
 
     # Dataset
     ap.add_argument("-p", "--process_it", action="store_true", help="...")
-    ap.add_argument("-bs", "--batch_size", type=int, default=24, help="...")
+    ap.add_argument("-bs", "--batch_size", type=int, default=64, help="...")
     ap.add_argument("-tl", "--temporal_length", type=int, default=10, help="...")
     ap.add_argument("-ts", "--test_subject", type=int, default=1, help="...")
     ap.add_argument("-vt", "--validation_take", type=int, default=7, help="...")

@@ -71,7 +71,7 @@ class GNN(torch.nn.Module):
         left_embedding_list=[]
         right_embedding_list=[]
 
-        for databatch in dataBatchList:
+        for databatch in dataBatchList: # processes each frame time-independently
             x, edge_attr, edge_index, batch  = databatch.x, databatch.edge_attr, databatch.edge_index, databatch.batch
             
             H1 = self.act1(self.conv1(x, edge_index, edge_attr)) # x dim -> [n, d]    
