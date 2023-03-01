@@ -14,6 +14,7 @@ import math
 import os
 import torch
 import numpy as np
+import sklearn
 
 import models
 from utils import arg_parser
@@ -62,6 +63,10 @@ def test(model, loader):
         pred = out.argmax(dim=1)  # Use the class with highest probability.
         correct += int((pred == data.y).sum())  # Check against ground-truth labels.
     return correct / len(loader.dataset)  # Derive ratio of correct predictions.
+
+def eval():
+    #  classification macro F1 score
+    pass
 
 def validate(model, loader):
     model.eval()
