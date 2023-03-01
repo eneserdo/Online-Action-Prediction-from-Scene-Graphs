@@ -1,10 +1,5 @@
 import argparse
 
-import torch
-from torch_geometric.data import Data
-
-from dataset import ACTIONS, OBJECTS, RELATIONS
-
 
 def arg_parser():
 
