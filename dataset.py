@@ -85,9 +85,9 @@ class BimanualDataset(Dataset):
                     print("Deleting processed_dir...")
                     shutil.rmtree(self.processed_dir)
                     os.mkdir(self.processed_dir)
-                    os.mkdir(opj(self.processed_dir, "train"))
-                    os.mkdir(opj(self.processed_dir, "test"))
-                    os.mkdir(opj(self.processed_dir, "val"))
+                    # os.mkdir(opj(self.processed_dir, "train"))
+                    # os.mkdir(opj(self.processed_dir, "test"))
+                    # os.mkdir(opj(self.processed_dir, "val"))
                     self.deleted_once=True
             return "some_dummy_name.pt"
 
@@ -300,6 +300,10 @@ class BimanualDataset(Dataset):
 
     def process(self):
         global TOTAL_FRAME_COUNT
+        os.mkdir(opj(self.processed_dir, "train"))
+        os.mkdir(opj(self.processed_dir, "test"))
+        os.mkdir(opj(self.processed_dir, "val"))
+
         derived_dir = opj(self.raw_dir, "bimacs_derived_data")
         gt_dir = opj(self.raw_dir, "bimacs_rgbd_data_ground_truth")
 
