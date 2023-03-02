@@ -81,6 +81,7 @@ def test(model, loader):
             (pred[args.batch_size:] == ground_truth[1::2]).sum())  # Check against ground-truth labels.
         total = total + 2 * args.batch_size  # prone to error due to last epoch's unexpected batch_size
 
+    print("Test acc: ", correct / total)
     if visdom_enabled:
         viz.line(Y=[correct / total], X=[step], win=acc_window, update="append", name="test_acc")
     # return correct / len(loader.dataset)  # Derive ratio of correct predictions.
@@ -149,6 +150,9 @@ if __name__ == "__main__":
     criterion = torch.nn.CrossEntropyLoss()
 
 
+    if not os.path.isdir("saved"):
+        os.mkdir("saved")
+
     # Load saved models if required
     if args.restore is not None:
         checkpoint = torch.load(opj("saved", f"checkpoint_epoch{args.restore:0>4}.pt"))
@@ -163,7 +167,7 @@ if __name__ == "__main__":
         acc_window = viz.line(X=[0], Y=[0], opts=dict(xlabel='Step', ylabel='Accuracy', title='Accuracy'))
 
     step = 0
-    for epoch in range(1, 5):
+    for epoch in range(1, 50):
         print(f'Epoch: {epoch:03d}')
         start = time.perf_counter()
         train(model, train_loader)
@@ -173,8 +177,9 @@ if __name__ == "__main__":
         validate(model, val_loader)
         
         # Save model
-        torch.save({"model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict()},
-                    opj("saved", f"checkpoint_epoch{epoch:0>4}.pt"))
+        if epoch%5==0:
+            torch.save({"model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict()},
+                        opj("saved", f"checkpoint_epoch{epoch:0>4}.pt"))
         
         print("time: ", stop1 - start)
 
