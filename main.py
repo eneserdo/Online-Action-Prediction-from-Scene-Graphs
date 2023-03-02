@@ -16,7 +16,7 @@ import os
 from os.path import join as opj
 import torch
 import numpy as np
-from sklearn.metrics import f1_score, confusion_matrix
+from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix
 
 import models
 from utils import arg_parser
@@ -86,9 +86,58 @@ def test(model, loader):
         viz.line(Y=[correct / total], X=[step], win=acc_window, update="append", name="test_acc")
     # return correct / len(loader.dataset)  # Derive ratio of correct predictions.
 
+def validate(model, loader):
+    model.eval()
+    correct = 0
+    total = 0
+    for data in loader:  # Iterate in batches over the training/validation dataset.
+        data = [d.to(device) for d in data]
 
-#  Classification macro F1 score
-def macro_f1_score(output, target):
+        left_right_pred = model(data)
+        pred = left_right_pred.argmax(dim=1)
+        ground_truth = data[-1].y.argmax(dim=1)
+        correct = correct + int((pred[:args.batch_size] == ground_truth[::2]).sum()) + int(
+            (pred[args.batch_size:] == ground_truth[1::2]).sum())  # Check against ground-truth labels.
+        total = total + 2 * args.batch_size  # prone to error due to last epoch's unexpected batch_size
+
+    print("Val acc: ", correct / total)
+    if visdom_enabled:
+        viz.line(Y=[correct / total], X=[step], win=acc_window, update="append", name="val_acc")
+    pass
+
+#  Classification precision score
+def t_prec_score(output, target, avg=None):
+    # Convert output and target to numpy arrays
+    output = output.cpu().detach().numpy()
+    target = target.cpu().detach().numpy()
+
+    # Calculate F1 score for each class
+    prec_scores = precision_score(target, output, average=None)
+
+    # Calculate macro precision score
+    if avg == 'macro':
+        precision = torch.tensor(prec_scores).mean()
+
+    return precision
+
+#  Classification recall score
+def t_recall_score(output, target, avg=None):
+    # Convert output and target to numpy arrays
+    output = output.cpu().detach().numpy()
+    target = target.cpu().detach().numpy()
+
+    # Calculate F1 score for each class
+    recall_scores = recall_score(target, output, average=None)
+
+    # Calculate macro recall score
+    if avg == 'macro':
+        recall = torch.tensor(recall_scores).mean()
+    # elif avg == 'micro':
+
+    return recall
+
+#  Classification F1 score
+def t_f1_score(output, target, avg=None):
     # Convert output and target to numpy arrays
     output = output.cpu().detach().numpy()
     target = target.cpu().detach().numpy()
@@ -97,9 +146,10 @@ def macro_f1_score(output, target):
     f1_scores = f1_score(target, output, average=None)
 
     # Calculate macro F1 score
-    macro_f1 = torch.tensor(f1_scores).mean()
+    if avg == 'macro':
+        f1 = torch.tensor(f1_scores).mean()
 
-    return macro_f1
+    return f1
 
 # Normalized confusion matrix
 def norm_conf_mat(output, target):
@@ -108,11 +158,6 @@ def norm_conf_mat(output, target):
     target = target.cpu().detach().numpy()
 
     return confusion_matrix(output, target, normalize='true')
-
-
-def validate(model, loader):
-    model.eval()
-    pass
 
 
 if __name__ == "__main__":
