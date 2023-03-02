@@ -13,6 +13,7 @@ import math
 # import matplotlib.pyplot as plt
 
 import os
+from os.path import join as opj
 import torch
 import numpy as np
 from sklearn.metrics import f1_score, confusion_matrix
@@ -25,6 +26,7 @@ import time
 import random
 from tqdm import tqdm
 import visdom
+from datetime import datetime
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -33,7 +35,6 @@ np.random.seed(34)
 torch.manual_seed(34)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
-MODEL_RES_PATH = "./res"
 
 
 def train(model: torch.nn.Module, train_loader: DataLoader):
@@ -116,6 +117,10 @@ def validate(model, loader):
 if __name__ == "__main__":
 
     args = arg_parser()
+
+    # Use date info to save model weights 
+    # save_date=datetime.now().strftime("%m-%d-%Y, %H-%M")
+
     visdom_enabled = args.use_visdom
 
     train_set, test_set, val_set = get_bimanual_dataset_splits(root=".", is_processed=not args.process_it,
@@ -127,6 +132,8 @@ if __name__ == "__main__":
     test_loader = DataLoader(test_set, args.batch_size, shuffle=True, num_workers=2, drop_last=True)
     val_loader = DataLoader(val_set, args.batch_size, shuffle=True, num_workers=2, drop_last=True)
 
+
+
     model = models.GNN(num_edge_feat=len(RELATIONS),
                        conv_in=len(OBJECTS),
                        conv_hidden=args.conv_hidden,
@@ -135,9 +142,20 @@ if __name__ == "__main__":
                        num_action_classes=len(ACTIONS),
                        hidden_size=args.hidden_size,
                        num_rnn_layers=1).to(device=device)
+    
+    print("# of parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     criterion = torch.nn.CrossEntropyLoss()
+
+
+    # Load saved models if required
+    if args.restore is not None:
+        checkpoint = torch.load(opj("saved", f"checkpoint_epoch{args.restore:0>4}.pt"))
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        model.load_state_dict(checkpoint["model_state_dict"])
+        print("model and optimizer parameters are restored successfully!")
+
 
     if visdom_enabled:
         viz = visdom.Visdom()  # To make this work run "visdom" in another terminal
@@ -153,6 +171,10 @@ if __name__ == "__main__":
         # train_acc = test(model, train_loader) # FIXME: Bu şekilde yapmak inanılmaz  inefficient
         # print(f'Epoch: {epoch:03d}, Train Acc: {train_acc:.4f}, Test Acc: {test_acc:.4f}')
         validate(model, val_loader)
+        
+        # Save model
+        torch.save({"model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict()},
+                    opj("saved", f"checkpoint_epoch{epoch:0>4}.pt"))
         
         print("time: ", stop1 - start)
 
