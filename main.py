@@ -169,7 +169,7 @@ if __name__ == "__main__":
 
     visdom_enabled = args.use_visdom
 
-    train_set, test_set, val_set = get_bimanual_dataset_splits(root=".", is_processed=not args.process_it,
+    train_set, test_set, val_set = get_bimanual_dataset_splits(root=args.root, is_processed=not args.process_it,
                                                                test_subject=args.test_subject,
                                                                validation_take=args.validation_take,
                                                                temporal_length=args.temporal_length)

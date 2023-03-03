@@ -6,6 +6,7 @@ def arg_parser():
     ap = argparse.ArgumentParser()
 
     # Dataset
+    ap.add_argument("-rt", "--root", type=str, default='.', help="Root directory of dataset.")
     ap.add_argument("-p", "--process_it", action="store_true", help="...")
     ap.add_argument("-bs", "--batch_size", type=int, default=64, help="...")
     ap.add_argument("-tl", "--temporal_length", type=int, default=10, help="...")
