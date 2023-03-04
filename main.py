@@ -61,9 +61,9 @@ def train(model: torch.nn.Module, train_loader: DataLoader):
         optimizer.step()
 
         pred = left_right_pred.argmax(dim=1)
-        ground_truth = data[-1].y.argmax(dim=1)
-        correct = correct + int((pred[:args.batch_size] == ground_truth[::2]).sum()) + int(
-            (pred[args.batch_size:] == ground_truth[1::2]).sum())  # Check against ground-truth labels.
+        ground_truth_lft_rght = data[-1].y.argmax(dim=1)
+        ground_truth = torch.cat([ground_truth_lft_rght[::2], ground_truth_lft_rght[1::2]])
+        correct += int((pred == ground_truth).sum())  # Check against ground-truth labels.
         total += pred.size(dim=0)
 
         if visdom_enabled:
@@ -74,6 +74,7 @@ def train(model: torch.nn.Module, train_loader: DataLoader):
 def test(model, loader):
     model.eval()
     len_actions = len(ACTIONS)
+    action_indices = [range(0, len_actions)]
     conf_mat_top = np.zeros((len_actions, len_actions), dtype=float)
     conf_mat_top_3 = np.zeros((len_actions, len_actions), dtype=float)
 
@@ -88,10 +89,8 @@ def test(model, loader):
         pred_top = torch.where(functorch.vmap(lambda t1, t2: torch.isin(t1, t2))(ground_truth, pred_top_3),
                                ground_truth, pred)
 
-        batch_size = int(pred.size(dim=0) / 2)
-
-        conf_mat_top += conf_mat_from_left_right(ground_truth, pred, batch_size)
-        conf_mat_top_3 += conf_mat_from_left_right(ground_truth, pred_top, batch_size)
+        conf_mat_top += conf_mat_from_left_right(ground_truth, pred, action_indices)
+        conf_mat_top_3 += conf_mat_from_left_right(ground_truth, pred_top, action_indices)
 
     scores = classification_scores(conf_mat_top)
     scores_top_3 = classification_scores(conf_mat_top_3)
@@ -111,9 +110,9 @@ def validate(model, loader):
 
         left_right_pred = model(data)
         pred = left_right_pred.argmax(dim=1)
-        ground_truth = data[-1].y.argmax(dim=1)
-        correct = correct + int((pred[:args.batch_size] == ground_truth[::2]).sum()) + int(
-            (pred[args.batch_size:] == ground_truth[1::2]).sum())  # Check against ground-truth labels.
+        ground_truth_lft_rght = data[-1].y.argmax(dim=1)
+        ground_truth = torch.cat([ground_truth_lft_rght[::2], ground_truth_lft_rght[1::2]])
+        correct += int((pred == ground_truth).sum())  # Check against ground-truth labels.
         total += pred.size(dim=0)
 
     print("Val acc: ", correct / total)
@@ -121,13 +120,20 @@ def validate(model, loader):
         viz.line(Y=[correct / total], X=[step], win=acc_window, update="append", name="val_acc")
 
 
-def conf_mat_from_left_right(truth, pred, batch_size):
-    pred_left, pred_right = pred[:batch_size], pred[batch_size:]
-    truth_left, truth_right = truth[::2], truth[1::2]
+def conf_mat_from_left_right(truth, pred, labels):
+    #pred_left, pred_right = pred[:batch_size], pred[batch_size:]
+    #truth_left, truth_right = truth[::2], truth[1::2]
 
-    res = confusion_matrix(truth_left.cpu().detach().numpy(), pred_left.cpu().detach().numpy()) + \
-      confusion_matrix(truth_right.cpu().detach().numpy(), pred_right.cpu().detach().numpy())
-    return res 
+
+    #res = confusion_matrix(truth_left.cpu().detach().numpy(), pred_left.cpu().detach().numpy(), labels=[range(0,len(ACTIONS)]) + \
+    #  confusion_matrix(truth_right.cpu().detach().numpy(), pred_right.cpu().detach().numpy(), labels=[range(0,len(ACTIONS)])
+
+    #pred = torch.cat([pred[:batch_size], pred[batch_size:]])
+    truth = torch.cat([truth[::2], truth[1::2]])
+
+    res = confusion_matrix(truth.cpu().detach().numpy(), pred.cpu().detach().numpy(), labels=labels)
+
+    return res
 
 
 def classification_scores(conf_mat):
