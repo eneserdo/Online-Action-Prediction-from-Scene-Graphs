@@ -82,13 +82,13 @@ def test(model, loader):
 
         left_right_pred = model(data)
         # pred = left_right_pred.argmax(dim=1)
-        pred_top_3 = torch.argsort(left_right_pred, dim=1, descending=True)[:3]
-        pred = pred_top_3[0]
+        pred_top_3 = torch.argsort(left_right_pred, dim=1, descending=True)[:, :3]
+        pred = pred_top_3[:, 0]
         ground_truth = data[-1].y.argmax(dim=1)
         pred_top = torch.where(functorch.vmap(lambda t1, t2: torch.isin(t1, t2))(ground_truth, pred_top_3),
                                ground_truth, pred)
 
-        batch_size = pred.size(dim=0) / 2
+        batch_size = int(pred.size(dim=0) / 2)
 
         conf_mat_top += conf_mat_from_left_right(ground_truth, pred, batch_size)
         conf_mat_top_3 += conf_mat_from_left_right(ground_truth, pred_top, batch_size)
@@ -124,8 +124,10 @@ def validate(model, loader):
 def conf_mat_from_left_right(truth, pred, batch_size):
     pred_left, pred_right = pred[:batch_size], pred[batch_size:]
     truth_left, truth_right = truth[::2], truth[1::2]
-    return confusion_matrix(truth_left.cpu().detach().numpy(), pred_left.cpu().detach().numpy()) + \
-           confusion_matrix(truth_right.cpu().detach().numpy(), pred_right.cpu().detach().numpy())
+
+    res = confusion_matrix(truth_left.cpu().detach().numpy(), pred_left.cpu().detach().numpy()) + \
+      confusion_matrix(truth_right.cpu().detach().numpy(), pred_right.cpu().detach().numpy())
+    return res 
 
 
 def classification_scores(conf_mat):
@@ -225,6 +227,7 @@ if __name__ == "__main__":
         stop1 = time.perf_counter()
         # train_acc = test(model, train_loader) # FIXME: Bu şekilde yapmak inanılmaz  inefficient
         # print(f'Epoch: {epoch:03d}, Train Acc: {train_acc:.4f}, Test Acc: {test_acc:.4f}')
+        test(model, test_loader)
         validate(model, val_loader)
 
         # Save model
