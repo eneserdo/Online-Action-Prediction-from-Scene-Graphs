@@ -21,7 +21,7 @@ def arg_parser():
     ap.add_argument("-hs", "--hidden_size", type=int, default=128, help="...")
     ap.add_argument("-r", "--restore", type=int, help="...")
 
-    ap.add_argument("-me", "--args.max_epochs", type=int, default=50, help="Max number of epochs")
+    ap.add_argument("-me", "--max_epochs", type=int, default=50, help="Max number of epochs")
 
     # Logging
     ap.add_argument("-v", "--use_visdom", action="store_true", help="...")
