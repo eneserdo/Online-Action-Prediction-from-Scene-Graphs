@@ -54,10 +54,10 @@ class GNN(torch.nn.Module):
         
 
         for i, l in enumerate(labels):
-            if l== OBJECTS.index("LeftHand"):
+            if l == OBJECTS.index("LeftHand"):
                 # graph_hand_indicies[batch[i]*2+0]=i
                 left_hand_indicies[batch[i]]=i
-            elif l== OBJECTS.index("RightHand"):
+            elif l == OBJECTS.index("RightHand"):
                 # graph_hand_indicies[batch[i]*2+1]=i
                 right_hand_indicies[batch[i]]=i
 

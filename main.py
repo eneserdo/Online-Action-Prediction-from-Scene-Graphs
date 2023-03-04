@@ -50,7 +50,8 @@ def train(model: torch.nn.Module, train_loader: DataLoader):
         # left_pred, right_pred = model(data) 
         left_right_pred = model(data)
         # loss = criterion(left_pred[0], data[-1].y[::2]) + criterion(right_pred[0], data[-1].y[1::2])
-        loss = criterion(left_right_pred[:args.batch_size], data[-1].y[::2]) + criterion(left_right_pred[args.batch_size:], data[-1].y[1::2])
+        loss = criterion(left_right_pred[:args.batch_size], data[-1].y[::2]) + criterion(
+            left_right_pred[args.batch_size:], data[-1].y[1::2])
         # data[-1].y means labels of last frames
         # data[-1].y[::2] means even indexed elements (left hands)  
         # data[-1].y[1::2] means odd indexed elements (right hands)  
@@ -59,8 +60,9 @@ def train(model: torch.nn.Module, train_loader: DataLoader):
 
         pred = left_right_pred.argmax(dim=1)
         ground_truth = data[-1].y.argmax(dim=1)
-        correct = correct + int((pred[:args.batch_size] == ground_truth[::2]).sum()) + int((pred[args.batch_size:] == ground_truth[1::2]).sum())  # Check against ground-truth labels.
-        total = total + 2 * args.batch_size  # prone to error due to last epoch's unexpected batch_size
+        correct = correct + int((pred[:args.batch_size] == ground_truth[::2]).sum()) + int(
+            (pred[args.batch_size:] == ground_truth[1::2]).sum())  # Check against ground-truth labels.
+        total += pred.size(dim=0)
 
         if visdom_enabled:
             viz.line(Y=[loss.item()], X=[step], win=loss_window, update="append")
@@ -69,22 +71,30 @@ def train(model: torch.nn.Module, train_loader: DataLoader):
 
 def test(model, loader):
     model.eval()
+    len_actions = len(ACTIONS)
     correct = 0
     total = 0
+    conf_mat = np.zeros((len_actions, len_actions), dtype=float)
+
     for data in loader:  # Iterate in batches over the training/test dataset.
         data = [d.to(device) for d in data]
 
         left_right_pred = model(data)
         pred = left_right_pred.argmax(dim=1)
         ground_truth = data[-1].y.argmax(dim=1)
-        correct = correct + int((pred[:args.batch_size] == ground_truth[::2]).sum()) + int(
-            (pred[args.batch_size:] == ground_truth[1::2]).sum())  # Check against ground-truth labels.
-        total = total + 2 * args.batch_size  # prone to error due to last epoch's unexpected batch_size
+        pred_left, pred_right = pred[:args.batch_size], pred[args.batch_size:]
+        ground_truth_left, ground_truth_right = ground_truth[::2], ground_truth[1::2]
+        conf_mat += (confusion_matrix(ground_truth_left.cpu().detach().numpy(), pred_left.cpu().detach().numpy()) +
+                     confusion_matrix(ground_truth_right.cpu().detach().numpy(), pred_right.cpu().detach().numpy()))
+
+        # correct = correct + int((pred[:args.batch_size] == ground_truth[::2]).sum()) + int((pred[args.batch_size:] == ground_truth[1::2]).sum())  # Check against ground-truth labels.
+        total += pred.size(dim=0)
 
     print("Test acc: ", correct / total)
     if visdom_enabled:
         viz.line(Y=[correct / total], X=[step], win=acc_window, update="append", name="test_acc")
     # return correct / len(loader.dataset)  # Derive ratio of correct predictions.
+
 
 def validate(model, loader):
     model.eval()
@@ -98,12 +108,12 @@ def validate(model, loader):
         ground_truth = data[-1].y.argmax(dim=1)
         correct = correct + int((pred[:args.batch_size] == ground_truth[::2]).sum()) + int(
             (pred[args.batch_size:] == ground_truth[1::2]).sum())  # Check against ground-truth labels.
-        total = total + 2 * args.batch_size  # prone to error due to last epoch's unexpected batch_size
+        total += pred.size(dim=0)
 
     print("Val acc: ", correct / total)
     if visdom_enabled:
         viz.line(Y=[correct / total], X=[step], win=acc_window, update="append", name="val_acc")
-    pass
+
 
 #  Classification precision score
 def t_prec_score(output, target, avg=None):
@@ -119,6 +129,9 @@ def t_prec_score(output, target, avg=None):
         precision = torch.tensor(prec_scores).mean()
 
     return precision
+
+def classification_scores(output, target, avg=None):
+    pass
 
 #  Classification recall score
 def t_recall_score(output, target, avg=None):
@@ -136,6 +149,7 @@ def t_recall_score(output, target, avg=None):
 
     return recall
 
+
 #  Classification F1 score
 def t_f1_score(output, target, avg=None):
     # Convert output and target to numpy arrays
@@ -150,6 +164,7 @@ def t_f1_score(output, target, avg=None):
         f1 = torch.tensor(f1_scores).mean()
 
     return f1
+
 
 # Normalized confusion matrix
 def norm_conf_mat(output, target):
@@ -178,8 +193,6 @@ if __name__ == "__main__":
     test_loader = DataLoader(test_set, args.batch_size, shuffle=True, num_workers=2, drop_last=True)
     val_loader = DataLoader(val_set, args.batch_size, shuffle=True, num_workers=2, drop_last=True)
 
-
-
     model = models.GNN(num_edge_feat=len(RELATIONS),
                        conv_in=len(OBJECTS),
                        conv_hidden=args.conv_hidden,
@@ -188,12 +201,11 @@ if __name__ == "__main__":
                        num_action_classes=len(ACTIONS),
                        hidden_size=args.hidden_size,
                        num_rnn_layers=1).to(device=device)
-    
+
     print("# of parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     criterion = torch.nn.CrossEntropyLoss()
-
 
     if not os.path.isdir("saved"):
         os.mkdir("saved")
@@ -204,7 +216,6 @@ if __name__ == "__main__":
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         model.load_state_dict(checkpoint["model_state_dict"])
         print("model and optimizer parameters are restored successfully!")
-
 
     if visdom_enabled:
         viz = visdom.Visdom()  # To make this work run "visdom" in another terminal
@@ -220,12 +231,12 @@ if __name__ == "__main__":
         # train_acc = test(model, train_loader) # FIXME: Bu şekilde yapmak inanılmaz  inefficient
         # print(f'Epoch: {epoch:03d}, Train Acc: {train_acc:.4f}, Test Acc: {test_acc:.4f}')
         validate(model, val_loader)
-        
+
         # Save model
-        if epoch%5==0:
+        if epoch % 5 == 0:
             torch.save({"model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict()},
-                        opj("saved", f"checkpoint_epoch{epoch:0>4}.pt"))
-        
+                       opj("saved", f"checkpoint_epoch{epoch:0>4}.pt"))
+
         print("time: ", stop1 - start)
 
     test(model, test_loader)
