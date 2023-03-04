@@ -49,7 +49,7 @@ def crawl_dataset():
 
 
 class BimanualDataset(Dataset):
-    def __init__(self, *, root: str, is_processed: bool, split: str, test_subject: int, validation_take: int , temporal_length: int):
+    def __init__(self, root: str, is_processed: bool, split: str, test_subject: int, validation_take: int , temporal_length: int, contact_only: bool):
         self.temporal_length = temporal_length
         self.is_processed = is_processed
         self.test_subject = test_subject
@@ -58,6 +58,7 @@ class BimanualDataset(Dataset):
         self.config = None
         transform, pre_transform, pre_filter=None, None, None
         self.deleted_once=False
+        self.contact_only=contact_only
         
         assert split in ["val", "train", "test"], "split can only be val, train or test"
         if is_processed:
@@ -148,7 +149,11 @@ class BimanualDataset(Dataset):
             # # # # # # # # # # # #
         
         for relation in curr_relations:
-            # if relation["relation_name"]=="contact":
+
+            if self.contact_only and (relation["relation_name"] is not "contact"):
+                # Skips the other relations if desired
+                continue
+
             oi = relation["object_index"]
             si = relation["subject_index"]
 
@@ -435,12 +440,12 @@ def print_data_point(data: Data):
     print("Graph id: ", data.y[0,-1].item())
 
 
-def get_bimanual_dataset_splits(*, root: str, is_processed: bool, test_subject: int, validation_take: int , temporal_length: int) -> Tuple[Dataset, Dataset, Dataset]:
+def get_bimanual_dataset_splits(*, root: str, is_processed: bool, test_subject: int, validation_take: int , temporal_length: int, contact_only: bool) -> Tuple[Dataset, Dataset, Dataset]:
     # Wrapper function to prepare dataset splits (train, test, validation)
     
-    train_set=BimanualDataset(root=root, is_processed=is_processed, split="train", test_subject=test_subject, validation_take=validation_take, temporal_length=temporal_length)
-    test_set=BimanualDataset(root=root, is_processed=True, split="test", test_subject=test_subject, validation_take=validation_take, temporal_length=temporal_length)
-    val_set=BimanualDataset(root=root, is_processed=True, split="val", test_subject=test_subject, validation_take=validation_take, temporal_length=temporal_length)
+    train_set=BimanualDataset(root, is_processed, "train", test_subject, validation_take, temporal_length, contact_only)
+    test_set=BimanualDataset(root, True, "test", test_subject, validation_take, temporal_length, contact_only)
+    val_set=BimanualDataset(root, True, "val", test_subject, validation_take, temporal_length, contact_only)
     
     print("Datasets are ready")
     return train_set, test_set, val_set
