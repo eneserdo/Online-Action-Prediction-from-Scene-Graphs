@@ -14,9 +14,11 @@ import math
 
 import os
 from os.path import join as opj
+
+import functorch
 import torch
 import numpy as np
-from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix
+from sklearn.metrics import confusion_matrix
 
 import models
 from utils import arg_parser
@@ -72,28 +74,32 @@ def train(model: torch.nn.Module, train_loader: DataLoader):
 def test(model, loader):
     model.eval()
     len_actions = len(ACTIONS)
-    correct = 0
-    total = 0
-    conf_mat = np.zeros((len_actions, len_actions), dtype=float)
+    conf_mat_top = np.zeros((len_actions, len_actions), dtype=float)
+    conf_mat_top_3 = np.zeros((len_actions, len_actions), dtype=float)
 
     for data in loader:  # Iterate in batches over the training/test dataset.
         data = [d.to(device) for d in data]
 
         left_right_pred = model(data)
-        pred = left_right_pred.argmax(dim=1)
+        # pred = left_right_pred.argmax(dim=1)
+        pred_top_3 = torch.argsort(left_right_pred, dim=1, descending=True)[:3]
+        pred = pred_top_3[0]
         ground_truth = data[-1].y.argmax(dim=1)
-        pred_left, pred_right = pred[:args.batch_size], pred[args.batch_size:]
-        ground_truth_left, ground_truth_right = ground_truth[::2], ground_truth[1::2]
-        conf_mat += (confusion_matrix(ground_truth_left.cpu().detach().numpy(), pred_left.cpu().detach().numpy()) +
-                     confusion_matrix(ground_truth_right.cpu().detach().numpy(), pred_right.cpu().detach().numpy()))
+        pred_top = torch.where(functorch.vmap(lambda t1, t2: torch.isin(t1, t2))(ground_truth, pred_top_3),
+                               ground_truth, pred)
 
-        # correct = correct + int((pred[:args.batch_size] == ground_truth[::2]).sum()) + int((pred[args.batch_size:] == ground_truth[1::2]).sum())  # Check against ground-truth labels.
-        total += pred.size(dim=0)
+        batch_size = pred.size(dim=0) / 2
 
-    print("Test acc: ", correct / total)
-    if visdom_enabled:
-        viz.line(Y=[correct / total], X=[step], win=acc_window, update="append", name="test_acc")
-    # return correct / len(loader.dataset)  # Derive ratio of correct predictions.
+        conf_mat_top += conf_mat_from_left_right(ground_truth, pred, batch_size)
+        conf_mat_top_3 += conf_mat_from_left_right(ground_truth, pred_top, batch_size)
+
+    scores = classification_scores(conf_mat_top)
+    scores_top_3 = classification_scores(conf_mat_top_3)
+
+    print("Test acc: ", scores['accuracy'])
+    print("Test top3 acc: ", scores_top_3['accuracy'])
+
+    return scores, scores_top_3
 
 
 def validate(model, loader):
@@ -115,64 +121,53 @@ def validate(model, loader):
         viz.line(Y=[correct / total], X=[step], win=acc_window, update="append", name="val_acc")
 
 
-#  Classification precision score
-def t_prec_score(output, target, avg=None):
-    # Convert output and target to numpy arrays
-    output = output.cpu().detach().numpy()
-    target = target.cpu().detach().numpy()
-
-    # Calculate F1 score for each class
-    prec_scores = precision_score(target, output, average=None)
-
-    # Calculate macro precision score
-    if avg == 'macro':
-        precision = torch.tensor(prec_scores).mean()
-
-    return precision
-
-def classification_scores(output, target, avg=None):
-    pass
-
-#  Classification recall score
-def t_recall_score(output, target, avg=None):
-    # Convert output and target to numpy arrays
-    output = output.cpu().detach().numpy()
-    target = target.cpu().detach().numpy()
-
-    # Calculate F1 score for each class
-    recall_scores = recall_score(target, output, average=None)
-
-    # Calculate macro recall score
-    if avg == 'macro':
-        recall = torch.tensor(recall_scores).mean()
-    # elif avg == 'micro':
-
-    return recall
+def conf_mat_from_left_right(truth, pred, batch_size):
+    pred_left, pred_right = pred[:batch_size], pred[batch_size:]
+    truth_left, truth_right = truth[::2], truth[1::2]
+    return confusion_matrix(truth_left.cpu().detach().numpy(), pred_left.cpu().detach().numpy()) + \
+           confusion_matrix(truth_right.cpu().detach().numpy(), pred_right.cpu().detach().numpy())
 
 
-#  Classification F1 score
-def t_f1_score(output, target, avg=None):
-    # Convert output and target to numpy arrays
-    output = output.cpu().detach().numpy()
-    target = target.cpu().detach().numpy()
+def classification_scores(conf_mat):
+    scores = {'recall': {}, 'precision': {}, 'F1': {}}
 
-    # Calculate F1 score for each class
-    f1_scores = f1_score(target, output, average=None)
+    TP = np.diagonal(conf_mat)
+    TP_p_FN = np.sum(conf_mat, axis=1)  # total class true occurrences
+    TP_p_FP = np.sum(conf_mat, axis=0)  # total class predicted occurrences
 
-    # Calculate macro F1 score
-    if avg == 'macro':
-        f1 = torch.tensor(f1_scores).mean()
+    mask1 = (TP_p_FN != 0)
+    # recall = TP / (TP + FN)
+    scores['recall']['all'] = TP[mask1] / TP_p_FN[mask1]
 
-    return f1
+    mask2 = (TP_p_FP != 0)
+    # precision = TP / (TP + FP)
+    scores['precision']['all'] = TP[mask2] / TP_p_FP[mask2]
 
+    #  mask??
 
-# Normalized confusion matrix
-def norm_conf_mat(output, target):
-    # Convert output and target to numpy arrays
-    output = output.cpu().detach().numpy()
-    target = target.cpu().detach().numpy()
+    # F1 = 2 * TP / (2 * TP + FN + FP)
+    scores['F1']['all'] = 2 * TP / (TP_p_FP + TP_p_FN)
 
-    return confusion_matrix(output, target, normalize='true')
+    # Micro average
+    sum_labels = np.sum(TP_p_FN)
+    accuracy = np.sum(TP) / sum_labels
+    scores['accuracy'] = accuracy
+    scores['recall']['avg']['micro'] = accuracy
+    scores['precision']['avg']['micro'] = accuracy
+    scores['F1']['avg']['micro'] = accuracy
+
+    # Macro average
+    n_labels = len(TP)
+    scores['recall']['avg']['macro'] = np.sum(scores['recall']['all']) / n_labels
+    scores['precision']['avg']['macro'] = np.sum(scores['precision']['all']) / n_labels
+    scores['F1']['avg']['macro'] = np.sum(scores['F1']['all']) / n_labels
+
+    # Weighted average
+    scores['recall']['avg']['weighted'] = np.sum(scores['recall']['all'] * TP_p_FN) / sum_labels
+    scores['precision']['avg']['weighted'] = np.sum(scores['precision']['all'] * TP_p_FN) / sum_labels
+    scores['F1']['avg']['weighted'] = np.sum(scores['F1']['all'] * TP_p_FN) / sum_labels
+
+    return scores
 
 
 if __name__ == "__main__":
@@ -223,7 +218,7 @@ if __name__ == "__main__":
         acc_window = viz.line(X=[0], Y=[0], opts=dict(xlabel='Step', ylabel='Accuracy', title='Accuracy'))
 
     step = 0
-    for epoch in range(1, 50):
+    for epoch in range(1, args.max_epochs):
         print(f'Epoch: {epoch:03d}')
         start = time.perf_counter()
         train(model, train_loader)
