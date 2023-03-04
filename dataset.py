@@ -58,6 +58,8 @@ class BimanualDataset(Dataset):
         self.config = None
         transform, pre_transform, pre_filter=None, None, None
         self.deleted_once=False
+
+        self.root = root
         
         assert split in ["val", "train", "test"], "split can only be val, train or test"
         if is_processed:
@@ -293,7 +295,7 @@ class BimanualDataset(Dataset):
         self.split_len=self.config[self.split]
         
     def _load_config(self) -> None:
-        with open(opj("processed", "config_info.json"), "r") as f:
+        with open(opj(self.processed_dir, "config_info.json"), "r") as f:
             self.config = json.load(f)
         
         self.split_len=self.config[self.split]
@@ -435,7 +437,7 @@ def print_data_point(data: Data):
     print("Graph id: ", data.y[0,-1].item())
 
 
-def get_bimanual_dataset_splits(*, root: str, is_processed: bool, test_subject: int, validation_take: int , temporal_length: int) -> Tuple[Dataset, Dataset, Dataset]:
+def get_bimanual_dataset_splits(*, root: str, is_processed: bool, test_subject: int, validation_take: int, temporal_length: int) -> Tuple[Dataset, Dataset, Dataset]:
     # Wrapper function to prepare dataset splits (train, test, validation)
     
     train_set=BimanualDataset(root=root, is_processed=is_processed, split="train", test_subject=test_subject, validation_take=validation_take, temporal_length=temporal_length)
