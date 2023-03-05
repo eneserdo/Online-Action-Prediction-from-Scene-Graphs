@@ -6,6 +6,7 @@ def arg_parser():
     ap = argparse.ArgumentParser()
 
     # Dataset
+    ap.add_argument("-rt", "--root", type=str, default='.', help="Root directory of dataset.")
     ap.add_argument("-p", "--process_it", action="store_true", help="...")
     ap.add_argument("-bs", "--batch_size", type=int, default=64, help="...")
     ap.add_argument("-tl", "--temporal_length", type=int, default=10, help="...")
@@ -19,6 +20,8 @@ def arg_parser():
     ap.add_argument("-co", "--conv_out", type=int, default=64, help="...")
     ap.add_argument("-hs", "--hidden_size", type=int, default=128, help="...")
     ap.add_argument("-r", "--restore", type=int, help="...")
+
+    ap.add_argument("-me", "--max_epochs", type=int, default=50, help="Max number of epochs")
 
     # Logging
     ap.add_argument("-v", "--use_visdom", action="store_true", help="...")
