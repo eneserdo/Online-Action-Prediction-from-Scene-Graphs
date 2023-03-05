@@ -24,3 +24,22 @@ def arg_parser():
     ap.add_argument("-v", "--use_visdom", action="store_true", help="...")
 
     return ap.parse_args()
+
+
+
+def arg_parser_inference():
+
+    ap = argparse.ArgumentParser()
+
+    ap.add_argument("-f", "--folder_path", required=True, type=str, help="...")    
+    ap.add_argument("-tl", "--temporal_length", type=int, default=10, help="...")
+
+    ap.add_argument("-gt", "--ground_truth_path", help="...")
+
+    # Model
+    ap.add_argument("-ch", "--conv_hidden", type=int, default=64, help="...")
+    ap.add_argument("-co", "--conv_out", type=int, default=64, help="...")
+    ap.add_argument("-hs", "--hidden_size", type=int, default=128, help="...")
+    ap.add_argument("-r", "--restore", type=int, required=True, help="...")
+
+    return ap.parse_args()
