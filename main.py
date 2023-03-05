@@ -95,6 +95,8 @@ def test(model, loader):
     scores = classification_scores(conf_mat_top)
     scores_top_3 = classification_scores(conf_mat_top_3)
 
+
+
     print("Test acc: ", scores['accuracy'])
     print("Test top3 acc: ", scores_top_3['accuracy'])
 
@@ -174,6 +176,9 @@ def classification_scores(conf_mat):
     scores['recall']['avg']['weighted'] = np.sum(scores['recall']['all'] * TP_p_FN) / sum_labels
     scores['precision']['avg']['weighted'] = np.sum(scores['precision']['all'] * TP_p_FN) / sum_labels
     scores['F1']['avg']['weighted'] = np.sum(scores['F1']['all'] * TP_p_FN) / sum_labels
+
+    # Normalized confusion matrix
+    scores['normalized confusion matrix'] = np.divide(conf_mat, conf_mat.sum(axis=1,keepdims=True))
 
     return scores
 
