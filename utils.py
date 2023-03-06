@@ -10,6 +10,7 @@ def arg_parser():
     # Dataset
     ap.add_argument("-rt", "--root", type=str, default='.', help="Root directory of dataset.")
     ap.add_argument("-p", "--process_it", action="store_true", help="...")
+    ap.add_argument("-contact", "--contact_only", action="store_true", help="...")
     ap.add_argument("-bs", "--batch_size", type=int, default=64, help="...")
     ap.add_argument("-tl", "--temporal_length", type=int, default=10, help="...")
     ap.add_argument("-ts", "--test_subject", type=int, default=1, choices=[1, 2, 3, 4, 5, 6], help="...")

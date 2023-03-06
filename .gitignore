@@ -141,3 +141,4 @@ processed/
 .vscode/
 deneme.py
 saved/
+wandb/
