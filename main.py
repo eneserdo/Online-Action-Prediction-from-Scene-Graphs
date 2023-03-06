@@ -9,31 +9,26 @@
     - calculate num of parameter in the model
 """
 
-import math
-# import matplotlib.pyplot as plt
-
 import os
+import random
+import time
+from datetime import datetime
 from os.path import join as opj
 
-import wandb
-
 import functorch
-import torch
 import numpy as np
+import torch
 from sklearn.metrics import confusion_matrix
+from torch_geometric.loader import DataLoader
+from torchmetrics.classification import (MulticlassConfusionMatrix,
+                                         MulticlassF1Score)
 
 import models
-from utils import arg_parser
-from dataset import BimanualDataset, get_bimanual_dataset_splits, OBJECTS, RELATIONS, ACTIONS
-from torch_geometric.loader import DataLoader
-import time
-import random
-from tqdm import tqdm
-import visdom
-from datetime import datetime
-from torchmetrics.classification import MulticlassF1Score
-from utils import classification_scores, conf_mat_from_left_right
-from torchmetrics.classification import MulticlassConfusionMatrix
+import wandb
+from dataset import (ACTIONS, OBJECTS, RELATIONS, BimanualDataset,
+                     get_bimanual_dataset_splits)
+from utils import (arg_parser, classification_scores, conf_mat_from_left_right,
+                   get_minutes, save_conf_mat)
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -142,8 +137,8 @@ def run_one_epoch(model, loader, mode):
 
     f1_calc_top1=MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(device)
     f1_calc_top3=MulticlassF1Score(num_classes=len(ACTIONS), top_k=3, average="macro").to(device)
-    conf_mat_top1 = MulticlassConfusionMatrix(num_classes=len(ACTIONS)).to(device)
-    conf_mat_top3 = MulticlassConfusionMatrix(num_classes=len(ACTIONS)).to(device)
+    conf_mat_top1 = MulticlassConfusionMatrix(num_classes=len(ACTIONS), normalize="true").to(device)
+    conf_mat_top3 = MulticlassConfusionMatrix(num_classes=len(ACTIONS), normalize="true").to(device)
 
     for data in loader:
         step += 1
@@ -186,6 +181,7 @@ def run_one_epoch(model, loader, mode):
 
         wandb.log({f"{mode}/":{'top1_F1':step_f1_top1, 'top3_F1':step_f1_top3, "Loss": loss.item()}}, step=step)
         # if (step+1)%20==0:
+        #     print("20 BATCH ÇALIŞIYOR SADECE")
         #     break
 
         
@@ -195,6 +191,8 @@ def run_one_epoch(model, loader, mode):
     
     overall_conf_mat_top1=conf_mat_top1.compute()
     overall_conf_mat_top3=conf_mat_top3.compute()
+
+    
 
     # cf1=wandb.Table(data=overall_conf_mat_top1.cpu().numpy(), columns=ACTIONS, rows=ACTIONS)
     # cf3=wandb.Table(data=overall_conf_mat_top3.cpu().numpy(), columns=ACTIONS, rows=ACTIONS)
@@ -210,10 +208,11 @@ def run_one_epoch(model, loader, mode):
         
     # wandb.log({'top1/':{'F1':overall_f1_top1}, 'top3/':{'F1':overall_f1_top3}})
 
-    return overall_f1_top1, overall_f1_top3
+    if mode in ["test", "val"]:
+        return overall_f1_top1, overall_f1_top3, overall_conf_mat_top1, overall_conf_mat_top3
+    elif mode == "train":
+        return overall_f1_top1, overall_f1_top3
 
-def get_minutes(elapsed) -> str:
-    return f"{round((elapsed)//60)}:{round((elapsed)%60)}"
 
 
 if __name__ == "__main__":
@@ -265,6 +264,9 @@ if __name__ == "__main__":
     if not os.path.isdir("saved"):
         os.mkdir("saved")
 
+    if not os.path.isdir("conf_mat"):
+        os.mkdir("conf_mat")
+
     # Load saved models if required
     if args.restore is not None:
         checkpoint = torch.load(opj("saved", f"checkpoint_epoch{args.restore:0>4}.pt"))
@@ -286,18 +288,27 @@ if __name__ == "__main__":
 
         f_top1_train, f_top3_train=run_one_epoch(model, train_loader, 'train')
         
-        f_top1_val, f_top3_val = run_one_epoch(model, val_loader, 'val')
+        f_top1_val, f_top3_val, conf_mat_top1_val, conf_mat_top3_val = run_one_epoch(model, val_loader, 'val')
 
         # Save model
         if epoch % 5 == 0:
             torch.save({"model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict()},
                        opj("saved", f"checkpoint_epoch{epoch:0>4}.pt"))
 
+
+        # save confusion matrix
+        save_conf_mat(conf_mat_top1_val.cpu(), f"conf_mat_top1_e{epoch}")
+        save_conf_mat(conf_mat_top3_val.cpu(), f"conf_mat_top3_e{epoch}")
+
         stop = time.perf_counter()
-        print(f'#{epoch:03d}: Time {get_minutes(stop-start)}m ### [F1] Train: top1: {round(f_top1_train, 4)}, top3: {round(f_top3_train, 4)} ### Val: top1: {round(f_top1_val, 4)}, top3: {round(f_top3_val, 4)}')
+        print(f'### {epoch:03d}: Time {get_minutes(stop-start)}m ### [F1] Train: top1: {round(f_top1_train.item(), 4)}, top3: {round(f_top3_train.item(), 4)} ### Val: top1: {round(f_top1_val.item(), 4)}, top3: {round(f_top3_val.item(), 4)}')
 
-    f_top1_test, f_top3_test=run_one_epoch(model, test_loader, 'test')
-    print(f'### [F1] TEST: top1: {round(f_top1_test, 4)}, top3: {round(f_top3_test, 4)}')
+    f_top1_test, f_top3_test, conf_mat_top1_test, conf_mat_top3_test=run_one_epoch(model, test_loader, 'test')
 
+    print(f'### [F1] TEST: top1: {round(f_top1_test.item(), 4)}, top3: {round(f_top3_test.item(), 4)}')
+    
+    save_conf_mat(conf_mat_top1_test.cpu(), f"TEST_conf_mat_top1_e{epoch}")
+    save_conf_mat(conf_mat_top3_test.cpu(), f"TEST_conf_mat_top3_e{epoch}")
+    
     print("wandb saving...")
     wandb.finish()

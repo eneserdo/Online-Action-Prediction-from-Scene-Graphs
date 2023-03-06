@@ -1,7 +1,13 @@
 import argparse
+from os.path import join as opj
+
+import matplotlib.pyplot as plt
 import numpy as np
+import seaborn as sns
 import torch
 from sklearn.metrics import confusion_matrix
+
+from dataset import ACTIONS
 
 def arg_parser():
 
@@ -111,3 +117,17 @@ def classification_scores(conf_mat):
     scores['normalized confusion matrix'] = np.divide(conf_mat, conf_mat.sum(axis=1,keepdims=True))
 
     return scores
+
+
+def get_minutes(elapsed) -> str:
+    return f"{round((elapsed)//60)}.{round((elapsed)%60)}"
+
+def save_conf_mat(mat, name):
+    plt.figure(figsize=(14,12))
+    sns.heatmap(mat, square=True, annot=True, cmap='Blues', cbar=False, xticklabels=ACTIONS, yticklabels=ACTIONS, vmin=0, vmax=1)
+
+    plt.yticks(rotation=0) 
+    plt.title(f"{name}")
+    plt.xlabel('Predicted')
+    plt.ylabel('Ground truth')
+    plt.savefig(opj("conf_mat", f'{name}.png'))
