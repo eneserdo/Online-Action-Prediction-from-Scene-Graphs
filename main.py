@@ -15,6 +15,8 @@ import math
 import os
 from os.path import join as opj
 
+import wandb
+
 import functorch
 import torch
 import numpy as np
@@ -125,13 +127,13 @@ def validate(model, loader):
         viz.line(Y=[correct / total], X=[step], win=acc_window, update="append", name="val_acc")
 
 
-def run_one_epoch(mode, model, loader):
+def run_one_epoch(model, loader, mode, run):
     global step
 
     if mode in ["test", "val"]:
         model.eval()
-    elif mode== "train":
-        model.train()
+    elif mode == "train":
+        model.train()    
 
     len_actions = len(ACTIONS)
     action_indices = [range(0, len_actions)]
@@ -146,7 +148,7 @@ def run_one_epoch(mode, model, loader):
     for data in loader:
         step += 1
 
-        if mode== "train":
+        if mode == "train":
             optimizer.zero_grad()
         data = [d.to(device) for d in data]
 
@@ -197,11 +199,17 @@ def run_one_epoch(mode, model, loader):
         #     viz.line(Y=[scores["F1"]["avg"]["macro"]], X=[step], win=acc_window, update="append", name=mode)
             # viz.line(Y=[scores_top_3], X=[step], win=acc_window, update="append", name=mode)
         
+    run.log({'top1/':{'F1':overall_f1_top1}, 'top3/':{'F1':overall_f1_top3}})
+
     return overall_f1_top1, overall_f1_top3
 
 if __name__ == "__main__":
     args = arg_parser()
 
+    runs, jobs = {}, ['train', 'val', 'test']
+    for job in jobs:
+        runs[job] = wandb.init(project="online-action-prediction-from-scene-graphs", group=args.name, job_type='train')
+    
     # Use date info to save model weights 
     # save_date=datetime.now().strftime("%m-%d-%Y, %H-%M")
 
@@ -224,6 +232,13 @@ if __name__ == "__main__":
                        num_action_classes=len(ACTIONS),
                        hidden_size=args.hidden_size,
                        num_rnn_layers=1).to(device=device)
+
+    for _, run in runs:
+        run.watch(model, log='all')
+        #runs['job'].define_metric("batch")
+        run.define_metric("epoch")
+        run.define_metric("F1", step_metric="epoch")
+
 
     print("# of parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))
 
@@ -251,12 +266,13 @@ if __name__ == "__main__":
     print("Start training...")
     for epoch in range(start, start + args.max_epochs):
         start = time.perf_counter()
-        train(model, train_loader)
+        #train(model, train_loader)
+        run_one_epoch(model, val_loader, 'train', runs["train"])
         stop1 = time.perf_counter()
         # train_acc = test(model, train_loader) # FIXME: Bu şekilde yapmak inanılmaz  inefficient
         # print(f'Epoch: {epoch:03d}, Train Acc: {train_acc:.4f}, Test Acc: {test_acc:.4f}')
-        validate(model, val_loader)
-        run_one_epoch(model, val_loader)
+        #validate(model, val_loader)
+        run_one_epoch(model, val_loader, 'val', runs["val"])
 
         # Save model
         if epoch % 5 == 0:
@@ -265,5 +281,11 @@ if __name__ == "__main__":
 
         print(f'#{epoch:03d}: Time {(stop1 - start)//60}:{(stop1 - start)%60}m, Validation: top1-f1: {top1_f1}, top3-f1: {top3_f1}')
 
-    test(model, test_loader)
+    run_one_epoch(model, val_loader, 'test', runs["test"])
+
+    print("wandb saving...")
+    for _, run in runs:
+        #run.save(args.root + args['model_name'] + "*")
+        run.finish()
+    #test(model, test_loader)
     # test_acc = test(test_loader)

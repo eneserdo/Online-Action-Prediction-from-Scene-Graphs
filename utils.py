@@ -18,6 +18,7 @@ def arg_parser():
     # Model
     # ap.add_argument("-nef", "--num_edge_feat", type=int, default=32, help="...")
     # ap.add_argument("-ci", "--conv_in", type=int, default=32, help="...")
+    ap.add_argument("-n", "--name", type=str, default='demo', help="Name of experiment.")
     ap.add_argument("-ch", "--conv_hidden", type=int, default=64, help="...")
     ap.add_argument("-co", "--conv_out", type=int, default=64, help="...")
     ap.add_argument("-hs", "--hidden_size", type=int, default=128, help="...")
