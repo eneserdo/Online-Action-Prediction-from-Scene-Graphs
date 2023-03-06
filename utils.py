@@ -1,5 +1,7 @@
 import argparse
-
+import numpy as np
+import torch
+from sklearn.metrics import confusion_matrix
 
 def arg_parser():
 
@@ -46,3 +48,64 @@ def arg_parser_inference():
     ap.add_argument("-r", "--restore", type=int, required=True, help="...")
 
     return ap.parse_args()
+
+
+def conf_mat_from_left_right(truth, pred, labels):
+    #pred_left, pred_right = pred[:batch_size], pred[batch_size:]
+    #truth_left, truth_right = truth[::2], truth[1::2]
+
+
+    #res = confusion_matrix(truth_left.cpu().detach().numpy(), pred_left.cpu().detach().numpy(), labels=[range(0,len(ACTIONS)]) + \
+    #  confusion_matrix(truth_right.cpu().detach().numpy(), pred_right.cpu().detach().numpy(), labels=[range(0,len(ACTIONS)])
+
+    #pred = torch.cat([pred[:batch_size], pred[batch_size:]])
+    truth = torch.cat([truth[::2], truth[1::2]])
+
+    res = confusion_matrix(truth.cpu().detach().numpy(), pred.cpu().detach().numpy(), labels=labels)
+
+    return res
+
+
+def classification_scores(conf_mat):
+    scores = {'recall': {}, 'precision': {}, 'F1': {}}
+
+    TP = np.diagonal(conf_mat)
+    TP_p_FN = np.sum(conf_mat, axis=1)  # total class true occurrences
+    TP_p_FP = np.sum(conf_mat, axis=0)  # total class predicted occurrences
+
+    mask1 = (TP_p_FN != 0)
+    # recall = TP / (TP + FN)
+    scores['recall']['all'] = TP[mask1] / TP_p_FN[mask1]
+
+    mask2 = (TP_p_FP != 0)
+    # precision = TP / (TP + FP)
+    scores['precision']['all'] = TP[mask2] / TP_p_FP[mask2]
+
+    #  mask??
+
+    # F1 = 2 * TP / (2 * TP + FN + FP)
+    scores['F1']['all'] = 2 * TP / (TP_p_FP + TP_p_FN)
+
+    # Micro average
+    sum_labels = np.sum(TP_p_FN)
+    accuracy = np.sum(TP) / sum_labels
+    scores['accuracy'] = accuracy
+    scores['recall']['avg']['micro'] = accuracy
+    scores['precision']['avg']['micro'] = accuracy
+    scores['F1']['avg']['micro'] = accuracy
+
+    # Macro average
+    n_labels = len(TP)
+    scores['recall']['avg']['macro'] = np.sum(scores['recall']['all']) / n_labels
+    scores['precision']['avg']['macro'] = np.sum(scores['precision']['all']) / n_labels
+    scores['F1']['avg']['macro'] = np.sum(scores['F1']['all']) / n_labels
+
+    # Weighted average
+    scores['recall']['avg']['weighted'] = np.sum(scores['recall']['all'] * TP_p_FN) / sum_labels
+    scores['precision']['avg']['weighted'] = np.sum(scores['precision']['all'] * TP_p_FN) / sum_labels
+    scores['F1']['avg']['weighted'] = np.sum(scores['F1']['all'] * TP_p_FN) / sum_labels
+
+    # Normalized confusion matrix
+    scores['normalized confusion matrix'] = np.divide(conf_mat, conf_mat.sum(axis=1,keepdims=True))
+
+    return scores

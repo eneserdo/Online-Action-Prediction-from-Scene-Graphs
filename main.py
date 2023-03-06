@@ -29,6 +29,9 @@ import random
 from tqdm import tqdm
 import visdom
 from datetime import datetime
+from torchmetrics.classification import MulticlassF1Score
+from utils import classification_scores, conf_mat_from_left_right
+from torchmetrics.classification import MulticlassConfusionMatrix
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -122,69 +125,81 @@ def validate(model, loader):
         viz.line(Y=[correct / total], X=[step], win=acc_window, update="append", name="val_acc")
 
 
-def conf_mat_from_left_right(truth, pred, labels):
-    #pred_left, pred_right = pred[:batch_size], pred[batch_size:]
-    #truth_left, truth_right = truth[::2], truth[1::2]
+def run_one_epoch(mode, model, loader):
+    global step
+
+    if mode in ["test", "val"]:
+        model.eval()
+    elif mode== "train":
+        model.train()
+
+    len_actions = len(ACTIONS)
+    action_indices = [range(0, len_actions)]
+    conf_mat_top = np.zeros((len_actions, len_actions), dtype=float)
+    conf_mat_top_3 = np.zeros((len_actions, len_actions), dtype=float)
+
+    f1_calc_top1=MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro")
+    f1_calc_top3=MulticlassF1Score(num_classes=len(ACTIONS), top_k=3, average="macro")
+    conf_mat_top1 = MulticlassConfusionMatrix(num_classes=len(ACTIONS))
+    conf_mat_top3 = MulticlassConfusionMatrix(num_classes=len(ACTIONS))
+
+    for data in loader:
+        step += 1
+
+        if mode== "train":
+            optimizer.zero_grad()
+        data = [d.to(device) for d in data]
+
+        left_right_pred = model(data)
+        ground_truth_left_right=torch.cat([data[-1].y[::2], data[-1].y[1::2]])
+
+        loss = criterion(left_right_pred, ground_truth_left_right)
+
+        if mode== "train":
+            loss.backward()
+            optimizer.step()
 
 
-    #res = confusion_matrix(truth_left.cpu().detach().numpy(), pred_left.cpu().detach().numpy(), labels=[range(0,len(ACTIONS)]) + \
-    #  confusion_matrix(truth_right.cpu().detach().numpy(), pred_right.cpu().detach().numpy(), labels=[range(0,len(ACTIONS)])
+        # testden gelen
+        pred_top_3 = torch.argsort(left_right_pred, dim=1, descending=True)[:, :3]
+        pred_top_1 = pred_top_3[:, 0]
+        ground_truth = ground_truth_left_right.argmax(dim=1)
+        pred_top_3_final = torch.where(functorch.vmap(lambda t1, t2: torch.isin(t1, t2))(ground_truth, pred_top_3),
+                               ground_truth, pred_top_1)
 
-    #pred = torch.cat([pred[:batch_size], pred[batch_size:]])
-    truth = torch.cat([truth[::2], truth[1::2]])
+        # conf_mat_top += conf_mat_from_left_right(ground_truth, pred_top_1, action_indices)
+        # conf_mat_top_3 += conf_mat_from_left_right(ground_truth, pred_top, action_indices)
 
-    res = confusion_matrix(truth.cpu().detach().numpy(), pred.cpu().detach().numpy(), labels=labels)
+        # conf_mat_top += confusion_matrix(ground_truth.cpu().detach().numpy(), pred_top_1.cpu().detach().numpy(), labels=action_indices)
+        # conf_mat_top_3 += confusion_matrix(ground_truth.cpu().detach().numpy(), pred_top_3_final.cpu().detach().numpy(), labels=action_indices)
 
-    return res
+        # torchmetric
 
+        step_f1_top1=f1_calc_top1(left_right_pred, ground_truth)
+        step_f1_top3=f1_calc_top3(left_right_pred, ground_truth)
 
-def classification_scores(conf_mat):
-    scores = {'recall': {}, 'precision': {}, 'F1': {}}
+        step_conf_mat_top1=conf_mat_top1(pred_top_1, ground_truth)
+        step_conf_mat_top3=conf_mat_top3(pred_top_3_final, ground_truth)
 
-    TP = np.diagonal(conf_mat)
-    TP_p_FN = np.sum(conf_mat, axis=1)  # total class true occurrences
-    TP_p_FP = np.sum(conf_mat, axis=0)  # total class predicted occurrences
+        
 
-    mask1 = (TP_p_FN != 0)
-    # recall = TP / (TP + FN)
-    scores['recall']['all'] = TP[mask1] / TP_p_FN[mask1]
+    overall_f1_top1=f1_calc_top1.compute()
+    overall_f1_top3=f1_calc_top3.compute()
+    
+    overall_conf_mat_top1=conf_mat_top1.compute()
+    overall_conf_mat_top3=conf_mat_top3.compute()
 
-    mask2 = (TP_p_FP != 0)
-    # precision = TP / (TP + FP)
-    scores['precision']['all'] = TP[mask2] / TP_p_FP[mask2]
+    # scores = classification_scores(conf_mat_top)
+    # scores_top_3 = classification_scores(conf_mat_top_3)
 
-    #  mask??
-
-    # F1 = 2 * TP / (2 * TP + FN + FP)
-    scores['F1']['all'] = 2 * TP / (TP_p_FP + TP_p_FN)
-
-    # Micro average
-    sum_labels = np.sum(TP_p_FN)
-    accuracy = np.sum(TP) / sum_labels
-    scores['accuracy'] = accuracy
-    scores['recall']['avg']['micro'] = accuracy
-    scores['precision']['avg']['micro'] = accuracy
-    scores['F1']['avg']['micro'] = accuracy
-
-    # Macro average
-    n_labels = len(TP)
-    scores['recall']['avg']['macro'] = np.sum(scores['recall']['all']) / n_labels
-    scores['precision']['avg']['macro'] = np.sum(scores['precision']['all']) / n_labels
-    scores['F1']['avg']['macro'] = np.sum(scores['F1']['all']) / n_labels
-
-    # Weighted average
-    scores['recall']['avg']['weighted'] = np.sum(scores['recall']['all'] * TP_p_FN) / sum_labels
-    scores['precision']['avg']['weighted'] = np.sum(scores['precision']['all'] * TP_p_FN) / sum_labels
-    scores['F1']['avg']['weighted'] = np.sum(scores['F1']['all'] * TP_p_FN) / sum_labels
-
-    # Normalized confusion matrix
-    scores['normalized confusion matrix'] = np.divide(conf_mat, conf_mat.sum(axis=1,keepdims=True))
-
-    return scores
-
+        # if visdom_enabled:
+        #     viz.line(Y=[loss.item()], X=[step], win=loss_window, update="append")
+        #     viz.line(Y=[scores["F1"]["avg"]["macro"]], X=[step], win=acc_window, update="append", name=mode)
+            # viz.line(Y=[scores_top_3], X=[step], win=acc_window, update="append", name=mode)
+        
+    return overall_f1_top1, overall_f1_top3
 
 if __name__ == "__main__":
-
     args = arg_parser()
 
     # Use date info to save model weights 
@@ -231,22 +246,24 @@ if __name__ == "__main__":
         acc_window = viz.line(X=[0], Y=[0], opts=dict(xlabel='Step', ylabel='Accuracy', title='Accuracy'))
 
     step = 0
-    for epoch in range(1, args.max_epochs):
-        print(f'Epoch: {epoch:03d}')
+    start= 1 if args.restore is not None else args.restore
+    
+    print("Start training...")
+    for epoch in range(start, start + args.max_epochs):
         start = time.perf_counter()
         train(model, train_loader)
         stop1 = time.perf_counter()
         # train_acc = test(model, train_loader) # FIXME: Bu şekilde yapmak inanılmaz  inefficient
         # print(f'Epoch: {epoch:03d}, Train Acc: {train_acc:.4f}, Test Acc: {test_acc:.4f}')
-        test(model, test_loader)
         validate(model, val_loader)
+        run_one_epoch(model, val_loader)
 
         # Save model
         if epoch % 5 == 0:
             torch.save({"model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict()},
                        opj("saved", f"checkpoint_epoch{epoch:0>4}.pt"))
 
-        print("time: ", stop1 - start)
+        print(f'#{epoch:03d}: Time {(stop1 - start)//60}:{(stop1 - start)%60}m, Validation: top1-f1: {top1_f1}, top3-f1: {top3_f1}')
 
     test(model, test_loader)
     # test_acc = test(test_loader)
