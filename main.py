@@ -14,6 +14,7 @@ import random
 import time
 from datetime import datetime
 from os.path import join as opj
+import warnings
 
 import functorch
 import numpy as np
@@ -71,29 +72,44 @@ torch.backends.cudnn.benchmark = False
 #             viz.line(Y=[correct / total], X=[step], win=acc_window, update="append", name="train_acc")
 
 
-# def test(model, loader):
-#     model.eval()
-#     len_actions = len(ACTIONS)
-#     action_indices = [range(0, len_actions)]
-#     conf_mat_top = np.zeros((len_actions, len_actions), dtype=float)
-#     conf_mat_top_3 = np.zeros((len_actions, len_actions), dtype=float)
+def test(model, loader):
+    model.eval()
+    len_actions = len(ACTIONS)
+    action_indices = [range(0, len_actions)]
+    conf_mat_top = np.zeros((len_actions, len_actions), dtype=float)
+    conf_mat_top_3 = np.zeros((len_actions, len_actions), dtype=float)
 
-#     for data in loader:  # Iterate in batches over the training/test dataset.
-#         data = [d.to(device) for d in data]
+    for data in loader:  # Iterate in batches over the training/test dataset.
+        data = [d.to(device) for d in data]
 
-#         left_right_pred = model(data)
-#         # pred = left_right_pred.argmax(dim=1)
-#         pred_top_3 = torch.argsort(left_right_pred, dim=1, descending=True)[:, :3]
-#         pred = pred_top_3[:, 0]
-#         ground_truth = data[-1].y.argmax(dim=1)
-#         pred_top = torch.where(functorch.vmap(lambda t1, t2: torch.isin(t1, t2))(ground_truth, pred_top_3),
-#                                ground_truth, pred)
+        left_right_pred = model(data)
+        # pred = left_right_pred.argmax(dim=1)
+        pred_top_3 = torch.argsort(left_right_pred, dim=1, descending=True)[:, :3]
+        pred_top_1 = pred_top_3[:, 0]
 
-#         conf_mat_top += conf_mat_from_left_right(ground_truth, pred, action_indices)
-#         conf_mat_top_3 += conf_mat_from_left_right(ground_truth, pred_top, action_indices)
+        ground_truth_left_right=torch.cat([data[-1].y[::2], data[-1].y[1::2]])
+        ground_truth = ground_truth_left_right.argmax(dim=1)
 
-#     scores = classification_scores(conf_mat_top)
-#     scores_top_3 = classification_scores(conf_mat_top_3)
+        with warnings.catch_warnings() as w:
+            warnings.simplefilter("once")
+            
+            pred_top_3_final = torch.where(functorch.vmap(lambda t1, t2: torch.isin(t1, t2))(ground_truth, pred_top_3),
+                               ground_truth, pred_top_1)
+
+        # conf_mat_top += conf_mat_from_left_right(ground_truth, pred, action_indices)
+        # conf_mat_top_3 += conf_mat_from_left_right(ground_truth, pred_top_3_final, action_indices)
+        conf_mat_top += confusion_matrix(ground_truth.cpu().detach().numpy(), pred_top_1.cpu().detach().numpy(), labels=action_indices)
+        conf_mat_top_3 += confusion_matrix(ground_truth.cpu().detach().numpy(), pred_top_3_final.cpu().detach().numpy(), labels=action_indices)
+
+
+    scores = classification_scores(conf_mat_top)
+    scores_top_3 = classification_scores(conf_mat_top_3)
+    print(f"F1 top1: {scores['F1']['avg']['macro']}, top3 {scores_top_3['F1']['avg']['macro']}")
+
+    conf_mat_top = conf_mat_top.astype('float') / conf_mat_top.sum(axis=1)[:, np.newaxis]
+    conf_mat_top_3 = conf_mat_top_3.astype('float') / conf_mat_top_3.sum(axis=1)[:, np.newaxis]
+    save_conf_mat(conf_mat_top, "aa_resoterd_top1")
+    save_conf_mat(conf_mat_top_3, "aa_resoterd_top3")
 
 
 
@@ -217,7 +233,8 @@ def run_one_epoch(model, loader, mode):
 
 if __name__ == "__main__":
     args = arg_parser()
-
+    print("ARGS:\n", args)
+    
     wandb.init(project="online-action-prediction-from-scene-graphs",  name=args.name)
     
     # Use date info to save model weights 
@@ -297,18 +314,23 @@ if __name__ == "__main__":
 
 
         # save confusion matrix
-        save_conf_mat(conf_mat_top1_val.cpu(), f"conf_mat_top1_e{epoch}")
-        save_conf_mat(conf_mat_top3_val.cpu(), f"conf_mat_top3_e{epoch}")
+        save_conf_mat(conf_mat_top1_val.cpu(), f"conf_mat_top1_e{epoch:0>4}")
+        save_conf_mat(conf_mat_top3_val.cpu(), f"conf_mat_top3_e{epoch:0>4}")
 
         stop = time.perf_counter()
         print(f'### {epoch:03d}: Time {get_minutes(stop-start)}m ### [F1] Train: top1: {round(f_top1_train.item(), 4)}, top3: {round(f_top3_train.item(), 4)} ### Val: top1: {round(f_top1_val.item(), 4)}, top3: {round(f_top3_val.item(), 4)}')
 
-    f_top1_test, f_top3_test, conf_mat_top1_test, conf_mat_top3_test=run_one_epoch(model, test_loader, 'test')
 
-    print(f'### [F1] TEST: top1: {round(f_top1_test.item(), 4)}, top3: {round(f_top3_test.item(), 4)}')
+    # f_top1_test, f_top3_test, conf_mat_top1_test, conf_mat_top3_test=run_one_epoch(model, test_loader, 'test')
+
+    # print(f'### [F1] TEST: top1: {round(f_top1_test.item(), 4)}, top3: {round(f_top3_test.item(), 4)}')
     
-    save_conf_mat(conf_mat_top1_test.cpu(), f"TEST_conf_mat_top1_e{epoch}")
-    save_conf_mat(conf_mat_top3_test.cpu(), f"TEST_conf_mat_top3_e{epoch}")
+    # save_conf_mat(conf_mat_top1_test.cpu(), f"TEST_conf_mat_top1_e{epoch}")
+    # save_conf_mat(conf_mat_top3_test.cpu(), f"TEST_conf_mat_top3_e{epoch}")
     
+    print("Temporaly using old test code")
+    test(model, test_loader)
+
+
     print("wandb saving...")
     wandb.finish()

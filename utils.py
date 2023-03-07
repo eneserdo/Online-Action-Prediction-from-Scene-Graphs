@@ -95,6 +95,10 @@ def classification_scores(conf_mat):
     scores['F1']['all'] = 2 * TP / (TP_p_FP + TP_p_FN)
 
     # Micro average
+    scores['recall']['avg']={}
+    scores['precision']['avg']={}
+    scores['F1']['avg']={}
+
     sum_labels = np.sum(TP_p_FN)
     accuracy = np.sum(TP) / sum_labels
     scores['accuracy'] = accuracy
