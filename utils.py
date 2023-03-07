@@ -135,3 +135,4 @@ def save_conf_mat(mat, name):
     plt.xlabel('Predicted')
     plt.ylabel('Ground truth')
     plt.savefig(opj("conf_mat", f'{name}.png'))
+    plt.close()

@@ -2,11 +2,9 @@
 """
     TODO:
     - make it fully deterministic (ask arda hoca)
-    - implement cProfile
     - weight init appropriately
-    - add loss graph
-    - add required mechanisms for restored model
-    - calculate num of parameter in the model
+    - torchmetric top_k=3 not working
+    - log conf_matrix
 """
 
 import os
@@ -79,27 +77,28 @@ def test(model, loader):
     conf_mat_top = np.zeros((len_actions, len_actions), dtype=float)
     conf_mat_top_3 = np.zeros((len_actions, len_actions), dtype=float)
 
-    for data in loader:  # Iterate in batches over the training/test dataset.
-        data = [d.to(device) for d in data]
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore', '.*There is a performance drop.*', UserWarning) # ignores warning about functorch
 
-        left_right_pred = model(data)
-        # pred = left_right_pred.argmax(dim=1)
-        pred_top_3 = torch.argsort(left_right_pred, dim=1, descending=True)[:, :3]
-        pred_top_1 = pred_top_3[:, 0]
+        for data in loader:  # Iterate in batches over the training/test dataset.
+            data = [d.to(device) for d in data]
 
-        ground_truth_left_right=torch.cat([data[-1].y[::2], data[-1].y[1::2]])
-        ground_truth = ground_truth_left_right.argmax(dim=1)
+            left_right_pred = model(data)
+            # pred = left_right_pred.argmax(dim=1)
+            pred_top_3 = torch.argsort(left_right_pred, dim=1, descending=True)[:, :3]
+            pred_top_1 = pred_top_3[:, 0]
 
-        with warnings.catch_warnings() as w:
-            warnings.simplefilter("once")
-            
+            ground_truth_left_right=torch.cat([data[-1].y[::2], data[-1].y[1::2]])
+            ground_truth = ground_truth_left_right.argmax(dim=1)
+
+                
             pred_top_3_final = torch.where(functorch.vmap(lambda t1, t2: torch.isin(t1, t2))(ground_truth, pred_top_3),
-                               ground_truth, pred_top_1)
+                                ground_truth, pred_top_1)
 
-        # conf_mat_top += conf_mat_from_left_right(ground_truth, pred, action_indices)
-        # conf_mat_top_3 += conf_mat_from_left_right(ground_truth, pred_top_3_final, action_indices)
-        conf_mat_top += confusion_matrix(ground_truth.cpu().detach().numpy(), pred_top_1.cpu().detach().numpy(), labels=action_indices)
-        conf_mat_top_3 += confusion_matrix(ground_truth.cpu().detach().numpy(), pred_top_3_final.cpu().detach().numpy(), labels=action_indices)
+            # conf_mat_top += conf_mat_from_left_right(ground_truth, pred, action_indices)
+            # conf_mat_top_3 += conf_mat_from_left_right(ground_truth, pred_top_3_final, action_indices)
+            conf_mat_top += confusion_matrix(ground_truth.cpu().detach().numpy(), pred_top_1.cpu().detach().numpy(), labels=action_indices)
+            conf_mat_top_3 += confusion_matrix(ground_truth.cpu().detach().numpy(), pred_top_3_final.cpu().detach().numpy(), labels=action_indices)
 
 
     scores = classification_scores(conf_mat_top)
@@ -156,49 +155,52 @@ def run_one_epoch(model, loader, mode):
     conf_mat_top1 = MulticlassConfusionMatrix(num_classes=len(ACTIONS), normalize="true").to(device)
     conf_mat_top3 = MulticlassConfusionMatrix(num_classes=len(ACTIONS), normalize="true").to(device)
 
-    for data in loader:
-        step += 1
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore', '.*There is a performance drop.*', UserWarning) # ignores warning about functorch
 
-        if mode == "train":
-            optimizer.zero_grad()
-        data = [d.to(device) for d in data]
+        for data in loader:
+            step += 1
 
-        left_right_pred = model(data)
-        ground_truth_left_right=torch.cat([data[-1].y[::2], data[-1].y[1::2]])
+            if mode == "train":
+                optimizer.zero_grad()
+            data = [d.to(device) for d in data]
 
-        loss = criterion(left_right_pred, ground_truth_left_right)
+            left_right_pred = model(data)
+            ground_truth_left_right=torch.cat([data[-1].y[::2], data[-1].y[1::2]])
 
-        if mode== "train":
-            loss.backward()
-            optimizer.step()
+            loss = criterion(left_right_pred, ground_truth_left_right)
 
-
-        # testden gelen
-        pred_top_3 = torch.argsort(left_right_pred, dim=1, descending=True)[:, :3]
-        pred_top_1 = pred_top_3[:, 0]
-        ground_truth = ground_truth_left_right.argmax(dim=1)
-        pred_top_3_final = torch.where(functorch.vmap(lambda t1, t2: torch.isin(t1, t2))(ground_truth, pred_top_3),
-                               ground_truth, pred_top_1)
-
-        # conf_mat_top += conf_mat_from_left_right(ground_truth, pred_top_1, action_indices)
-        # conf_mat_top_3 += conf_mat_from_left_right(ground_truth, pred_top, action_indices)
-
-        # conf_mat_top += confusion_matrix(ground_truth.cpu().detach().numpy(), pred_top_1.cpu().detach().numpy(), labels=action_indices)
-        # conf_mat_top_3 += confusion_matrix(ground_truth.cpu().detach().numpy(), pred_top_3_final.cpu().detach().numpy(), labels=action_indices)
-
-        # torchmetric
-
-        step_f1_top1=f1_calc_top1(left_right_pred, ground_truth)
-        step_f1_top3=f1_calc_top3(left_right_pred, ground_truth)
-
-        step_conf_mat_top1=conf_mat_top1(pred_top_1, ground_truth)
-        step_conf_mat_top3=conf_mat_top3(pred_top_3_final, ground_truth)
+            if mode== "train":
+                loss.backward()
+                optimizer.step()
 
 
-        wandb.log({f"{mode}/":{'top1_F1':step_f1_top1, 'top3_F1':step_f1_top3, "Loss": loss.item()}}, step=step)
-        # if (step+1)%20==0:
-        #     print("20 BATCH ÇALIŞIYOR SADECE")
-        #     break
+            # testden gelen
+            pred_top_3 = torch.argsort(left_right_pred, dim=1, descending=True)[:, :3]
+            pred_top_1 = pred_top_3[:, 0]
+            ground_truth = ground_truth_left_right.argmax(dim=1)
+            pred_top_3_final = torch.where(functorch.vmap(lambda t1, t2: torch.isin(t1, t2))(ground_truth, pred_top_3),
+                                ground_truth, pred_top_1)
+
+            # conf_mat_top += conf_mat_from_left_right(ground_truth, pred_top_1, action_indices)
+            # conf_mat_top_3 += conf_mat_from_left_right(ground_truth, pred_top, action_indices)
+
+            # conf_mat_top += confusion_matrix(ground_truth.cpu().detach().numpy(), pred_top_1.cpu().detach().numpy(), labels=action_indices)
+            # conf_mat_top_3 += confusion_matrix(ground_truth.cpu().detach().numpy(), pred_top_3_final.cpu().detach().numpy(), labels=action_indices)
+
+            # torchmetric
+
+            step_f1_top1=f1_calc_top1(left_right_pred, ground_truth)
+            step_f1_top3=f1_calc_top3(left_right_pred, ground_truth)
+
+            step_conf_mat_top1=conf_mat_top1(pred_top_1, ground_truth)
+            step_conf_mat_top3=conf_mat_top3(pred_top_3_final, ground_truth)
+
+
+            wandb.log({f"{mode}/":{'top1_F1':step_f1_top1, 'top3_F1':step_f1_top3, "Loss": loss.item()}}, step=step)
+            # if (step+1)%20==0:
+            #     print("20 BATCH ÇALIŞIYOR SADECE")
+            #     break
 
         
 
