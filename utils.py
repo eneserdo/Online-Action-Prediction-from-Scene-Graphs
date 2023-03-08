@@ -23,9 +23,6 @@ def arg_parser():
     ap.add_argument("-vt", "--validation_take", type=int, default=7, choices=[i for i in range(10)], help="...")
 
     # Model
-    # ap.add_argument("-nef", "--num_edge_feat", type=int, default=32, help="...")
-    # ap.add_argument("-ci", "--conv_in", type=int, default=32, help="...")
-    ap.add_argument("-n", "--name", type=str, default='demo', help="Name of experiment.")
     ap.add_argument("-ch", "--conv_hidden", type=int, default=64, help="...")
     ap.add_argument("-co", "--conv_out", type=int, default=64, help="...")
     ap.add_argument("-hs", "--hidden_size", type=int, default=128, help="...")
@@ -34,7 +31,7 @@ def arg_parser():
     ap.add_argument("-me", "--max_epochs", type=int, default=50, help="Max number of epochs")
 
     # Logging
-    ap.add_argument("-v", "--use_visdom", action="store_true", help="...")
+    ap.add_argument("-n", "--name", type=str, required=True, help="Name of experiment for logging into Wandb")
 
     return ap.parse_args()
 
@@ -129,8 +126,7 @@ def get_minutes(elapsed) -> str:
 def save_conf_mat(mat, name):
     plt.figure(figsize=(14,12))
     sns.heatmap(mat, square=True, annot=True, cmap='Blues', cbar=False, xticklabels=ACTIONS, yticklabels=ACTIONS, vmin=0, vmax=1)
-
-    plt.yticks(rotation=0) 
+    plt.yticks(rotation=0)
     plt.title(f"{name}")
     plt.xlabel('Predicted')
     plt.ylabel('Ground truth')

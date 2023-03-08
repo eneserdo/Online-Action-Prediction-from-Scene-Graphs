@@ -5,6 +5,7 @@
     - weight init appropriately
     - torchmetric top_k=3 not working
     - log conf_matrix
+    - log batchwise loss/F1 and epochwise loss/F1
 """
 
 import os
@@ -24,8 +25,7 @@ from torchmetrics.classification import (MulticlassConfusionMatrix,
 
 import models
 import wandb
-from dataset import (ACTIONS, OBJECTS, RELATIONS, BimanualDataset,
-                     get_bimanual_dataset_splits)
+from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits)
 from utils import (arg_parser, classification_scores, conf_mat_from_left_right,
                    get_minutes, save_conf_mat)
 
@@ -137,7 +137,7 @@ def test(model, loader):
 #         viz.line(Y=[correct / total], X=[step], win=acc_window, update="append", name="val_acc")
 
 
-def run_one_epoch(model, loader, mode):
+def run_one_epoch(model:torch.nn.Module, loader: DataLoader, mode: str):
     global step
 
     if mode in ["test", "val"]:
@@ -219,11 +219,7 @@ def run_one_epoch(model, loader, mode):
     # scores = classification_scores(conf_mat_top)
     # scores_top_3 = classification_scores(conf_mat_top_3)
 
-        # if visdom_enabled:
-        #     viz.line(Y=[loss.item()], X=[step], win=loss_window, update="append")
-        #     viz.line(Y=[scores["F1"]["avg"]["macro"]], X=[step], win=acc_window, update="append", name=mode)
-            # viz.line(Y=[scores_top_3], X=[step], win=acc_window, update="append", name=mode)
-        
+
     # wandb.log({'top1/':{'F1':overall_f1_top1}, 'top3/':{'F1':overall_f1_top3}})
 
     if mode in ["test", "val"]:
@@ -241,8 +237,6 @@ if __name__ == "__main__":
     
     # Use date info to save model weights 
     # save_date=datetime.now().strftime("%m-%d-%Y, %H-%M")
-
-    # visdom_enabled = args.use_visdom
 
     train_set, test_set, val_set = get_bimanual_dataset_splits(root=args.root, is_processed=not args.process_it,
                                                                test_subject=args.test_subject,
@@ -293,10 +287,6 @@ if __name__ == "__main__":
         model.load_state_dict(checkpoint["model_state_dict"])
         print("model and optimizer parameters are restored successfully!")
 
-    # if visdom_enabled:
-    #     viz = visdom.Visdom()  # To make this work run "visdom" in another terminal
-    #     loss_window = viz.line(X=[0], Y=[0], opts=dict(xlabel='Step', ylabel='Loss', title='Training Loss'))
-    #     acc_window = viz.line(X=[0], Y=[0], opts=dict(xlabel='Step', ylabel='Accuracy', title='Accuracy'))
 
     step = 0
     start= 1 if args.restore is None else args.restore
@@ -315,7 +305,7 @@ if __name__ == "__main__":
                        opj("saved", f"checkpoint_epoch{epoch:0>4}.pt"))
 
 
-        # save confusion matrix
+        # save confusion matricies
         save_conf_mat(conf_mat_top1_val.cpu(), f"conf_mat_top1_e{epoch:0>4}")
         save_conf_mat(conf_mat_top3_val.cpu(), f"conf_mat_top3_e{epoch:0>4}")
 
