@@ -7,7 +7,8 @@ from torch_geometric.data import Data, Batch
 from dataset import OBJECTS
 
 # TODO: graph-level -> node-level (hand-pooling, how to deal with missing-hand-graphs)
-# TODO: Single MLP to learn both action simultaneousluy
+# TODO: Single MLP to learn both action simultaneously
+# TODO: Manage GCN layer type with args
 
 class GNN(torch.nn.Module):
     def __init__(self,*, num_edge_feat, conv_in, conv_hidden, conv_out,  batch_size, num_action_classes,  hidden_size, num_rnn_layers):
