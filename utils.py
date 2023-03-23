@@ -123,12 +123,16 @@ def classification_scores(conf_mat):
 def get_minutes(elapsed) -> str:
     return f"{round((elapsed)//60)}.{round((elapsed)%60)}"
 
-def save_conf_mat(mat, name):
+def plot_conf_mat(mat, name, do_save=True, do_return_plot=False):
     plt.figure(figsize=(14,12))
     sns.heatmap(mat, square=True, annot=True, cmap='Blues', cbar=False, xticklabels=ACTIONS, yticklabels=ACTIONS, vmin=0, vmax=1)
     plt.yticks(rotation=0)
     plt.title(f"{name}")
     plt.xlabel('Predicted')
     plt.ylabel('Ground truth')
-    plt.savefig(opj("conf_mat", f'{name}.png'))
-    plt.close()
+    if do_save:
+        plt.savefig(opj("conf_mat", f'{name}.png'))
+    if do_return_plot:
+        return plt
+    else:
+        plt.close()
