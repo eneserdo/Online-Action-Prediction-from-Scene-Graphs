@@ -251,14 +251,14 @@ if __name__ == "__main__":
     test_loader = DataLoader(test_set, args.batch_size, shuffle=True, num_workers=2, drop_last=True,  worker_init_fn=seed_worker)
     val_loader = DataLoader(val_set, args.batch_size, shuffle=True, num_workers=2, drop_last=True,  worker_init_fn=seed_worker)
 
-    model = models.ActionRegonition(num_edge_feat=len(RELATIONS),
-                                    conv_in=len(OBJECTS),
-                                    conv_hidden=args.conv_hidden,
-                                    conv_out=args.conv_out,
-                                    batch_size=args.batch_size,
-                                    num_action_classes=len(ACTIONS),
-                                    hidden_size=args.hidden_size,
-                                    num_rnn_layers=1).to(device=device)
+    model = models.ActionRecognition(num_edge_feat=len(RELATIONS),
+                                     conv_in=len(OBJECTS),
+                                     conv_hidden=args.conv_hidden,
+                                     conv_out=args.conv_out,
+                                     batch_size=args.batch_size,
+                                     num_action_classes=len(ACTIONS),
+                                     hidden_size=args.hidden_size,
+                                     num_rnn_layers=1).to(device=device)
 
     # for mode, run in runs.items():
     wandb.watch(model, log='all')

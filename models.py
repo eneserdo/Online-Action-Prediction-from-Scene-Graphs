@@ -10,7 +10,7 @@ from dataset import OBJECTS
 # TODO: Single MLP to learn both action simultaneously
 # TODO: Manage GCN layer type with args
 
-class ActionRegonition(torch.nn.Module):
+class ActionRecognition(torch.nn.Module):
     def __init__(self,*, num_edge_feat, conv_in, conv_hidden, conv_out,  batch_size, num_action_classes,  hidden_size, num_rnn_layers):
         super().__init__()
 
