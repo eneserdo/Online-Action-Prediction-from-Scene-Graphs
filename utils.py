@@ -1,5 +1,6 @@
 import argparse
 from os.path import join as opj
+import random
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -136,3 +137,8 @@ def plot_conf_mat(mat, name, do_save=True, do_return_plot=False):
         return plt
     else:
         plt.close()
+    
+def seed_worker(worker_id):
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)

@@ -27,15 +27,19 @@ import models
 import wandb
 from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits)
 from utils import (arg_parser, classification_scores, conf_mat_from_left_right,
-                   get_minutes, plot_conf_mat)
+                   get_minutes, plot_conf_mat, seed_worker)
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-random.seed(34)
-np.random.seed(34)
-torch.manual_seed(34)
+SEED = 34
+random.seed(SEED)
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+torch.cuda.manual_seed_all(SEED)
+torch.cuda.manual_seed(SEED)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
+
 
 
 # def train(model: torch.nn.Module, train_loader: DataLoader):
@@ -243,9 +247,9 @@ if __name__ == "__main__":
                                                                temporal_length=args.temporal_length,
                                                                contact_only=args.contact_only)
 
-    train_loader = DataLoader(train_set, args.batch_size, shuffle=True, num_workers=2, drop_last=True)
-    test_loader = DataLoader(test_set, args.batch_size, shuffle=True, num_workers=2, drop_last=True)
-    val_loader = DataLoader(val_set, args.batch_size, shuffle=True, num_workers=2, drop_last=True)
+    train_loader = DataLoader(train_set, args.batch_size, shuffle=True, num_workers=2, drop_last=True,  worker_init_fn=seed_worker)
+    test_loader = DataLoader(test_set, args.batch_size, shuffle=True, num_workers=2, drop_last=True,  worker_init_fn=seed_worker)
+    val_loader = DataLoader(val_set, args.batch_size, shuffle=True, num_workers=2, drop_last=True,  worker_init_fn=seed_worker)
 
     model = models.ActionRegonition(num_edge_feat=len(RELATIONS),
                                     conv_in=len(OBJECTS),
