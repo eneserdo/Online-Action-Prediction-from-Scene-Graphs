@@ -203,7 +203,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch):
             # step_conf_mat_top1 = conf_mat_top1(pred_top_1, ground_truth)        # old conf_mat
             # step_conf_mat_top3 = conf_mat_top3(pred_top_3_final, ground_truth)
 
-            wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()}}, step=step)
+            wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()}, 'batch': step}, step=step)
 
 
 
@@ -221,7 +221,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch):
     overall_conf_mat_top1 = conf_mat_top1.compute()
     overall_conf_mat_top3 = conf_mat_top3.compute()
 
-    wandb.log({f"{mode}/epoch/": {'top1_F1': overall_f1_top1, 'top3_F1': overall_f1_top3}}, step=epoch)
+    wandb.log({f"{mode}/epoch/": {'top1_F1': overall_f1_top1, 'top3_F1': overall_f1_top3}, 'epoch': epoch}, step=epoch)
 
 
     # cf1=wandb.Table(data=overall_conf_mat_top1.cpu().numpy(), columns=ACTIONS, rows=ACTIONS)
