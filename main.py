@@ -254,9 +254,9 @@ if __name__ == "__main__":
                                                                temporal_length=args.temporal_length,
                                                                contact_only=args.contact_only)
 
-    train_loader = DataLoader(train_set, args.batch_size, shuffle=True, num_workers=2, drop_last=True,  worker_init_fn=seed_worker)
-    test_loader = DataLoader(test_set, args.batch_size, shuffle=True, num_workers=2, drop_last=True,  worker_init_fn=seed_worker)
-    val_loader = DataLoader(val_set, args.batch_size, shuffle=True, num_workers=2, drop_last=True,  worker_init_fn=seed_worker)
+    train_loader = DataLoader(train_set, args.batch_size, shuffle=True, num_workers=3, drop_last=True,  worker_init_fn=seed_worker)
+    test_loader = DataLoader(test_set, args.batch_size, shuffle=True, num_workers=3, drop_last=True,  worker_init_fn=seed_worker)
+    val_loader = DataLoader(val_set, args.batch_size, shuffle=True, num_workers=3, drop_last=True,  worker_init_fn=seed_worker)
 
     model = models.ActionRecognition(gnn_type=args.gnn_type,
                                      num_edge_feat=len(RELATIONS),
