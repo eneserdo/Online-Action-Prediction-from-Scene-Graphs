@@ -27,7 +27,7 @@ import models
 import wandb
 from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits)
 from utils import (arg_parser, classification_scores, conf_mat_from_left_right,
-                   get_minutes, plot_conf_mat, seed_worker, print_model_summary)
+                   get_minutes, plot_conf_mat, seed_worker)
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
