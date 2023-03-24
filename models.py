@@ -133,3 +133,8 @@ class ActionRecognition(torch.nn.Module):
         # return self.pred_left(hn), self.pred_right(hn)
         # return self.pred_left(left_hn), self.pred_right(right_hn)
         return self.mlp(both_hn)
+
+    # def print_summary(self):
+    #     # x = torch.randn(100, len(OBJECTS))
+    #     # edge_index = torch.randint(100, size=(2, 20))
+    #     print(summary(model, x, edge_index))

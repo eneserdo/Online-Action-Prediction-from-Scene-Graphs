@@ -27,7 +27,7 @@ import models
 import wandb
 from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits)
 from utils import (arg_parser, classification_scores, conf_mat_from_left_right,
-                   get_minutes, plot_conf_mat, seed_worker)
+                   get_minutes, plot_conf_mat, seed_worker, print_model_summary)
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -269,12 +269,7 @@ if __name__ == "__main__":
                                      heads=args.num_heads).to(device=device)
 
     # TODO Model summary
-    # model = GCN(128, 64, num_layers=2, out_channels=32)
-    # x = torch.randn(100, 128)
-    # edge_index = torch.randint(100, size=(2, 20))
-
-    # print(summary(model, x, edge_index))
-
+    # print_model_summary(model)
         
     # for mode, run in runs.items():
     wandb.watch(model, log='all')
@@ -344,6 +339,7 @@ if __name__ == "__main__":
 
     
     test(model, test_loader)
+    torch.cuda.empty_cache()
 
     print("wandb saving...")
     wandb.finish()
