@@ -1,36 +1,61 @@
 from typing import List
 import torch
 from torch.nn import Sequential, Linear, ReLU, SELU, LSTM, Softmax
-from torch_geometric.nn import NNConv, global_mean_pool
+# from torch_geometric.nn import NNConv, global_mean_pool
+import torch_geometric.nn as geometric_nn
 from torch_geometric.data import Data, Batch
 
 from dataset import OBJECTS
 
 # TODO: graph-level -> node-level (hand-pooling, how to deal with missing-hand-graphs)
 # TODO: Single MLP to learn both action simultaneously
-# TODO: Manage GCN layer type with args
 
 class ActionRecognition(torch.nn.Module):
-    def __init__(self,*, num_edge_feat, conv_in, conv_hidden, conv_out,  batch_size, num_action_classes,  hidden_size, num_rnn_layers):
+    def __init__(self, gnn_type, in_channels, hidden_channels, out_channels, num_edge_feat, batch_size, num_action_classes, lstm_hidden_size, **kwargs):
+        """ Accepts kwargs for non-general params of gnns """
         super().__init__()
 
-        self.conv_out=conv_out
+        # self.conv_out=out_channels
         self.batch_size=batch_size
         
-        nn1 = Sequential(Linear(num_edge_feat, conv_in*conv_hidden), ReLU())
-        self.conv1 = NNConv(conv_in, conv_hidden, nn1, aggr='mean')
-        
-        nn2 = Sequential(Linear(num_edge_feat, conv_hidden*conv_out), ReLU())
-        self.conv2 = NNConv(conv_hidden, conv_out, nn2, aggr='mean')
+        # Sets Graph Network
+        if gnn_type == "NNConv":
+            nn1 = Sequential(Linear(num_edge_feat, in_channels*hidden_channels), ReLU())
+            self.conv1 = geometric_nn.NNConv(in_channels, hidden_channels, nn1, aggr='mean')
+            self.bn1=geometric_nn.BatchNorm(hidden_channels)
+            nn2 = Sequential(Linear(num_edge_feat, hidden_channels*out_channels), ReLU())
+            self.conv2 = geometric_nn.NNConv(hidden_channels, out_channels, nn2, aggr='mean')
+            self.bn2=geometric_nn.BatchNorm(out_channels)
+
+        elif gnn_type == "GATConv":
+            self.conv1 = geometric_nn.GATConv(in_channels, hidden_channels, kwargs["heads"], edge_dim=num_edge_feat )
+            self.bn1=geometric_nn.BatchNorm(hidden_channels*kwargs["heads"])
+            self.conv2 = geometric_nn.GATConv(hidden_channels*kwargs["heads"], out_channels, kwargs["heads"], edge_dim= num_edge_feat)
+            self.bn2=geometric_nn.BatchNorm(out_channels*kwargs["heads"])
+            out_channels=out_channels*kwargs["heads"]
+
+        # elif gnn_type == "TransformerConv":
+        #     self.conv1 = geometric_nn.TransformerConv(in_channels, hidden_channels, kwargs["heads"], edge_dim=num_edge_feat )
+        #     self.conv2 = geometric_nn.TransformerConv(hidden_channels, out_channels, kwargs["heads"], edge_dim= num_edge_feat)
+
+        else:
+            raise NotImplementedError(f"gnn_type: {gnn_type} is not implemented")
 
         self.act1 = SELU()
         self.act2 = SELU()
 
-        self.rnn = LSTM(conv_out, hidden_size, num_rnn_layers)
+        # FIXME: geometric sequential
+        self.gnn=geometric_nn.Sequential("x, edge_index, edge_attr", 
+                                         [(self.conv1, "x, edge_index, edge_attr -> x"), self.act1, self.bn1, 
+                                          (self.conv2, "x, edge_index, edge_attr -> x"), self.act2, self.bn2])
+
+
+        num_rnn_layers = 1 # Lets make it constant
+        self.rnn = LSTM(out_channels, lstm_hidden_size, num_rnn_layers)
 
         # self.pred_left=Sequential(Linear(hidden_size, num_action_classes), Softmax(dim=1))
         # self.pred_right=Sequential(Linear(hidden_size, num_action_classes), Softmax(dim=1))
-        self.mlp=Sequential(Linear(hidden_size, num_action_classes), Softmax(dim=1))
+        self.mlp=Sequential(Linear(lstm_hidden_size, num_action_classes), Softmax(dim=1))
 
     def _hands_pooling(self, x, embeddings, batch):
         
@@ -75,8 +100,9 @@ class ActionRecognition(torch.nn.Module):
         for databatch in dataBatchList: # processes each frame time-independently
             x, edge_attr, edge_index, batch  = databatch.x, databatch.edge_attr, databatch.edge_index, databatch.batch
             
-            H1 = self.act1(self.conv1(x, edge_index, edge_attr)) # x dim -> [n, d]    
-            H2 = self.act2(self.conv2(H1, edge_index, edge_attr)) # x dim -> [n, d]    
+            # H1 = self.act1(self.conv1(x, edge_index, edge_attr)) # x dim -> [n, d]    
+            # H2 = self.act2(self.conv2(H1, edge_index, edge_attr)) # x dim -> [n, d]    
+            H2 = self.gnn(x, edge_index, edge_attr)
 
             left_embeddings, right_embeddings=self._hands_pooling(x,H2,batch) 
             # graph_embedding = global_mean_pool(H2, batch)

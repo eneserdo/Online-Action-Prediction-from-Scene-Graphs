@@ -75,6 +75,8 @@ torch.backends.cudnn.benchmark = False
 
 
 def test(model, loader):
+    warnings.warn("Temporarily using old test code", UserWarning)
+
     model.eval()
     len_actions = len(ACTIONS)
     action_indices = [range(0, len_actions)]
@@ -205,7 +207,9 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch):
 
 
 
-            wandb.log({f'{mode}/confusion_matrix/': {'top1': plt, 'top3': plt3}})
+            # plt not defined hatası veriyor
+            # wandb.log({f'{mode}/confusion_matrix/': {'top1': plt, 'top3': plt3}})
+
             # if (step+1)%20==0:
             #     print("20 BATCH ÇALIŞIYOR SADECE")
             #     break
@@ -216,6 +220,9 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch):
 
     overall_conf_mat_top1 = conf_mat_top1.compute()
     overall_conf_mat_top3 = conf_mat_top3.compute()
+
+    wandb.log({f"{mode}/": {'top1_F1': overall_f1_top1, 'top3_F1': overall_f1_top3}}, step=epoch)
+
 
     # cf1=wandb.Table(data=overall_conf_mat_top1.cpu().numpy(), columns=ACTIONS, rows=ACTIONS)
     # cf3=wandb.Table(data=overall_conf_mat_top3.cpu().numpy(), columns=ACTIONS, rows=ACTIONS)
@@ -251,15 +258,24 @@ if __name__ == "__main__":
     test_loader = DataLoader(test_set, args.batch_size, shuffle=True, num_workers=2, drop_last=True,  worker_init_fn=seed_worker)
     val_loader = DataLoader(val_set, args.batch_size, shuffle=True, num_workers=2, drop_last=True,  worker_init_fn=seed_worker)
 
-    model = models.ActionRecognition(num_edge_feat=len(RELATIONS),
-                                     conv_in=len(OBJECTS),
-                                     conv_hidden=args.conv_hidden,
-                                     conv_out=args.conv_out,
+    model = models.ActionRecognition(gnn_type=args.gnn_type,
+                                     num_edge_feat=len(RELATIONS),
+                                     in_channels=len(OBJECTS),
+                                     hidden_channels=args.hidden_channels,
+                                     out_channels=args.out_channels,
                                      batch_size=args.batch_size,
                                      num_action_classes=len(ACTIONS),
-                                     hidden_size=args.hidden_size,
-                                     num_rnn_layers=1).to(device=device)
+                                     lstm_hidden_size=args.lstm_hidden_size,
+                                     heads=args.num_heads).to(device=device)
 
+    # TODO Model summary
+    # model = GCN(128, 64, num_layers=2, out_channels=32)
+    # x = torch.randn(100, 128)
+    # edge_index = torch.randint(100, size=(2, 20))
+
+    # print(summary(model, x, edge_index))
+
+        
     # for mode, run in runs.items():
     wandb.watch(model, log='all')
 
@@ -273,8 +289,8 @@ if __name__ == "__main__":
 
     print("# of parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.scheduler_step_size, gamma=args.scheduler_gamma)
     criterion = torch.nn.CrossEntropyLoss()
 
     if not os.path.isdir("saved"):
@@ -285,16 +301,15 @@ if __name__ == "__main__":
 
     # Load saved models if required
     if args.restore is not None:
-        checkpoint = torch.load(opj("saved", f"checkpoint_epoch{args.restore:0>4}.pt"))
+        checkpoint = torch.load(opj("saved", f"model_{args.restored_name}_epoch{args.restore:0>4}.pt"))
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         model.load_state_dict(checkpoint["model_state_dict"])
         scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
         print("model and optimizer parameters are restored successfully!")
 
     step = 0
-    start = 1 if args.restore is None else args.restore
-
     print("Start training...")
+    start = 1 if args.restore is None else args.restore
     for epoch in range(start, start + args.max_epochs):
         start = time.perf_counter()
 
@@ -305,7 +320,7 @@ if __name__ == "__main__":
         # Save model
         if epoch % 5 == 0:
             torch.save({"model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(), "scheduler_state_dict": scheduler.state_dict()},
-                       opj("saved", f"checkpoint_epoch{epoch:0>4}.pt"))
+                       opj("saved", f"model_{args.name}_epoch{epoch:0>4}.pt"))
 
         # save confusion matrices
         plt = plot_conf_mat(conf_mat_top1_val.cpu(), f"conf_mat_top1_e{epoch:0>4}", do_return_plot=True)
@@ -327,7 +342,7 @@ if __name__ == "__main__":
     # save_conf_mat(conf_mat_top1_test.cpu(), f"TEST_conf_mat_top1_e{epoch}")
     # save_conf_mat(conf_mat_top3_test.cpu(), f"TEST_conf_mat_top3_e{epoch}")
 
-    print("Temporarily using old test code")
+    
     test(model, test_loader)
 
     print("wandb saving...")

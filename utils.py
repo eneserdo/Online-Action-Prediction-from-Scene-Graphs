@@ -18,21 +18,30 @@ def arg_parser():
     ap.add_argument("-rt", "--root", type=str, default='.', help="Root directory of dataset.")
     ap.add_argument("-p", "--process_it", action="store_true", help="...")
     ap.add_argument("-contact", "--contact_only", action="store_true", help="...")
-    ap.add_argument("-bs", "--batch_size", type=int, default=64, help="...")
+    ap.add_argument("-bs", "--batch_size", type=int, default=16, help="...")
     ap.add_argument("-tl", "--temporal_length", type=int, default=10, help="...")
     ap.add_argument("-ts", "--test_subject", type=int, default=1, choices=[1, 2, 3, 4, 5, 6], help="...")
     ap.add_argument("-vt", "--validation_take", type=int, default=7, choices=[i for i in range(10)], help="...")
 
-    # Model
-    ap.add_argument("-ch", "--conv_hidden", type=int, default=64, help="...")
-    ap.add_argument("-co", "--conv_out", type=int, default=64, help="...")
-    ap.add_argument("-hs", "--hidden_size", type=int, default=128, help="...")
-    ap.add_argument("-r", "--restore", type=int, help="...")
+    # Model ,required=True
+    ap.add_argument("-g", "--gnn_type", type=str, default="GATConv", choices=["NNConv", "GATConv", "TransformerConv"], help="...")
+    ap.add_argument("-hc", "--hidden_channels", type=int, default=64, help="...")
+    ap.add_argument("-oc", "--out_channels", type=int, default=64, help="...")
+    ap.add_argument("-hs", "--lstm_hidden_size", type=int, default=128, help="...")
+    ap.add_argument("-nh", "--num_heads", type=int, default=4, help="...")
 
+    # Optimizer
+    ap.add_argument("-lr", "--learning_rate", type=float, default=0.001, help="...")
+    ap.add_argument("--scheduler_step_size", type=int, default=10, help="...")
+    ap.add_argument("--scheduler_gamma", type=float, default=0.5, help="...")
+
+    # Training
     ap.add_argument("-me", "--max_epochs", type=int, default=50, help="Max number of epochs")
+    ap.add_argument("-r", "--restore", type=int, help="...")
+    ap.add_argument("-rn", "--restored_name", type=str, help="...")
 
-    # Logging
-    ap.add_argument("-n", "--name", type=str, required=True, help="Name of experiment for logging into Wandb")
+    # Logging required=True
+    ap.add_argument("-n", "--name", default="dene", type=str, help="Name of experiment for logging into Wandb")
 
     return ap.parse_args()
 
