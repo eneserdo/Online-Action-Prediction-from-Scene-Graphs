@@ -203,7 +203,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch):
             # step_conf_mat_top1 = conf_mat_top1(pred_top_1, ground_truth)        # old conf_mat
             # step_conf_mat_top3 = conf_mat_top3(pred_top_3_final, ground_truth)
 
-            wandb.log({f"{mode}/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()}}, step=step)
+            wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()}}, step=step)
 
 
 
@@ -221,7 +221,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch):
     overall_conf_mat_top1 = conf_mat_top1.compute()
     overall_conf_mat_top3 = conf_mat_top3.compute()
 
-    wandb.log({f"{mode}/": {'top1_F1': overall_f1_top1, 'top3_F1': overall_f1_top3}}, step=epoch)
+    wandb.log({f"{mode}/epoch/": {'top1_F1': overall_f1_top1, 'top3_F1': overall_f1_top3}}, step=epoch)
 
 
     # cf1=wandb.Table(data=overall_conf_mat_top1.cpu().numpy(), columns=ACTIONS, rows=ACTIONS)
@@ -279,9 +279,14 @@ if __name__ == "__main__":
     # for mode, run in runs.items():
     wandb.watch(model, log='all')
 
+    # TODO find correct metric names and define them
+    #
     wandb.define_metric("epoch")
-    wandb.define_metric("train/*", step_metric="epoch")
+    wandb.define_metric("train/epoch/*", step_metric="epoch")
+    wandb.define_metric("val/epoch/*", step_metric="epoch")
     wandb.define_metric("batch")
+    wandb.define_metric("train/batch/*", step_metric="batch")
+    wandb.define_metric("val/batch/*", step_metric="batch")
     # wandb.define_metric("F1")
     # wandb.define_metric("Loss")
 
