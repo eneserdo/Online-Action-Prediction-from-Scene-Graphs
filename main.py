@@ -4,8 +4,8 @@
     - make it fully deterministic (ask arda hoca)
     - weight init appropriately
     - torchmetric top_k=3 not working
-    - log conf_matrix
-    - log batchwise loss/F1 and epochwise loss/F1
+    ~ log conf_matrix
+    ~ log batchwise loss/F1 and epochwise loss/F1
 """
 
 import os
@@ -117,8 +117,9 @@ def test(model, loader):
     plt = plot_conf_mat(conf_mat_top, "aa_restored_top1", do_return_plot=True)
     plt3 = plot_conf_mat(conf_mat_top_3, "aa_restored_top3", do_return_plot=True)
 
-    wandb.log({"test/confusion_matrix/": {'top1': plt, 'top3': plt3}})
-
+    wandb.log({"test/confusion_matrix/": {'top1': wandb.Image(plt), 'top3': wandb.Image(plt3)}})
+    plt.close()
+    plt3.close()
 #     print("Test acc: ", scores['accuracy'])
 #     print("Test top3 acc: ", scores_top_3['accuracy'])
 
@@ -144,7 +145,7 @@ def test(model, loader):
 #         viz.line(Y=[correct / total], X=[step], win=acc_window, update="append", name="val_acc")
 
 
-def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch):
+def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch:int):
     global step
 
     if mode in ["test", "val"]:
@@ -192,6 +193,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch):
             # conf_mat_top += conf_mat_from_left_right(ground_truth, pred_top_1, action_indices)
             # conf_mat_top_3 += conf_mat_from_left_right(ground_truth, pred_top, action_indices)
 
+            # old conf_mat
             # conf_mat_top += confusion_matrix(ground_truth.cpu().detach().numpy(), pred_top_1.cpu().detach().numpy(), labels=action_indices)
             # conf_mat_top_3 += confusion_matrix(ground_truth.cpu().detach().numpy(), pred_top_3_final.cpu().detach().numpy(), labels=action_indices)
 
@@ -200,12 +202,10 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch):
             step_f1_top1 = f1_calc_top1(left_right_pred, ground_truth)
             step_f1_top3 = f1_calc_top3(left_right_pred, ground_truth)
 
-            # step_conf_mat_top1 = conf_mat_top1(pred_top_1, ground_truth)        # old conf_mat
-            # step_conf_mat_top3 = conf_mat_top3(pred_top_3_final, ground_truth)
+            step_conf_mat_top1 = conf_mat_top1(pred_top_1, ground_truth)
+            step_conf_mat_top3 = conf_mat_top3(pred_top_3_final, ground_truth)
 
             wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()}, 'batch': step}, step=step)
-
-
 
             # plt not defined hatası veriyor
             # wandb.log({f'{mode}/confusion_matrix/': {'top1': plt, 'top3': plt3}})
@@ -221,7 +221,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch):
     overall_conf_mat_top1 = conf_mat_top1.compute()
     overall_conf_mat_top3 = conf_mat_top3.compute()
 
-    wandb.log({f"{mode}/epoch/": {'top1_F1': overall_f1_top1, 'top3_F1': overall_f1_top3}, 'epoch': epoch}, step=epoch)
+    wandb.log({f"{mode}/epoch/": {'top1_F1': overall_f1_top1, 'top3_F1': overall_f1_top3}, 'epoch': epoch})
 
 
     # cf1=wandb.Table(data=overall_conf_mat_top1.cpu().numpy(), columns=ACTIONS, rows=ACTIONS)
@@ -275,7 +275,7 @@ if __name__ == "__main__":
     wandb.watch(model, log='all')
 
     # TODO find correct metric names and define them
-    #
+    # I suppose done...
     wandb.define_metric("epoch")
     wandb.define_metric("train/epoch/*", step_metric="epoch")
     wandb.define_metric("val/epoch/*", step_metric="epoch")
@@ -325,7 +325,9 @@ if __name__ == "__main__":
         # save confusion matrices
         plt = plot_conf_mat(conf_mat_top1_val.cpu(), f"conf_mat_top1_e{epoch:0>4}", do_return_plot=True)
         plt3 = plot_conf_mat(conf_mat_top3_val.cpu(), f"conf_mat_top3_e{epoch:0>4}", do_return_plot=True)
-        wandb.log({'val/confusion_matrix/': {'top1': plt, 'top3': plt3}})
+        wandb.log({'val/confusion_matrix/': {'top1': wandb.Image(plt), 'top3': wandb.Image(plt3)}})
+        plt.close()
+        plt3.close()
 
         scheduler.step()
         stop = time.perf_counter()
