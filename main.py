@@ -290,7 +290,7 @@ if __name__ == "__main__":
     print("# of parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.scheduler_step_size, gamma=args.scheduler_gamma)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.scheduler_step_size, gamma=args.scheduler_gamma, verbose=True)
     criterion = torch.nn.CrossEntropyLoss()
 
     if not os.path.isdir("saved"):
