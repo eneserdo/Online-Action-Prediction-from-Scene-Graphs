@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 """
     TODO:
-    - make it fully deterministic (ask arda hoca)
     - weight init appropriately
-    - torchmetric top_k=3 not working
     ~ log conf_matrix
     ~ log batchwise loss/F1 and epochwise loss/F1
 """
@@ -255,7 +253,7 @@ if __name__ == "__main__":
     args = arg_parser()
     print("ARGS:\n", args)
 
-    wandb.init(project="online-action-prediction-from-scene-graphs", name=args.name, config=args.__dict__)
+    wandb.init(project="online-action-prediction-from-scene-graphs", name=args.name, config=args.__dict__, mode = "disable" if args.disable_wandb else "online")
 
     # Use date info to save model weights 
     # save_date=datetime.now().strftime("%m-%d-%Y, %H-%M")

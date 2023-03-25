@@ -45,6 +45,7 @@ def arg_parser():
 
     # Logging
     ap.add_argument("-n", "--name", required=True, type=str, help="Name of experiment for logging into Wandb")
+    ap.add_argument("--disable_wandb",action="store_true", help="Disable wandb")
 
     return ap.parse_args()
 

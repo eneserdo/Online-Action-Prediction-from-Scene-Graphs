@@ -22,21 +22,20 @@ class ActionRecognition(torch.nn.Module):
         if gnn_type == "NNConv":
             nn1 = Sequential(Linear(num_edge_feat, in_channels*hidden_channels), ReLU())
             self.conv1 = geometric_nn.NNConv(in_channels, hidden_channels, nn1, aggr='mean')
-            self.bn1=geometric_nn.BatchNorm(hidden_channels)
             nn2 = Sequential(Linear(num_edge_feat, hidden_channels*out_channels), ReLU())
             self.conv2 = geometric_nn.NNConv(hidden_channels, out_channels, nn2, aggr='mean')
-            self.bn2=geometric_nn.BatchNorm(out_channels)
 
         elif gnn_type == "GATConv":
             self.conv1 = geometric_nn.GATConv(in_channels, hidden_channels, kwargs["heads"], edge_dim=num_edge_feat )
-            self.bn1=geometric_nn.BatchNorm(hidden_channels*kwargs["heads"])
             self.conv2 = geometric_nn.GATConv(hidden_channels*kwargs["heads"], out_channels, kwargs["heads"], edge_dim= num_edge_feat)
-            self.bn2=geometric_nn.BatchNorm(out_channels*kwargs["heads"])
+            hidden_channels=hidden_channels*kwargs["heads"]
             out_channels=out_channels*kwargs["heads"]
 
-        # elif gnn_type == "TransformerConv":
-        #     self.conv1 = geometric_nn.TransformerConv(in_channels, hidden_channels, kwargs["heads"], edge_dim=num_edge_feat )
-        #     self.conv2 = geometric_nn.TransformerConv(hidden_channels, out_channels, kwargs["heads"], edge_dim= num_edge_feat)
+        elif gnn_type == "TransformerConv":
+            self.conv1 = geometric_nn.TransformerConv(in_channels, hidden_channels, kwargs["heads"], edge_dim=num_edge_feat )
+            self.conv2 = geometric_nn.TransformerConv(hidden_channels*kwargs["heads"], out_channels, kwargs["heads"], edge_dim= num_edge_feat)
+            hidden_channels=hidden_channels*kwargs["heads"]
+            out_channels=out_channels*kwargs["heads"]
 
         else:
             raise NotImplementedError(f"gnn_type: {gnn_type} is not implemented")
@@ -46,6 +45,8 @@ class ActionRecognition(torch.nn.Module):
 
 
         if use_bn:
+            self.bn1=geometric_nn.BatchNorm(hidden_channels)
+            self.bn1=geometric_nn.BatchNorm(out_channels)
             self.gnn=geometric_nn.Sequential("x, edge_index, edge_attr", 
                                              [(self.conv1, "x, edge_index, edge_attr -> x"), self.act1, self.bn1, 
                                               (self.conv2, "x, edge_index, edge_attr -> x"), self.act2, self.bn2])
