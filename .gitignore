@@ -140,6 +140,7 @@ processed/
 
 .vscode/
 deneme*.py
+deneme*.ipynb
 saved*/
 wandb/
 conf_mat/

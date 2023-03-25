@@ -50,7 +50,6 @@ def arg_parser():
     return ap.parse_args()
 
 
-
 def arg_parser_inference():
 
     ap = argparse.ArgumentParser()
@@ -138,8 +137,10 @@ def get_minutes(elapsed) -> str:
     return f"{round((elapsed)//60)}.{round((elapsed)%60)}"
 
 def plot_conf_mat(mat, name, do_save=False, do_return_plot=False):
+    mat_long=torch.round(mat*100).long()
+
     plt.figure(figsize=(14,12))
-    sns.heatmap(mat, square=True, annot=True, cmap='Blues', cbar=False, xticklabels=ACTIONS, yticklabels=ACTIONS, vmin=0, vmax=1)
+    sns.heatmap(mat_long, square=True, annot=True, cmap='Blues', cbar=False, xticklabels=ACTIONS, yticklabels=ACTIONS, vmin=0, vmax=100)
     plt.yticks(rotation=0)
     plt.title(f"{name}")
     plt.xlabel('Predicted')
