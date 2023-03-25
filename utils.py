@@ -18,7 +18,7 @@ def arg_parser():
     ap.add_argument("-rt", "--root", type=str, default='.', help="Root directory of dataset.")
     ap.add_argument("-p", "--process_it", action="store_true", help="...")
     ap.add_argument("-contact", "--contact_only", action="store_true", help="...")
-    ap.add_argument("-bs", "--batch_size", type=int, default=512, help="...")
+    ap.add_argument("-bs", "--batch_size", type=int, default=128, help="...")
     ap.add_argument("-tl", "--temporal_length", type=int, default=10, help="...")
     ap.add_argument("-ts", "--test_subject", type=int, default=1, choices=[1, 2, 3, 4, 5, 6], help="...")
     ap.add_argument("-vt", "--validation_take", type=int, default=7, choices=[i for i in range(10)], help="...")
@@ -133,7 +133,7 @@ def classification_scores(conf_mat):
 def get_minutes(elapsed) -> str:
     return f"{round((elapsed)//60)}.{round((elapsed)%60)}"
 
-def plot_conf_mat(mat, name, do_save=True, do_return_plot=False):
+def plot_conf_mat(mat, name, do_save=False, do_return_plot=False):
     plt.figure(figsize=(14,12))
     sns.heatmap(mat, square=True, annot=True, cmap='Blues', cbar=False, xticklabels=ACTIONS, yticklabels=ACTIONS, vmin=0, vmax=1)
     plt.yticks(rotation=0)
@@ -141,6 +141,7 @@ def plot_conf_mat(mat, name, do_save=True, do_return_plot=False):
     plt.xlabel('Predicted')
     plt.ylabel('Ground truth')
     if do_save:
+        raise NotImplementedError("conf_mat diye bir klasor yok artik")
         plt.savefig(opj("conf_mat", f'{name}.png'))
     if do_return_plot:
         return plt

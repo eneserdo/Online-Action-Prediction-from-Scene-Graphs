@@ -135,6 +135,7 @@ class ActionRecognition(torch.nn.Module):
         return self.mlp(both_hn)
 
     # def print_summary(self):
-    #     # x = torch.randn(100, len(OBJECTS))
-    #     # edge_index = torch.randint(100, size=(2, 20))
-    #     print(summary(model, x, edge_index))
+    #     x = torch.randn(100, 15)
+    #     edge_index = torch.randint(0, 20, size=(2, 20))
+    #     edge_attr = torch.randint(0, 2, size=(20,15))
+    #     print(summary(self, x, edge_index, edge_attr))

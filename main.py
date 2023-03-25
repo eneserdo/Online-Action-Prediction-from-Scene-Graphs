@@ -76,6 +76,7 @@ torch.backends.cudnn.benchmark = False
 
 def test(model, loader):
     warnings.warn("Temporarily using old test code", UserWarning)
+    dummy_i=0
 
     model.eval()
     len_actions = len(ACTIONS)
@@ -84,10 +85,11 @@ def test(model, loader):
     conf_mat_top_3 = np.zeros((len_actions, len_actions), dtype=float)
 
     with warnings.catch_warnings():
-        warnings.filterwarnings('ignore', '.*There is a performance drop.*',
+        warnings.filterwarnings('ignore', '.*There is a performance drop.*|.*NaN values found in confusion matrix.*',
                                 UserWarning)  # ignores warning about functorch
 
         for data in loader:  # Iterate in batches over the training/test dataset.
+            dummy_i+=1
             data = [d.to(device) for d in data]
 
             left_right_pred = model(data)
@@ -107,6 +109,9 @@ def test(model, loader):
                                              labels=action_indices)
             conf_mat_top_3 += confusion_matrix(ground_truth.cpu().detach().numpy(),
                                                pred_top_3_final.cpu().detach().numpy(), labels=action_indices)
+            # if dummy_i==5:
+            #     print("TEST ONLY RUNNED 5 STEP")
+            #     break
 
     scores = classification_scores(conf_mat_top)
     scores_top_3 = classification_scores(conf_mat_top_3)
@@ -159,12 +164,13 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch:i
     # conf_mat_top_3 = np.zeros((len_actions, len_actions), dtype=float)
 
     f1_calc_top1 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(device)
-    f1_calc_top3 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=3, average="macro").to(device)
+    f1_calc_top3 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(device) # top_k is intentionally 1 
+    
     conf_mat_top1 = MulticlassConfusionMatrix(num_classes=len(ACTIONS), normalize="true").to(device)
     conf_mat_top3 = MulticlassConfusionMatrix(num_classes=len(ACTIONS), normalize="true").to(device)
 
     with warnings.catch_warnings():
-        warnings.filterwarnings('ignore', '.*There is a performance drop.*',
+        warnings.filterwarnings('ignore', '.*There is a performance drop.*|.*NaN values found in confusion matrix.*',
                                 UserWarning)  # ignores warning about functorch
 
         for data in loader:
@@ -198,14 +204,14 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch:i
             # conf_mat_top_3 += confusion_matrix(ground_truth.cpu().detach().numpy(), pred_top_3_final.cpu().detach().numpy(), labels=action_indices)
 
             # torchmetric
-
             step_f1_top1 = f1_calc_top1(left_right_pred, ground_truth)
-            step_f1_top3 = f1_calc_top3(left_right_pred, ground_truth)
+            step_f1_top3 = f1_calc_top3(pred_top_3_final, ground_truth)
 
             step_conf_mat_top1 = conf_mat_top1(pred_top_1, ground_truth)
             step_conf_mat_top3 = conf_mat_top3(pred_top_3_final, ground_truth)
 
-            wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()}, 'batch': step}, step=step)
+            if mode != "test":
+                wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()}, 'batch': step}, step=step)
 
             # plt not defined hatası veriyor
             # wandb.log({f'{mode}/confusion_matrix/': {'top1': plt, 'top3': plt3}})
@@ -221,7 +227,8 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch:i
     overall_conf_mat_top1 = conf_mat_top1.compute()
     overall_conf_mat_top3 = conf_mat_top3.compute()
 
-    wandb.log({f"{mode}/epoch/": {'top1_F1': overall_f1_top1, 'top3_F1': overall_f1_top3}, 'epoch': epoch})
+    if mode != "test":
+        wandb.log({f"{mode}/epoch/": {'top1_F1': overall_f1_top1, 'top3_F1': overall_f1_top3}, 'epoch': epoch})
 
 
     # cf1=wandb.Table(data=overall_conf_mat_top1.cpu().numpy(), columns=ACTIONS, rows=ACTIONS)
@@ -267,9 +274,6 @@ if __name__ == "__main__":
                                      num_action_classes=len(ACTIONS),
                                      lstm_hidden_size=args.lstm_hidden_size,
                                      heads=args.num_heads).to(device=device)
-
-    # TODO Model summary
-    # print_model_summary(model)
         
     # for mode, run in runs.items():
     wandb.watch(model, log='all')
@@ -293,15 +297,17 @@ if __name__ == "__main__":
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.scheduler_step_size, gamma=args.scheduler_gamma, verbose=True)
     criterion = torch.nn.CrossEntropyLoss()
 
-    if not os.path.isdir("saved"):
-        os.mkdir("saved")
+    save_dir=f"saved_{args.name}"
+    if not os.path.isdir(save_dir):
+        os.mkdir(save_dir)
 
-    if not os.path.isdir("conf_mat"):
-        os.mkdir("conf_mat")
+    # conf_mat_dir=f"conf_mat_{args.name}"
+    # if not os.path.isdir(conf_mat_dir):
+    #     os.mkdir(conf_mat_dir)
 
     # Load saved models if required
     if args.restore is not None:
-        checkpoint = torch.load(opj("saved", f"model_{args.restored_name}_epoch{args.restore:0>4}.pt"))
+        checkpoint = torch.load(opj(f"saved_{args.restored_name}", f"model_epoch{args.restore:0>4}.pt"))
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         model.load_state_dict(checkpoint["model_state_dict"])
         scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
@@ -320,7 +326,7 @@ if __name__ == "__main__":
         # Save model
         if epoch % 5 == 0:
             torch.save({"model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(), "scheduler_state_dict": scheduler.state_dict()},
-                       opj("saved", f"model_{args.name}_epoch{epoch:0>4}.pt"))
+                       opj(save_dir, f"model_epoch{epoch:0>4}.pt"))
 
         # save confusion matrices
         plt = plot_conf_mat(conf_mat_top1_val.cpu(), f"conf_mat_top1_e{epoch:0>4}", do_return_plot=True)
@@ -337,15 +343,20 @@ if __name__ == "__main__":
               f'### Val: top1: {round(f_top1_val.item(), 4)}, top3: {round(f_top3_val.item(), 4)}')
 
 
-    # f_top1_test, f_top3_test, conf_mat_top1_test, conf_mat_top3_test=run_one_epoch(model, test_loader, 'test')
-
-    # print(f'### [F1] TEST: top1: {round(f_top1_test.item(), 4)}, top3: {round(f_top3_test.item(), 4)}')
-
-    # save_conf_mat(conf_mat_top1_test.cpu(), f"TEST_conf_mat_top1_e{epoch}")
-    # save_conf_mat(conf_mat_top3_test.cpu(), f"TEST_conf_mat_top3_e{epoch}")
-
+    # TEST
+    f_top1_test, f_top3_test, conf_mat_top1_test, conf_mat_top3_test=run_one_epoch(model, test_loader, 'test', epoch=-1)
     
-    test(model, test_loader)
+    plt = plot_conf_mat(conf_mat_top1_test.cpu(), f"conf_mat_top1_e{epoch:0>4}", do_return_plot=True)
+    plt3 = plot_conf_mat(conf_mat_top3_test.cpu(), f"conf_mat_top3_e{epoch:0>4}", do_return_plot=True)
+    wandb.log({'test/confusion_matrix/': {'top1': wandb.Image(plt), 'top3': wandb.Image(plt3)}})
+    
+    print(f'### [F1] TEST: top1: {round(f_top1_test.item(), 4)}, top3: {round(f_top3_test.item(), 4)}')
+    plt.close()
+    plt3.close()
+    
+    # Old test
+    # test(model, test_loader)
+
     torch.cuda.empty_cache()
 
     print("wandb saving...")
