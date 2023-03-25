@@ -23,6 +23,9 @@ from torch_geometric.loader import DataLoader
 from torchmetrics.classification import (MulticlassConfusionMatrix,
                                          MulticlassF1Score)
 
+import matplotlib.pyplot as pyplot
+
+
 import models
 import wandb
 from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits)
@@ -40,7 +43,9 @@ torch.cuda.manual_seed(SEED)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
-
+# # An attempt to fix the following error:
+# XIO:  fatal IO error 25 (Inappropriate ioctl for device) on X server "localhost:10.0" after 2627 requests (2627 known processed) with 8 events remaining.
+pyplot.ioff() 
 
 # def train(model: torch.nn.Module, train_loader: DataLoader):
 #     global step

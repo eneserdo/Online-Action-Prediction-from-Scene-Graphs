@@ -10,6 +10,8 @@ from sklearn.metrics import confusion_matrix
 
 from dataset import ACTIONS
 
+plt.ioff()
+
 def arg_parser():
 
     ap = argparse.ArgumentParser()
