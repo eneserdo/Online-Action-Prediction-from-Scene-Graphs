@@ -250,7 +250,7 @@ if __name__ == "__main__":
     args = arg_parser()
     print("ARGS:\n", args)
 
-    wandb.init(project="online-action-prediction-from-scene-graphs", name=args.name)
+    wandb.init(project="online-action-prediction-from-scene-graphs", name=args.name, config=args.__dict__)
 
     # Use date info to save model weights 
     # save_date=datetime.now().strftime("%m-%d-%Y, %H-%M")
