@@ -30,7 +30,7 @@ def arg_parser():
     ap.add_argument("-hc", "--hidden_channels", type=int, default=64, help="...")
     ap.add_argument("-oc", "--out_channels", type=int, default=64, help="...")
     ap.add_argument("-hs", "--lstm_hidden_size", type=int, default=128, help="...")
-    ap.add_argument("-nh", "--num_heads", type=int, default=4, help="...")
+    ap.add_argument("-nh", "--num_heads", type=int, default=2, help="...")
     ap.add_argument("-nbn", "--no_bn", action="store_true", help="...")
 
     # Optimizer

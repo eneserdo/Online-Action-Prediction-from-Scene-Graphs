@@ -253,7 +253,7 @@ if __name__ == "__main__":
     args = arg_parser()
     print("ARGS:\n", args)
 
-    wandb.init(project="online-action-prediction-from-scene-graphs", name=args.name, config=args.__dict__, mode = "disable" if args.disable_wandb else "online")
+    wandb.init(project="online-action-prediction-from-scene-graphs", name=args.name, config=args.__dict__, mode = "disabled" if args.disable_wandb else "online")
 
     # Use date info to save model weights 
     # save_date=datetime.now().strftime("%m-%d-%Y, %H-%M")
@@ -278,6 +278,8 @@ if __name__ == "__main__":
                                      lstm_hidden_size=args.lstm_hidden_size,
                                      heads=args.num_heads,
                                      use_bn=not args.no_bn).to(device=device)
+
+    print(model)
         
     # for mode, run in runs.items():
     wandb.watch(model, log='all')
