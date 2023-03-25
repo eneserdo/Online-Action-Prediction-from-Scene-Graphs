@@ -273,7 +273,8 @@ if __name__ == "__main__":
                                      batch_size=args.batch_size,
                                      num_action_classes=len(ACTIONS),
                                      lstm_hidden_size=args.lstm_hidden_size,
-                                     heads=args.num_heads).to(device=device)
+                                     heads=args.num_heads,
+                                     use_bn=not args.no_bn).to(device=device)
         
     # for mode, run in runs.items():
     wandb.watch(model, log='all')

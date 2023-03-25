@@ -11,7 +11,7 @@ from dataset import OBJECTS
 # TODO: Single MLP to learn both action simultaneously
 
 class ActionRecognition(torch.nn.Module):
-    def __init__(self, gnn_type, in_channels, hidden_channels, out_channels, num_edge_feat, batch_size, num_action_classes, lstm_hidden_size, **kwargs):
+    def __init__(self, gnn_type, in_channels, hidden_channels, out_channels, num_edge_feat, batch_size, num_action_classes, lstm_hidden_size, use_bn, **kwargs):
         """ Accepts kwargs for non-general params of gnns """
         super().__init__()
 
@@ -44,10 +44,16 @@ class ActionRecognition(torch.nn.Module):
         self.act1 = SELU()
         self.act2 = SELU()
 
-        # FIXME: geometric sequential
-        self.gnn=geometric_nn.Sequential("x, edge_index, edge_attr", 
-                                         [(self.conv1, "x, edge_index, edge_attr -> x"), self.act1, self.bn1, 
-                                          (self.conv2, "x, edge_index, edge_attr -> x"), self.act2, self.bn2])
+
+        if use_bn:
+            self.gnn=geometric_nn.Sequential("x, edge_index, edge_attr", 
+                                             [(self.conv1, "x, edge_index, edge_attr -> x"), self.act1, self.bn1, 
+                                              (self.conv2, "x, edge_index, edge_attr -> x"), self.act2, self.bn2])
+
+        else:
+            self.gnn=geometric_nn.Sequential("x, edge_index, edge_attr", 
+                                             [(self.conv1, "x, edge_index, edge_attr -> x"), self.act1, 
+                                              (self.conv2, "x, edge_index, edge_attr -> x"), self.act2])
 
 
         num_rnn_layers = 1 # Lets make it constant
