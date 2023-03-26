@@ -31,10 +31,12 @@ def arg_parser():
     ap.add_argument("-oc", "--out_channels", type=int, default=64, help="...")
     ap.add_argument("-hs", "--lstm_hidden_size", type=int, default=128, help="...")
     ap.add_argument("-nh", "--num_heads", type=int, default=2, help="...")
+    ap.add_argument("--saving_freq", type=int, default=5, help="...")
     ap.add_argument("-nbn", "--no_bn", action="store_true", help="...")
 
     # Optimizer
     ap.add_argument("-lr", "--learning_rate", type=float, default=0.001, help="...")
+    ap.add_argument("-wd", "--weight_decay", type=float, default=0.0, help="...")
     ap.add_argument("--scheduler_step_size", type=int, default=10, help="...")
     ap.add_argument("--scheduler_gamma", type=float, default=0.5, help="...")
 

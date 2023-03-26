@@ -45,37 +45,6 @@ torch.backends.cudnn.benchmark = False
 # XIO:  fatal IO error 25 (Inappropriate ioctl for device) on X server "localhost:10.0" after 2627 requests (2627 known processed) with 8 events remaining.
 pyplot.ioff() 
 
-# def train(model: torch.nn.Module, train_loader: DataLoader):
-#     global step
-#     model.train()
-#     correct = 0
-#     total = 0
-
-#     for data in train_loader:
-#         step += 1
-#         optimizer.zero_grad()
-#         data = [d.to(device) for d in data]
-#         # left_pred, right_pred = model(data) 
-#         left_right_pred = model(data)
-#         # loss = criterion(left_pred[0], data[-1].y[::2]) + criterion(right_pred[0], data[-1].y[1::2])
-#         loss = criterion(left_right_pred[:args.batch_size], data[-1].y[::2]) + criterion(
-#             left_right_pred[args.batch_size:], data[-1].y[1::2])
-#         # data[-1].y means labels of last frames
-#         # data[-1].y[::2] means even indexed elements (left hands)  
-#         # data[-1].y[1::2] means odd indexed elements (right hands)  
-#         loss.backward()
-#         optimizer.step()
-
-#         pred = left_right_pred.argmax(dim=1)
-#         ground_truth_lft_rght = data[-1].y.argmax(dim=1)
-#         ground_truth = torch.cat([ground_truth_lft_rght[::2], ground_truth_lft_rght[1::2]])
-#         correct += int((pred == ground_truth).sum())  # Check against ground-truth labels.
-#         total += pred.size(dim=0)
-
-#         if visdom_enabled:
-#             viz.line(Y=[loss.item()], X=[step], win=loss_window, update="append")
-#             viz.line(Y=[correct / total], X=[step], win=acc_window, update="append", name="train_acc")
-
 
 def test(model, loader):
     warnings.warn("Temporarily using old test code", UserWarning)
@@ -133,24 +102,6 @@ def test(model, loader):
 
 #     return scores, scores_top_3
 
-
-# def validate(model, loader):
-#     model.eval()
-#     correct = 0
-#     total = 0
-#     for data in loader:  # Iterate in batches over the training/validation dataset.
-#         data = [d.to(device) for d in data]
-
-#         left_right_pred = model(data)
-#         pred = left_right_pred.argmax(dim=1)
-#         ground_truth_lft_rght = data[-1].y.argmax(dim=1)
-#         ground_truth = torch.cat([ground_truth_lft_rght[::2], ground_truth_lft_rght[1::2]])
-#         correct += int((pred == ground_truth).sum())  # Check against ground-truth labels.
-#         total += pred.size(dim=0)
-
-#     print("Val acc: ", correct / total)
-#     if visdom_enabled:
-#         viz.line(Y=[correct / total], X=[step], win=acc_window, update="append", name="val_acc")
 
 
 def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch:int):
@@ -280,7 +231,8 @@ if __name__ == "__main__":
                                      use_bn=not args.no_bn).to(device=device)
 
     print(model)
-        
+    print("# of parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))
+
     # for mode, run in runs.items():
     wandb.watch(model, log='all')
 
@@ -294,14 +246,9 @@ if __name__ == "__main__":
     wandb.define_metric("val/batch/*", step_metric="batch")
     wandb.define_metric("test_top1")
     wandb.define_metric("test_top3")
-    # wandb.define_metric("F1")
-    # wandb.define_metric("Loss")
 
-    # wandb.log({f"{mode}/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()}}, step=step)
 
-    print("# of parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))
-
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.scheduler_step_size, gamma=args.scheduler_gamma, verbose=True)
     criterion = torch.nn.CrossEntropyLoss()
 
@@ -324,6 +271,7 @@ if __name__ == "__main__":
     step = 0
     print("Start training...")
     start = 1 if args.restore is None else args.restore
+    epoch=start
     for epoch in range(start, start + args.max_epochs):
         start = time.perf_counter()
 
@@ -332,7 +280,7 @@ if __name__ == "__main__":
         f_top1_val, f_top3_val, conf_mat_top1_val, conf_mat_top3_val = run_one_epoch(model, val_loader, 'val', epoch)
 
         # Save model
-        if epoch % 5 == 0:
+        if epoch % args.saving_freq == 0:
             torch.save({"model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(), "scheduler_state_dict": scheduler.state_dict()},
                        opj(save_dir, f"model_epoch{epoch:0>4}.pt"))
 
@@ -352,6 +300,7 @@ if __name__ == "__main__":
 
 
     # TEST
+    print("Starts test...")
     f_top1_test, f_top3_test, conf_mat_top1_test, conf_mat_top3_test=run_one_epoch(model, test_loader, 'test', epoch=-1)
     
     plt = plot_conf_mat(conf_mat_top1_test.cpu(), f"TEST_conf_mat_top1_e{epoch:0>4}", do_return_plot=True)
