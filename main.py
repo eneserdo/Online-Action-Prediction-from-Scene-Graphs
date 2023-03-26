@@ -288,10 +288,12 @@ if __name__ == "__main__":
     # I suppose done...
     wandb.define_metric("epoch")
     wandb.define_metric("train/epoch/*", step_metric="epoch")
-    wandb.define_metric("val/epoch/*", step_metric="epoch")
+    wandb.define_metric("val/epoch/*", step_metric="epoch", summary="max")
     wandb.define_metric("batch")
     wandb.define_metric("train/batch/*", step_metric="batch")
     wandb.define_metric("val/batch/*", step_metric="batch")
+    wandb.define_metric("test_top1")
+    wandb.define_metric("test_top3")
     # wandb.define_metric("F1")
     # wandb.define_metric("Loss")
 
@@ -352,11 +354,13 @@ if __name__ == "__main__":
     # TEST
     f_top1_test, f_top3_test, conf_mat_top1_test, conf_mat_top3_test=run_one_epoch(model, test_loader, 'test', epoch=-1)
     
-    plt = plot_conf_mat(conf_mat_top1_test.cpu(), f"conf_mat_top1_e{epoch:0>4}", do_return_plot=True)
-    plt3 = plot_conf_mat(conf_mat_top3_test.cpu(), f"conf_mat_top3_e{epoch:0>4}", do_return_plot=True)
+    plt = plot_conf_mat(conf_mat_top1_test.cpu(), f"TEST_conf_mat_top1_e{epoch:0>4}", do_return_plot=True)
+    plt3 = plot_conf_mat(conf_mat_top3_test.cpu(), f"TEST_conf_mat_top3_e{epoch:0>4}", do_return_plot=True)
     wandb.log({'test/confusion_matrix/': {'top1': wandb.Image(plt), 'top3': wandb.Image(plt3)}})
     
     print(f'### [F1] TEST: top1: {round(f_top1_test.item(), 4)}, top3: {round(f_top3_test.item(), 4)}')
+    wandb.log({"test_top1": round(f_top1_test.item(), 4), "test_top3": round(f_top3_test.item(), 4)})
+    
     plt.close()
     plt3.close()
     
