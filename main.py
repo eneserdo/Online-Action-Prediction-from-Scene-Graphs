@@ -269,7 +269,7 @@ if __name__ == "__main__":
         print("model and optimizer parameters are restored successfully!")
 
     step = 0
-    print("Start training...")
+    print("Starts training...")
     start = 1 if args.restore is None else args.restore
     epoch=start
     for epoch in range(start, start + args.max_epochs):
@@ -318,5 +318,4 @@ if __name__ == "__main__":
 
     torch.cuda.empty_cache()
 
-    print("wandb saving...")
     wandb.finish()
