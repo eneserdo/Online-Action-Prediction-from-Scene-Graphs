@@ -10,6 +10,8 @@ from sklearn.metrics import confusion_matrix
 
 from dataset import ACTIONS
 
+plt.ioff()
+
 def arg_parser():
 
     ap = argparse.ArgumentParser()
@@ -18,7 +20,7 @@ def arg_parser():
     ap.add_argument("-rt", "--root", type=str, default='.', help="Root directory of dataset.")
     ap.add_argument("-p", "--process_it", action="store_true", help="...")
     ap.add_argument("-contact", "--contact_only", action="store_true", help="...")
-    ap.add_argument("-bs", "--batch_size", type=int, default=512, help="...")
+    ap.add_argument("-bs", "--batch_size", type=int, default=256, help="...")
     ap.add_argument("-tl", "--temporal_length", type=int, default=10, help="...")
     ap.add_argument("-ts", "--test_subject", type=int, default=1, choices=[1, 2, 3, 4, 5, 6], help="...")
     ap.add_argument("-vt", "--validation_take", type=int, default=7, choices=[i for i in range(10)], help="...")
@@ -28,10 +30,13 @@ def arg_parser():
     ap.add_argument("-hc", "--hidden_channels", type=int, default=64, help="...")
     ap.add_argument("-oc", "--out_channels", type=int, default=64, help="...")
     ap.add_argument("-hs", "--lstm_hidden_size", type=int, default=128, help="...")
-    ap.add_argument("-nh", "--num_heads", type=int, default=4, help="...")
+    ap.add_argument("-nh", "--num_heads", type=int, default=2, help="...")
+    ap.add_argument("--saving_freq", type=int, default=5, help="...")
+    ap.add_argument("-nbn", "--no_bn", action="store_true", help="...")
 
     # Optimizer
     ap.add_argument("-lr", "--learning_rate", type=float, default=0.001, help="...")
+    ap.add_argument("-wd", "--weight_decay", type=float, default=0.0, help="...")
     ap.add_argument("--scheduler_step_size", type=int, default=10, help="...")
     ap.add_argument("--scheduler_gamma", type=float, default=0.5, help="...")
 
@@ -42,9 +47,9 @@ def arg_parser():
 
     # Logging
     ap.add_argument("-n", "--name", required=True, type=str, help="Name of experiment for logging into Wandb")
+    ap.add_argument("--disable_wandb",action="store_true", help="Disable wandb")
 
     return ap.parse_args()
-
 
 
 def arg_parser_inference():
@@ -133,14 +138,17 @@ def classification_scores(conf_mat):
 def get_minutes(elapsed) -> str:
     return f"{round((elapsed)//60)}.{round((elapsed)%60)}"
 
-def plot_conf_mat(mat, name, do_save=True, do_return_plot=False):
+def plot_conf_mat(mat, name, do_save=False, do_return_plot=False):
+    mat_long=torch.round(mat*100).long()
+
     plt.figure(figsize=(14,12))
-    sns.heatmap(mat, square=True, annot=True, cmap='Blues', cbar=False, xticklabels=ACTIONS, yticklabels=ACTIONS, vmin=0, vmax=1)
+    sns.heatmap(mat_long, square=True, annot=True, cmap='Blues', cbar=False, xticklabels=ACTIONS, yticklabels=ACTIONS, vmin=0, vmax=100)
     plt.yticks(rotation=0)
     plt.title(f"{name}")
     plt.xlabel('Predicted')
     plt.ylabel('Ground truth')
     if do_save:
+        raise NotImplementedError("conf_mat diye bir klasor yok artik")
         plt.savefig(opj("conf_mat", f'{name}.png'))
     if do_return_plot:
         return plt

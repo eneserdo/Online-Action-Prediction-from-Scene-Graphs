@@ -1,7 +1,6 @@
 from typing import List
 import torch
 from torch.nn import Sequential, Linear, ReLU, SELU, LSTM, Softmax
-# from torch_geometric.nn import NNConv, global_mean_pool
 import torch_geometric.nn as geometric_nn
 from torch_geometric.data import Data, Batch
 
@@ -11,7 +10,7 @@ from dataset import OBJECTS
 # TODO: Single MLP to learn both action simultaneously
 
 class ActionRecognition(torch.nn.Module):
-    def __init__(self, gnn_type, in_channels, hidden_channels, out_channels, num_edge_feat, batch_size, num_action_classes, lstm_hidden_size, **kwargs):
+    def __init__(self, gnn_type, in_channels, hidden_channels, out_channels, num_edge_feat, batch_size, num_action_classes, lstm_hidden_size, use_bn, **kwargs):
         """ Accepts kwargs for non-general params of gnns """
         super().__init__()
 
@@ -22,21 +21,22 @@ class ActionRecognition(torch.nn.Module):
         if gnn_type == "NNConv":
             nn1 = Sequential(Linear(num_edge_feat, in_channels*hidden_channels), ReLU())
             self.conv1 = geometric_nn.NNConv(in_channels, hidden_channels, nn1, aggr='mean')
-            self.bn1=geometric_nn.BatchNorm(hidden_channels)
             nn2 = Sequential(Linear(num_edge_feat, hidden_channels*out_channels), ReLU())
             self.conv2 = geometric_nn.NNConv(hidden_channels, out_channels, nn2, aggr='mean')
-            self.bn2=geometric_nn.BatchNorm(out_channels)
+            effective_out_ch1=hidden_channels
+            effective_out_ch2=out_channels
 
         elif gnn_type == "GATConv":
             self.conv1 = geometric_nn.GATConv(in_channels, hidden_channels, kwargs["heads"], edge_dim=num_edge_feat )
-            self.bn1=geometric_nn.BatchNorm(hidden_channels*kwargs["heads"])
             self.conv2 = geometric_nn.GATConv(hidden_channels*kwargs["heads"], out_channels, kwargs["heads"], edge_dim= num_edge_feat)
-            self.bn2=geometric_nn.BatchNorm(out_channels*kwargs["heads"])
-            out_channels=out_channels*kwargs["heads"]
+            effective_out_ch1=hidden_channels*kwargs["heads"]
+            effective_out_ch2=out_channels*kwargs["heads"]
 
-        # elif gnn_type == "TransformerConv":
-        #     self.conv1 = geometric_nn.TransformerConv(in_channels, hidden_channels, kwargs["heads"], edge_dim=num_edge_feat )
-        #     self.conv2 = geometric_nn.TransformerConv(hidden_channels, out_channels, kwargs["heads"], edge_dim= num_edge_feat)
+        elif gnn_type == "TransformerConv":
+            self.conv1 = geometric_nn.TransformerConv(in_channels, hidden_channels, kwargs["heads"], edge_dim=num_edge_feat )
+            self.conv2 = geometric_nn.TransformerConv(hidden_channels*kwargs["heads"], out_channels, kwargs["heads"], edge_dim= num_edge_feat)
+            effective_out_ch1=hidden_channels*kwargs["heads"]
+            effective_out_ch2=out_channels*kwargs["heads"]
 
         else:
             raise NotImplementedError(f"gnn_type: {gnn_type} is not implemented")
@@ -44,14 +44,21 @@ class ActionRecognition(torch.nn.Module):
         self.act1 = SELU()
         self.act2 = SELU()
 
-        # FIXME: geometric sequential
-        self.gnn=geometric_nn.Sequential("x, edge_index, edge_attr", 
-                                         [(self.conv1, "x, edge_index, edge_attr -> x"), self.act1, self.bn1, 
-                                          (self.conv2, "x, edge_index, edge_attr -> x"), self.act2, self.bn2])
+
+        if use_bn:
+            self.bn1=geometric_nn.BatchNorm(effective_out_ch1)
+            self.bn2=geometric_nn.BatchNorm(effective_out_ch2)
+            self.gnn=geometric_nn.Sequential("x, edge_index, edge_attr", 
+                                             [(self.conv1, "x, edge_index, edge_attr -> x"), self.act1, self.bn1, 
+                                              (self.conv2, "x, edge_index, edge_attr -> x"), self.act2, self.bn2])
+        else:
+            self.gnn=geometric_nn.Sequential("x, edge_index, edge_attr", 
+                                             [(self.conv1, "x, edge_index, edge_attr -> x"), self.act1, 
+                                              (self.conv2, "x, edge_index, edge_attr -> x"), self.act2])
 
 
         num_rnn_layers = 1 # Lets make it constant
-        self.rnn = LSTM(out_channels, lstm_hidden_size, num_rnn_layers)
+        self.rnn = LSTM(effective_out_ch2, lstm_hidden_size, num_rnn_layers)
 
         # self.pred_left=Sequential(Linear(hidden_size, num_action_classes), Softmax(dim=1))
         # self.pred_right=Sequential(Linear(hidden_size, num_action_classes), Softmax(dim=1))
@@ -135,6 +142,11 @@ class ActionRecognition(torch.nn.Module):
         return self.mlp(both_hn)
 
     # def print_summary(self):
-    #     # x = torch.randn(100, len(OBJECTS))
-    #     # edge_index = torch.randint(100, size=(2, 20))
-    #     print(summary(model, x, edge_index))
+    # req pyg 2.3 
+    #     x = torch.randn(100, 15) # num_node, inp_dim 
+    #     edge_index = torch.randint(0, 20, size=(2, 20)) # 20 relation
+    #     edge_attr = torch.randint(0, 2, size=(20,15)) # their attr
+    #     batch = torch.randint(0, 5, size=(20,)) # their attr
+    #     b=Batch(x=x, edge_attr=edge_attr, edge_index=edge_index, batch=batch)
+    #     inp=[b, b, b, b]
+    #     print(summary(self, inp))

@@ -139,7 +139,8 @@ processed/
 .idea/inspectionProfiles/Project_Default.xml
 
 .vscode/
-deneme.py
-saved/
+deneme*.py
+deneme*.ipynb
+saved*/
 wandb/
 conf_mat/
