@@ -26,18 +26,24 @@ class ActionRecognition(torch.nn.Module):
             effective_out_ch1=hidden_channels
             effective_out_ch2=out_channels
 
-        elif gnn_type == "GATConv":
-            self.conv1 = geometric_nn.GATConv(in_channels, hidden_channels, kwargs["heads"], edge_dim=num_edge_feat )
-            self.conv2 = geometric_nn.GATConv(hidden_channels*kwargs["heads"], out_channels, kwargs["heads"], edge_dim= num_edge_feat)
+        # elif gnn_type == "GATConv":
+        #     self.conv1 = geometric_nn.GATConv(in_channels, hidden_channels, kwargs["heads"], edge_dim=num_edge_feat )
+        #     self.conv2 = geometric_nn.GATConv(hidden_channels*kwargs["heads"], out_channels, kwargs["heads"], edge_dim= num_edge_feat)
+        #     effective_out_ch1=hidden_channels*kwargs["heads"]
+        #     effective_out_ch2=out_channels*kwargs["heads"]
+
+        # elif gnn_type == "TransformerConv":
+        #     self.conv1 = geometric_nn.TransformerConv(in_channels, hidden_channels, kwargs["heads"], edge_dim=num_edge_feat )
+        #     self.conv2 = geometric_nn.TransformerConv(hidden_channels*kwargs["heads"], out_channels, kwargs["heads"], edge_dim= num_edge_feat)
+        #     effective_out_ch1=hidden_channels*kwargs["heads"]
+        #     effective_out_ch2=out_channels*kwargs["heads"]
+        
+        elif gnn_type in ["GATv2Conv", "TransformerConv", "GATConv"]:
+            self.conv1 = getattr(geometric_nn, gnn_type)(in_channels, hidden_channels, heads=kwargs["heads"], edge_dim=num_edge_feat, dropout=kwargs["dropout"])
+            self.conv2 = getattr(geometric_nn, gnn_type)(hidden_channels*kwargs["heads"], out_channels, heads=kwargs["heads"], edge_dim= num_edge_feat, dropout=kwargs["dropout"])
             effective_out_ch1=hidden_channels*kwargs["heads"]
             effective_out_ch2=out_channels*kwargs["heads"]
-
-        elif gnn_type == "TransformerConv":
-            self.conv1 = geometric_nn.TransformerConv(in_channels, hidden_channels, kwargs["heads"], edge_dim=num_edge_feat )
-            self.conv2 = geometric_nn.TransformerConv(hidden_channels*kwargs["heads"], out_channels, kwargs["heads"], edge_dim= num_edge_feat)
-            effective_out_ch1=hidden_channels*kwargs["heads"]
-            effective_out_ch2=out_channels*kwargs["heads"]
-
+        
         else:
             raise NotImplementedError(f"gnn_type: {gnn_type} is not implemented")
 

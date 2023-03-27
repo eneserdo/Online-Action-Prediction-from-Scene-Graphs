@@ -228,7 +228,8 @@ if __name__ == "__main__":
                                      num_action_classes=len(ACTIONS),
                                      lstm_hidden_size=args.lstm_hidden_size,
                                      heads=args.num_heads,
-                                     use_bn=not args.no_bn).to(device=device)
+                                     use_bn=not args.no_bn,
+                                     dropout=args.dropout).to(device=device)
 
     print(model)
     print("# of parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))
@@ -249,6 +250,7 @@ if __name__ == "__main__":
 
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+    # optimizer = getattr(torch.optim, args.optimizer_type)(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.scheduler_step_size, gamma=args.scheduler_gamma, verbose=True)
     criterion = torch.nn.CrossEntropyLoss()
 
