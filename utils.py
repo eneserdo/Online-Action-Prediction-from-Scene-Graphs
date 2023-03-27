@@ -108,9 +108,9 @@ def classification_scores(conf_mat):
     scores['F1']['all'] = 2 * TP / (TP_p_FP + TP_p_FN)
 
     # Micro average
-    scores['recall']['avg']={}
-    scores['precision']['avg']={}
-    scores['F1']['avg']={}
+    scores['recall']['avg'] = {}
+    scores['precision']['avg'] = {}
+    scores['F1']['avg'] = {}
 
     sum_labels = np.sum(TP_p_FN)
     accuracy = np.sum(TP) / sum_labels
@@ -126,8 +126,8 @@ def classification_scores(conf_mat):
     scores['F1']['avg']['macro'] = np.sum(scores['F1']['all']) / n_labels
 
     # Weighted average
-    scores['recall']['avg']['weighted'] = np.sum(scores['recall']['all'] * TP_p_FN) / sum_labels
-    scores['precision']['avg']['weighted'] = np.sum(scores['precision']['all'] * TP_p_FN) / sum_labels
+    scores['recall']['avg']['weighted'] = np.sum(scores['recall']['all'] * TP_p_FN[mask1]) / sum_labels
+    scores['precision']['avg']['weighted'] = np.sum(scores['precision']['all'] * TP_p_FN[mask2]) / sum_labels
     scores['F1']['avg']['weighted'] = np.sum(scores['F1']['all'] * TP_p_FN) / sum_labels
 
     # Normalized confusion matrix
