@@ -23,7 +23,6 @@ from torchmetrics.classification import (MulticlassConfusionMatrix,
 
 import matplotlib.pyplot as pyplot
 
-
 import models
 import wandb
 from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits)
@@ -43,12 +42,12 @@ torch.backends.cudnn.benchmark = False
 
 # # An attempt to fix the following error:
 # XIO:  fatal IO error 25 (Inappropriate ioctl for device) on X server "localhost:10.0" after 2627 requests (2627 known processed) with 8 events remaining.
-pyplot.ioff() 
+pyplot.ioff()
 
 
 def test(model, loader):
     warnings.warn("Temporarily using old test code", UserWarning)
-    dummy_i=0
+    dummy_i = 0
 
     model.eval()
     len_actions = len(ACTIONS)
@@ -61,7 +60,7 @@ def test(model, loader):
                                 UserWarning)  # ignores warning about functorch
 
         for data in loader:  # Iterate in batches over the training/test dataset.
-            dummy_i+=1
+            dummy_i += 1
             data = [d.to(device) for d in data]
 
             left_right_pred = model(data)
@@ -97,14 +96,15 @@ def test(model, loader):
     wandb.log({"test/confusion_matrix/": {'top1': wandb.Image(plt), 'top3': wandb.Image(plt3)}})
     plt.close()
     plt3.close()
+
+
 #     print("Test acc: ", scores['accuracy'])
 #     print("Test top3 acc: ", scores_top_3['accuracy'])
 
 #     return scores, scores_top_3
 
 
-
-def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch:int):
+def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: int):
     global step
 
     if mode in ["test", "val"]:
@@ -118,8 +118,9 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch:i
     # conf_mat_top_3 = np.zeros((len_actions, len_actions), dtype=float)
 
     f1_calc_top1 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(device)
-    f1_calc_top3 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(device) # top_k is intentionally 1 
-    
+    f1_calc_top3 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(
+        device)  # top_k is intentionally 1
+
     conf_mat_top1 = MulticlassConfusionMatrix(num_classes=len(ACTIONS), normalize="true").to(device)
     conf_mat_top3 = MulticlassConfusionMatrix(num_classes=len(ACTIONS), normalize="true").to(device)
 
@@ -149,6 +150,9 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch:i
             ground_truth = ground_truth_left_right.argmax(dim=1)
             pred_top_3_final = torch.where(functorch.vmap(lambda t1, t2: torch.isin(t1, t2))(ground_truth, pred_top_3),
                                            ground_truth, pred_top_1)
+            # F1 @ k metric -> commonly k = 0.1, 0.25 and 0.5
+            # k = 0.1  # DEBUGGING - Fatih 05.04.2023
+            # pred_at_k = torch.where(torch.take_along_dim(left_right_pred, ground_truth) >= k,ground_truth, pred_top_1)
 
             # conf_mat_top += conf_mat_from_left_right(ground_truth, pred_top_1, action_indices)
             # conf_mat_top_3 += conf_mat_from_left_right(ground_truth, pred_top, action_indices)
@@ -165,15 +169,13 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch:i
             step_conf_mat_top3 = conf_mat_top3(pred_top_3_final, ground_truth)
 
             if mode != "test":
-                wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()}, 'batch': step}, step=step)
+                wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()},
+                           'batch': step}, step=step)
 
-            # plt not defined hatası veriyor
-            # wandb.log({f'{mode}/confusion_matrix/': {'top1': plt, 'top3': plt3}})
 
             # if (step+1)%20==0:
             #     print("20 BATCH ÇALIŞIYOR SADECE")
             #     break
-
 
     overall_f1_top1 = f1_calc_top1.compute()
     overall_f1_top3 = f1_calc_top3.compute()
@@ -183,7 +185,6 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch:i
 
     if mode != "test":
         wandb.log({f"{mode}/epoch/": {'top1_F1': overall_f1_top1, 'top3_F1': overall_f1_top3}, 'epoch': epoch})
-
 
     # cf1=wandb.Table(data=overall_conf_mat_top1.cpu().numpy(), columns=ACTIONS, rows=ACTIONS)
     # cf3=wandb.Table(data=overall_conf_mat_top3.cpu().numpy(), columns=ACTIONS, rows=ACTIONS)
@@ -204,7 +205,8 @@ if __name__ == "__main__":
     args = arg_parser()
     print("ARGS:\n", args)
 
-    wandb.init(project="online-action-prediction-from-scene-graphs", name=args.name, config=args.__dict__, mode = "disabled" if args.disable_wandb else "online")
+    wandb.init(project="online-action-prediction-from-scene-graphs", name=args.name, config=args.__dict__,
+               mode="disabled" if args.disable_wandb else "online")
 
     # Use date info to save model weights 
     # save_date=datetime.now().strftime("%m-%d-%Y, %H-%M")
@@ -215,9 +217,12 @@ if __name__ == "__main__":
                                                                temporal_length=args.temporal_length,
                                                                contact_only=args.contact_only)
 
-    train_loader = DataLoader(train_set, args.batch_size, shuffle=True, num_workers=3, drop_last=True,  worker_init_fn=seed_worker)
-    test_loader = DataLoader(test_set, args.batch_size, shuffle=True, num_workers=3, drop_last=True,  worker_init_fn=seed_worker)
-    val_loader = DataLoader(val_set, args.batch_size, shuffle=True, num_workers=3, drop_last=True,  worker_init_fn=seed_worker)
+    train_loader = DataLoader(train_set, args.batch_size, shuffle=True, num_workers=3, drop_last=True,
+                              worker_init_fn=seed_worker)
+    test_loader = DataLoader(test_set, args.batch_size, shuffle=True, num_workers=3, drop_last=True,
+                             worker_init_fn=seed_worker)
+    val_loader = DataLoader(val_set, args.batch_size, shuffle=True, num_workers=3, drop_last=True,
+                            worker_init_fn=seed_worker)
 
     model = models.ActionRecognition(gnn_type=args.gnn_type,
                                      num_edge_feat=len(RELATIONS),
@@ -242,19 +247,21 @@ if __name__ == "__main__":
     wandb.define_metric("epoch")
     wandb.define_metric("train/epoch/*", step_metric="epoch")
     wandb.define_metric("val/epoch/*", step_metric="epoch", summary="max")
+    # Note: Currently Wandb does not log images with custom-steps but hopefully in the future it will.
+    wandb.define_metric("val/confusion_matrix/*", step_metric="epoch")
     wandb.define_metric("batch")
     wandb.define_metric("train/batch/*", step_metric="batch")
     wandb.define_metric("val/batch/*", step_metric="batch")
     wandb.define_metric("test_top1")
     wandb.define_metric("test_top3")
 
-
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
     # optimizer = getattr(torch.optim, args.optimizer_type)(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.scheduler_step_size, gamma=args.scheduler_gamma, verbose=True)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.scheduler_step_size,
+                                                gamma=args.scheduler_gamma, verbose=True)
     criterion = torch.nn.CrossEntropyLoss()
 
-    save_dir=f"saved_{args.name}"
+    save_dir = f"saved_{args.name}"
     if not os.path.isdir(save_dir):
         os.mkdir(save_dir)
 
@@ -273,7 +280,7 @@ if __name__ == "__main__":
     step = 0
     print("Starts training...")
     start = 1 if args.restore is None else args.restore
-    epoch=start
+    epoch = start
     for epoch in range(start, start + args.max_epochs):
         start = time.perf_counter()
 
@@ -283,13 +290,15 @@ if __name__ == "__main__":
 
         # Save model
         if epoch % args.saving_freq == 0:
-            torch.save({"model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(), "scheduler_state_dict": scheduler.state_dict()},
+            torch.save({"model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(),
+                        "scheduler_state_dict": scheduler.state_dict()},
                        opj(save_dir, f"model_epoch{epoch:0>4}.pt"))
 
         # save confusion matrices
         plt = plot_conf_mat(conf_mat_top1_val.cpu(), f"conf_mat_top1_e{epoch:0>4}", do_return_plot=True)
+        wandb.log({'val/confusion_matrix/': {'top1': wandb.Image(plt)}})
         plt3 = plot_conf_mat(conf_mat_top3_val.cpu(), f"conf_mat_top3_e{epoch:0>4}", do_return_plot=True)
-        wandb.log({'val/confusion_matrix/': {'top1': wandb.Image(plt), 'top3': wandb.Image(plt3)}})
+        wandb.log({'val/confusion_matrix/': {'top3': wandb.Image(plt3)}})
         plt.close()
         plt3.close()
 
@@ -303,18 +312,20 @@ if __name__ == "__main__":
 
     # TEST
     print("Starts test...")
-    f_top1_test, f_top3_test, conf_mat_top1_test, conf_mat_top3_test=run_one_epoch(model, test_loader, 'test', epoch=-1)
-    
+    f_top1_test, f_top3_test, conf_mat_top1_test, conf_mat_top3_test = run_one_epoch(model, test_loader, 'test',
+                                                                                     epoch=-1)
+
     plt = plot_conf_mat(conf_mat_top1_test.cpu(), f"TEST_conf_mat_top1_e{epoch:0>4}", do_return_plot=True)
+    wandb.log({'test/confusion_matrix/': {'top1': wandb.Image(plt)}})
     plt3 = plot_conf_mat(conf_mat_top3_test.cpu(), f"TEST_conf_mat_top3_e{epoch:0>4}", do_return_plot=True)
-    wandb.log({'test/confusion_matrix/': {'top1': wandb.Image(plt), 'top3': wandb.Image(plt3)}})
-    
+    wandb.log({'test/confusion_matrix/': {'top3': wandb.Image(plt3)}})
+
     print(f'### [F1] TEST: top1: {round(f_top1_test.item(), 4)}, top3: {round(f_top3_test.item(), 4)}')
     wandb.log({"test_top1": round(f_top1_test.item(), 4), "test_top3": round(f_top3_test.item(), 4)})
-    
+
     plt.close()
     plt3.close()
-    
+
     # Old test
     # test(model, test_loader)
 
