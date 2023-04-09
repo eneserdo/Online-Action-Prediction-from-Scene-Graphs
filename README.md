@@ -14,7 +14,7 @@ conda install pytorch==1.12.0 torchvision==0.13.0 torchaudio==0.12.0 cudatoolkit
 
 conda install pyg -c pyg    # it is expected to install pytorch geometric 2.2
 
-pip install enlighten natsort wandb torchmetrics
+pip install enlighten natsort wandb torchmetrics matplotlib seaborn
 pip install functorch==0.2.0
 
 ```
