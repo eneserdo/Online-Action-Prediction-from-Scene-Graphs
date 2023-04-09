@@ -27,7 +27,8 @@ def arg_parser():
     ap.add_argument("-vt", "--validation_take", type=int, default=7, choices=[i for i in range(10)], help="...")
 
     # Model
-    ap.add_argument("-g", "--gnn_type", type=str, required=True, choices=["NNConv", "GATConv", "TransformerConv", "GATv2Conv"], help="...")
+    ap.add_argument("-g", "--gnn_type", type=str, required=True, choices=["NNConv", "GATConv", "TransformerConv",
+                                                                          "GATv2Conv"], help="...")
     ap.add_argument("-hc", "--hidden_channels", type=int, default=64, help="...")
     ap.add_argument("-oc", "--out_channels", type=int, default=64, help="...")
     ap.add_argument("-hs", "--lstm_hidden_size", type=int, default=128, help="...")
@@ -37,6 +38,9 @@ def arg_parser():
     ap.add_argument("--dropout", type=float, default=0.0, help="...")
 
     # Optimizer
+    ap.add_argument("-o", "--optimizer_type", type=str, required=True,
+                    choices=["Adam", "AdamW", "NAdam", "RMSprop", "SGD"],
+                    help="Type of optimizer to be used  from torch.optim", default='Adam')
     ap.add_argument("-lr", "--learning_rate", type=float, default=0.001, help="...")
     ap.add_argument("-wd", "--weight_decay", type=float, default=0.0, help="...")
     ap.add_argument("--scheduler_step_size", type=int, default=10, help="...")

@@ -2,8 +2,8 @@
 """
     TODO:
     - weight init appropriately
-    ~ log conf_matrix
-    ~ log batchwise loss/F1 and epochwise loss/F1
+    - config optimizer type as hyperparam
+    - log final test results as bar-plot
 """
 
 import os
@@ -242,8 +242,6 @@ if __name__ == "__main__":
     # for mode, run in runs.items():
     wandb.watch(model, log='all')
 
-    # TODO find correct metric names and define them
-    # I suppose done...
     wandb.define_metric("epoch")
     wandb.define_metric("train/epoch/*", step_metric="epoch")
     wandb.define_metric("val/epoch/*", step_metric="epoch", summary="max")
@@ -255,8 +253,8 @@ if __name__ == "__main__":
     wandb.define_metric("test_top1")
     wandb.define_metric("test_top3")
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
-    # optimizer = getattr(torch.optim, args.optimizer_type)(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+    # optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+    optimizer = getattr(torch.optim, args.optimizer_type)(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.scheduler_step_size,
                                                 gamma=args.scheduler_gamma, verbose=True)
     criterion = torch.nn.CrossEntropyLoss()
@@ -321,6 +319,7 @@ if __name__ == "__main__":
     wandb.log({'test/confusion_matrix/': {'top3': wandb.Image(plt3)}})
 
     print(f'### [F1] TEST: top1: {round(f_top1_test.item(), 4)}, top3: {round(f_top3_test.item(), 4)}')
+    # TODO: Log as barplot
     wandb.log({"test_top1": round(f_top1_test.item(), 4), "test_top3": round(f_top3_test.item(), 4)})
 
     plt.close()
