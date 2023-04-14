@@ -42,6 +42,7 @@ def arg_parser():
                     choices=["Adam", "AdamW", "NAdam", "RMSprop", "SGD"],
                     help="Type of optimizer to be used  from torch.optim", default='Adam')
     ap.add_argument("-lr", "--learning_rate", type=float, default=0.001, help="...")
+    ap.add_argument("-mn", "--momentum", type=float, default=0.9, help="...")
     ap.add_argument("-wd", "--weight_decay", type=float, default=0.0, help="...")
     ap.add_argument("--scheduler_step_size", type=int, default=10, help="...")
     ap.add_argument("--scheduler_gamma", type=float, default=0.5, help="...")

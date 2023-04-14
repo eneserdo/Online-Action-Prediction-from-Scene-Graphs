@@ -110,17 +110,17 @@ def filter_idle_hold(dataList: Tuple[Batch]):
     # FIXME: sıra karışıyor mu
 
     for i, data in enumerate(dataList):
-        new_graphs_in_batch=[]
-        graphs_in_batch=data.to_data_list()
+        new_graphs_in_batch = []
+        graphs_in_batch = data.to_data_list()
         for g in graphs_in_batch:
             if torch.argmax(g.y) in [ACTIONS.index("idle"), ACTIONS.index("hold")]:
-                if random.random()<(1./3):
+                if random.random() < (1. / 3):
                     new_graphs_in_batch.append(g)
             else:
                 new_graphs_in_batch.append(g)
-        
-        dataList[i]=Batch.from_data_list(new_graphs_in_batch)
 
+        # FIXME: "Tuples don't support item assignment" 😖
+        dataList[i] = Batch.from_data_list(new_graphs_in_batch)
 
 
 def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: int):
@@ -190,7 +190,6 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             if mode != "test":
                 wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()},
                            'batch': step}, step=step)
-
 
             # if (step+1)%20==0:
             #     print("20 BATCH ÇALIŞIYOR SADECE")
@@ -273,7 +272,12 @@ if __name__ == "__main__":
     wandb.define_metric("test_top3")
 
     # optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
-    optimizer = getattr(torch.optim, args.optimizer_type)(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+    if args.optimizer_type == 'SGD':
+        optimizer = torch.optim.SGD(model.parameters(), lr=args.learning_rate, momentum=args.momentum,
+                                    weight_decay=args.weight_decay)
+    else:
+        optimizer = getattr(torch.optim, args.optimizer_type)(model.parameters(), lr=args.learning_rate,
+                                                              weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.scheduler_step_size,
                                                 gamma=args.scheduler_gamma, verbose=True)
     criterion = torch.nn.CrossEntropyLoss()
@@ -325,7 +329,6 @@ if __name__ == "__main__":
               f'm ### [F1] Train: top1: {round(f_top1_train.item(), 4)},'
               f' top3: {round(f_top3_train.item(), 4)} '
               f'### Val: top1: {round(f_top1_val.item(), 4)}, top3: {round(f_top3_val.item(), 4)}')
-
 
     # TEST
     print("Starts test...")

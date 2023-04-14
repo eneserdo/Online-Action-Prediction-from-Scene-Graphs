@@ -28,10 +28,15 @@
 # python main.py -g TransformerConv -o SGD -lr 0.001 -wd 0.0001 -me 20 --scheduler_step_size 4 --saving_freq 4 --name TFConv_sc_wd4_SGD
 # sleep 5
 
-python main.py -g TransformerConv -o AdamW -lr 0.001 -wd 0.0001 -me 20 --scheduler_step_size 4 --saving_freq 4 --name TFConv_sc_wd4_AdamW_hc32_hs128 -hc 32 -hs 128
+# python main.py -g TransformerConv -o AdamW -lr 0.001 -wd 0.0001 -me 20 --scheduler_step_size 4 --saving_freq 4 --name TFConv_sc_wd4_AdamW_hc32_hs128 -hc 32 -hs 128
+# sleep 5
+# python main.py -g TransformerConv -o AdamW -lr 0.001 -wd 0.0001 -me 20 --scheduler_step_size 4 --saving_freq 4 --name TFConv_sc_wd4_AdamW_hc64_hs64 -hc 64 -hs 64
+# sleep 5
+
+python main.py -g TransformerConv -o SGD -lr 0.1 -mn 0.9 -wd 0.0001 -me 20 --scheduler_step_size 4 --saving_freq 4 --name TFConv_SGD_mn_lr1
 sleep 5
 
-python main.py -g TransformerConv -o AdamW -lr 0.001 -wd 0.0001 -me 20 --scheduler_step_size 4 --saving_freq 4 --name TFConv_sc_wd4_AdamW_hc64_hs64 -hc 64 -hs 64
+python main.py -g TransformerConv -o SGD -lr 0.01 -mn 0.9 -wd 0.0001 -me 20 --scheduler_step_size 4 --saving_freq 4 --name TFConv_SGD_mn_lr2
 sleep 5
 
 
