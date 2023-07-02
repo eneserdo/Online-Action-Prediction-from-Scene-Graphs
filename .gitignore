@@ -131,6 +131,7 @@ dmypy.json
 
 raw
 raw/
+processed
 processed/
 .idea/workspace.xml
 .idea/vcs.xml
