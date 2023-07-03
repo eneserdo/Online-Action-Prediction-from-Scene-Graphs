@@ -5,18 +5,19 @@ import torch_geometric.nn as geometric_nn
 from torch_geometric.data import Data, Batch
 
 from dataset import OBJECTS
+from utils import get_filters_for_imbalance, align_embeddings_to_right
 
 # TODO: graph-level -> node-level (hand-pooling, how to deal with missing-hand-graphs)
 # TODO: Single MLP to learn both action simultaneously
 
 class ActionRecognition(torch.nn.Module):
-    def __init__(self, gnn_type, in_channels, hidden_channels, out_channels, num_edge_feat, batch_size, num_action_classes, lstm_hidden_size, use_bn, **kwargs):
+    def __init__(self, gnn_type, in_channels, hidden_channels, out_channels, num_edge_feat, batch_size, num_action_classes, lstm_hidden_size, use_bn, filter_it,  **kwargs):
         """ Accepts kwargs for non-general params of gnns """
         super().__init__()
 
         # self.conv_out=out_channels
         self.batch_size=batch_size
-        
+        self.filter_it=filter_it
         # Sets Graph Network
         if gnn_type == "NNConv":
             nn1 = Sequential(Linear(num_edge_feat, in_channels*hidden_channels), ReLU())
@@ -129,6 +130,22 @@ class ActionRecognition(torch.nn.Module):
         # sequencial_embeddings=torch.stack(embedding_list)
         left_sequencial_embeddings=torch.stack(left_embedding_list)
         right_sequencial_embeddings=torch.stack(right_embedding_list)
+
+
+        if self.filter_it and not self.training:
+            # get filters
+            left_filter, right_filter = get_filters_for_imbalance(dataBatchList)
+
+            # filter it
+            right_sequencial_embeddings[~right_filter]=0
+            left_sequencial_embeddings[~left_filter]=0
+
+            # align non-zero embeddings to the right
+            # TODO: Insert assert statement to make sure it is working as expectedly            
+            right_sequencial_embeddings = align_embeddings_to_right(right_sequencial_embeddings, right_filter)
+            left_sequencial_embeddings = align_embeddings_to_right(left_sequencial_embeddings, left_filter)
+        
+
         # n_samples = y.size(0)
         # h_t = torch.zeros(n_samples, self.hidden_layer_size, dtype=torch.float32)
         # c_t = torch.zeros(n_samples, self.hidden_layer_size, dtype=torch.float32)

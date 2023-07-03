@@ -51,6 +51,7 @@ def arg_parser():
     ap.add_argument("-me", "--max_epochs", type=int, default=50, help="Max number of epochs")
     ap.add_argument("-r", "--restore", type=int, help="...")
     ap.add_argument("-rn", "--restored_name", type=str, help="...")
+    ap.add_argument("-fih", "--filter_idle_hold", action="store_true", help="...")
 
     # Logging
     ap.add_argument("-n", "--name", required=True, type=str, help="Name of experiment for logging into Wandb")
@@ -178,3 +179,117 @@ def seed_worker(worker_id):
     worker_seed = torch.initial_seed() % 2**32
     np.random.seed(worker_seed)
     random.seed(worker_seed)
+
+
+
+def get_filters_for_imbalance(dataBatchList):
+    """ 2 out of 3 samples for the actions idle and hold were discarded """ 
+
+    batch_size=dataBatchList[0].y.shape[0]
+    left_filter=torch.full((len(dataBatchList), batch_size//2), True) # shape = [sequence_length, batch_size]
+    right_filter=torch.full((len(dataBatchList), batch_size//2), True) # shape = [sequence_length, batch_size]
+    
+
+    for i in range(batch_size//2):
+        count_idle_left=0
+        count_idle_right=0
+        count_hold_left=0
+        count_hold_right=0
+
+        for t, dataBatch in enumerate(dataBatchList):
+            count_idle_left = (count_idle_left + torch.argmax(dataBatch[i].y[0])==ACTIONS.index("idle")) % 3
+            count_idle_right = (count_idle_right + torch.argmax(dataBatch[i].y[1])==ACTIONS.index("idle")) % 3
+            count_hold_left = (count_hold_left + torch.argmax(dataBatch[i].y[0])==ACTIONS.index("hold")) % 3
+            count_hold_right = (count_hold_right + torch.argmax(dataBatch[i].y[1])==ACTIONS.index("hold")) % 3
+
+            left_filter[t, i] = not (count_idle_left in [1, 2])
+            right_filter[t, i] = not (count_idle_right in [1, 2])
+            
+            left_filter[t, i] = not (count_hold_left in [1, 2])
+            right_filter[t, i] = not (count_hold_right in [1, 2])
+            
+    return left_filter, right_filter
+
+
+def align_embeddings_to_right(x, mask):
+    """
+        Ref 1: https://discuss.pytorch.org/t/reorder-non-zero-values-in-a-2d-matrix/112314
+        Ref 2: https://stackoverflow.com/questions/50999977/what-does-the-gather-function-do-in-pytorch-in-layman-terms
+    """
+
+    emd_size = x.shape[2]
+    mask = mask[:, :, None]
+
+    # Somehow when it is on gpu it gives wrong values, to fix it I used "stable=True"
+    # Still suspicious
+    index = torch.sort(~mask.repeat(1,1,emd_size).to(x.device) * 1, dim=0, descending=True, stable=True)[1]
+    y = x.gather(0, index)
+
+    # d_mask = torch.sum(mask, dim=0, keepdims=True) > torch.arange(x.shape[0]).reshape(-1,1)
+    # y = torch.zeros_like(x)
+    # y[d_mask] = x[mask]
+
+    return y
+
+
+def debug_fih(dataBatchList, b):
+    
+    for i in range(10):
+        
+        # hold
+        if torch.argmax(dataBatchList[i].y[b]).item()==5:
+            print("h ", end="")
+        # idle
+        elif torch.argmax(dataBatchList[i].y[b]).item()==0:
+            print("i ", end="")
+        else:
+            print(torch.argmax(dataBatchList[i].y[b]).item(), end=" ")
+
+    print("")    
+
+
+def print_non_uniform_ys(dataBatchList):
+    bs=dataBatchList[0].y.shape[0]
+    for b in range(bs):
+        act=torch.argmax(dataBatchList[0].y[b]).item()
+        for i in range(10):
+            if act != torch.argmax(dataBatchList[i].y[b]).item():
+
+                print("b id: ", b)
+                debug_fih(dataBatchList, b)
+                break
+
+
+def debug_align(device="cpu"):
+    mask = torch.full((4, 3), True)
+    mask[0, 0]=False
+    mask[2, 2]=False
+    mask[3, 0]=False
+    mask[3, 1]=False
+    
+    # print("mask:\n", mask)
+    
+    x = torch.arange(12).reshape(4,3,1)
+    x = x.repeat(1, 1, 2)
+    x[~mask]=0
+
+    x = x.to(device)
+    mask = mask.to(device)
+    
+    # t=4, bs=3, emb_size=2
+    
+    # print("x:\n", x)
+    # print("x[:, :, 0]:\n", x[:, :, 0])
+
+    # y = align_embeddings_to_right(x, mask)
+    emd_size = x.shape[2]
+    mask = mask[:, :, None]
+
+    # Somehow when it is on gpu it gives wrong values
+    index = torch.sort(~mask.repeat(1,1,emd_size).to(x.device) * 1, dim=0, descending=True)[1]
+    y = x.gather(0, index)
+
+
+    # print("y[:, :, 0]:\n", y[:, :, 0])
+
+    return x, y, index, mask

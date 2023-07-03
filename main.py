@@ -106,22 +106,6 @@ def test(model, loader):
 
 #     return scores, scores_top_3
 
-def filter_idle_hold(dataList: Tuple[Batch]):
-    # FIXME: sıra karışıyor mu
-
-    for i, data in enumerate(dataList):
-        new_graphs_in_batch = []
-        graphs_in_batch = data.to_data_list()
-        for g in graphs_in_batch:
-            if torch.argmax(g.y) in [ACTIONS.index("idle"), ACTIONS.index("hold")]:
-                if random.random() < (1. / 3):
-                    new_graphs_in_batch.append(g)
-            else:
-                new_graphs_in_batch.append(g)
-
-        # FIXME: "Tuples don't support item assignment" 😖
-        dataList[i] = Batch.from_data_list(new_graphs_in_batch)
-
 
 def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: int):
     global step
@@ -252,6 +236,7 @@ if __name__ == "__main__":
                                      lstm_hidden_size=args.lstm_hidden_size,
                                      heads=args.num_heads,
                                      use_bn=not args.no_bn,
+                                     filter_it=args.filter_idle_hold,
                                      dropout=args.dropout).to(device=device)
 
     print(model)
