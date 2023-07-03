@@ -152,7 +152,7 @@ class BimanualDataset(Dataset):
         
         for relation in curr_relations:
 
-            if self.contact_only and (relation["relation_name"] is not "contact"):
+            if self.contact_only and (relation["relation_name"] != "contact"):
                 # Skips the other relations if desired
                 continue
 
