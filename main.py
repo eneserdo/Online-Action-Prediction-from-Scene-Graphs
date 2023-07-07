@@ -136,6 +136,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
             if mode == "train":
                 optimizer.zero_grad()
+
             data = [d.to(device) for d in data]
 
             left_right_pred = model(data)
@@ -237,7 +238,11 @@ if __name__ == "__main__":
                                      heads=args.num_heads,
                                      use_bn=not args.no_bn,
                                      filter_it=args.filter_idle_hold,
+                                     use_hand_pooling=not args.use_global_pooling,
+                                     use_edge_dropout=not args.use_edge_dropout,
                                      dropout=args.dropout).to(device=device)
+
+
 
     print(model)
     print("# of parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))

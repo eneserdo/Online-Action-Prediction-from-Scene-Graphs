@@ -3,6 +3,7 @@ import torch
 from torch.nn import Sequential, Linear, ReLU, SELU, LSTM, Softmax
 import torch_geometric.nn as geometric_nn
 from torch_geometric.data import Data, Batch
+from torch_geometric.utils import dropout_edge
 
 from dataset import OBJECTS
 from utils import get_filters_for_imbalance, align_embeddings_to_right
@@ -11,13 +12,28 @@ from utils import get_filters_for_imbalance, align_embeddings_to_right
 # TODO: Single MLP to learn both action simultaneously
 
 class ActionRecognition(torch.nn.Module):
-    def __init__(self, gnn_type, in_channels, hidden_channels, out_channels, num_edge_feat, batch_size, num_action_classes, lstm_hidden_size, use_bn, filter_it,  **kwargs):
+    def __init__(self, gnn_type, 
+                       in_channels, 
+                       hidden_channels, 
+                       out_channels, 
+                       num_edge_feat, 
+                       batch_size, 
+                       num_action_classes, 
+                       lstm_hidden_size, 
+                       use_bn, 
+                       filter_it, 
+                       use_hand_pooling, 
+                       use_edge_dropout, 
+                       **kwargs):
         """ Accepts kwargs for non-general params of gnns """
         super().__init__()
 
         # self.conv_out=out_channels
         self.batch_size=batch_size
         self.filter_it=filter_it
+        self.use_hand_pooling=use_hand_pooling
+        self.use_edge_dropout=use_edge_dropout
+
         # Sets Graph Network
         if gnn_type == "NNConv":
             nn1 = Sequential(Linear(num_edge_feat, in_channels*hidden_channels), ReLU())
@@ -114,18 +130,27 @@ class ActionRecognition(torch.nn.Module):
         for databatch in dataBatchList: # processes each frame time-independently
             x, edge_attr, edge_index, batch  = databatch.x, databatch.edge_attr, databatch.edge_index, databatch.batch
             
+            if self.use_edge_dropout:
+                edge_index, edge_mask = dropout_edge(edge_index, p=0.1)
+                edge_attr = edge_attr[edge_mask]
+
             # H1 = self.act1(self.conv1(x, edge_index, edge_attr)) # x dim -> [n, d]    
             # H2 = self.act2(self.conv2(H1, edge_index, edge_attr)) # x dim -> [n, d]    
             H2 = self.gnn(x, edge_index, edge_attr)
 
-            left_embeddings, right_embeddings=self._hands_pooling(x,H2,batch) 
-            # graph_embedding = global_mean_pool(H2, batch)
+            if self.use_hand_pooling:
+                left_embeddings, right_embeddings = self._hands_pooling(x, H2, batch) 
+            else:
+                # Inefficient implementation
+                graph_embedding = geometric_nn.pool.global_mean_pool(H2, batch)
+                left_embeddings = graph_embedding
+                right_embeddings = graph_embedding
+                
+            left_embedding_list.append(left_embeddings)
+            right_embedding_list.append(right_embeddings)
             
             # assert graph_embedding.shape[0]==self.batch_size and graph_embedding.shape[1]==self.conv_out
 
-            # embedding_list.append(graph_embedding)
-            left_embedding_list.append(left_embeddings)
-            right_embedding_list.append(right_embeddings)
 
         # sequencial_embeddings=torch.stack(embedding_list)
         left_sequencial_embeddings=torch.stack(left_embedding_list)

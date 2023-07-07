@@ -35,6 +35,8 @@ def arg_parser():
     ap.add_argument("-nh", "--num_heads", type=int, default=2, help="...")
     ap.add_argument("--saving_freq", type=int, default=5, help="...")
     ap.add_argument("-nbn", "--no_bn", action="store_true", help="...")
+    ap.add_argument("--use_global_pooling", action="store_true", help="...")
+    ap.add_argument("--use_edge_dropout", action="store_true", help="...")
     ap.add_argument("--dropout", type=float, default=0.0, help="...")
 
     # Optimizer
