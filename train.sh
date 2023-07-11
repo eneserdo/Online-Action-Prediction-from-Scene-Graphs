@@ -44,8 +44,31 @@
 
 # python main.py -g TransformerConv -lr 0.001 -wd 0.0001 -me 20 --scheduler_step_size 4 --saving_freq 4 --name TFConv_sc_wd4 -fih
 
-python main.py -g TransformerConv -o RMSprop -lr 0.0001 -wd 0.0001 -me 20 --scheduler_step_size 4 --saving_freq 4 --name TFConv_sc_wd4_RMSprop_lr3_FIH -fih
+# python main.py -g TransformerConv -o RMSprop -lr 0.0001 -wd 0.0001 -me 20 --scheduler_step_size 4 --saving_freq 4 --name TFConv_sc_wd4_RMSprop_lr3_FIH -fih
 
-python main.py -g TransformerConv -lr 0.001 -wd 0.0001 -me 20 --scheduler_step_size 4 --saving_freq 4 --name TFConv_sc_wd4__FIH_ED -fih --use_edge_dropout
+# 
 
-python main.py -g TransformerConv -lr 0.001 -wd 0.0001 -me 20 --scheduler_step_size 4 --saving_freq 4 --name TFConv_sc_wd4_FIH_GP -fih --use_global_pooling
+python main.py -g TransformerConv -o Adam -lr 0.001 -wd 0.0001 -me 20 --scheduler_step_size 8 --saving_freq 4 --name TFC_sc8_wd4 -gpu 1
+sleep 5
+
+python main.py -g TransformerConv -o Adam -lr 0.001 -wd 0.0001 -me 20 --scheduler_step_size 8 --saving_freq 4 --name TFC_sc8_wd4_FIH -fih -gpu 1
+sleep 5
+
+python main.py -g TransformerConv -o Adam -lr 0.001 -wd 0.0001 -me 20 --scheduler_step_size 8 --saving_freq 4 --name TFC_sc8_wd4_D1 --dropout 0.1 -gpu 1
+sleep 5
+
+python main.py -g TransformerConv -o Adam -lr 0.001 -wd 0.0001 -me 20 --scheduler_step_size 8 --saving_freq 4 --name TFC_sc8_wd4_ED1 --edge_dropout 0.1 -gpu 1
+sleep 5
+
+python main.py -g TransformerConv -o Adam -lr 0.001 -wd 0.0001 -me 20 --scheduler_step_size 8 --saving_freq 4 --name TFC_sc8_wd4_GP --use_global_pooling -gpu 1
+sleep 5
+
+python main.py -g TransformerConv -o RMSprop -lr 0.001 -wd 0.0001 -me 20 --scheduler_step_size 8 --saving_freq 4 --name TFC_lr3_sc8_wd4_rmsprop -gpu 1
+sleep 5
+
+# python main.py -g TransformerConv -o RMSprop -lr 0.001 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name TFC_sc8_wd45_rmsprop -gpu 1
+# sleep 5
+
+# python main.py -g TransformerConv -o RMSprop -lr 0.001 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name TFC_sc8_wd45_rmsprop -gpu 1
+# sleep 5
+

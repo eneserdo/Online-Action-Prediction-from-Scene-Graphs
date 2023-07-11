@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """
     TODO:
-    - weight init appropriately
-    - config optimizer type as hyperparam
+    - Hyperparameter search
     - log final test results as bar-plot
 """
 
@@ -32,7 +31,6 @@ from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits)
 from utils import (arg_parser, classification_scores, conf_mat_from_left_right,
                    get_minutes, plot_conf_mat, seed_worker)
 
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 SEED = 34
 random.seed(SEED)
@@ -121,15 +119,13 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     # conf_mat_top_3 = np.zeros((len_actions, len_actions), dtype=float)
 
     f1_calc_top1 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(device)
-    f1_calc_top3 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(
-        device)  # top_k is intentionally 1
+    f1_calc_top3 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(device)  # top_k is intentionally 1
 
     conf_mat_top1 = MulticlassConfusionMatrix(num_classes=len(ACTIONS), normalize="true").to(device)
     conf_mat_top3 = MulticlassConfusionMatrix(num_classes=len(ACTIONS), normalize="true").to(device)
 
     with warnings.catch_warnings():
-        warnings.filterwarnings('ignore', '.*There is a performance drop.*|.*NaN values found in confusion matrix.*',
-                                UserWarning)  # ignores warning about functorch
+        warnings.filterwarnings('ignore', '.*There is a performance drop.*|.*NaN values found in confusion matrix.*', UserWarning)  # ignores warning about functorch
 
         for data in loader:
             step += 1
@@ -173,8 +169,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             step_conf_mat_top3 = conf_mat_top3(pred_top_3_final, ground_truth)
 
             if mode != "test":
-                wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()},
-                           'batch': step}, step=step)
+                wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()}, 'batch': step}, step=step)
 
             # if (step+1)%20==0:
             #     print("20 BATCH ÇALIŞIYOR SADECE")
@@ -208,6 +203,10 @@ if __name__ == "__main__":
     args = arg_parser()
     print("ARGS:\n", args)
 
+    assert args.gpu_id < torch.cuda.device_count(), f"gpu_id:{args.gpu_id} not found. Total gpu count: {torch.cuda.device_count()}"
+    device = torch.device('cuda:'+str(args.gpu_id))
+    # device = torch.device('cuda:'+str(args.gpu_id) if torch.cuda.is_available() else 'cpu')
+    
     wandb.init(project="online-action-prediction-from-scene-graphs", name=args.name, config=args.__dict__,
                mode="disabled" if args.disable_wandb else "online")
 
@@ -239,7 +238,7 @@ if __name__ == "__main__":
                                      use_bn=not args.no_bn,
                                      filter_it=args.filter_idle_hold,
                                      use_hand_pooling=not args.use_global_pooling,
-                                     use_edge_dropout=not args.use_edge_dropout,
+                                     edge_dropout=not args.edge_dropout,
                                      dropout=args.dropout).to(device=device)
 
 

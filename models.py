@@ -8,8 +8,6 @@ from torch_geometric.utils import dropout_edge
 from dataset import OBJECTS
 from utils import get_filters_for_imbalance, align_embeddings_to_right
 
-# TODO: graph-level -> node-level (hand-pooling, how to deal with missing-hand-graphs)
-# TODO: Single MLP to learn both action simultaneously
 
 class ActionRecognition(torch.nn.Module):
     def __init__(self, gnn_type, 
@@ -23,7 +21,7 @@ class ActionRecognition(torch.nn.Module):
                        use_bn, 
                        filter_it, 
                        use_hand_pooling, 
-                       use_edge_dropout, 
+                       edge_dropout, 
                        **kwargs):
         """ Accepts kwargs for non-general params of gnns """
         super().__init__()
@@ -32,7 +30,7 @@ class ActionRecognition(torch.nn.Module):
         self.batch_size=batch_size
         self.filter_it=filter_it
         self.use_hand_pooling=use_hand_pooling
-        self.use_edge_dropout=use_edge_dropout
+        self.edge_dropout=edge_dropout
 
         # Sets Graph Network
         if gnn_type == "NNConv":
@@ -130,7 +128,7 @@ class ActionRecognition(torch.nn.Module):
         for databatch in dataBatchList: # processes each frame time-independently
             x, edge_attr, edge_index, batch  = databatch.x, databatch.edge_attr, databatch.edge_index, databatch.batch
             
-            if self.use_edge_dropout:
+            if self.edge_dropout:
                 edge_index, edge_mask = dropout_edge(edge_index, p=0.1)
                 edge_attr = edge_attr[edge_mask]
 

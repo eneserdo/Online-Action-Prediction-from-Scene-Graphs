@@ -36,7 +36,7 @@ def arg_parser():
     ap.add_argument("--saving_freq", type=int, default=5, help="...")
     ap.add_argument("-nbn", "--no_bn", action="store_true", help="...")
     ap.add_argument("--use_global_pooling", action="store_true", help="...")
-    ap.add_argument("--use_edge_dropout", action="store_true", help="...")
+    ap.add_argument("--edge_dropout", type=float, default=0.0, help="...")
     ap.add_argument("--dropout", type=float, default=0.0, help="...")
 
     # Optimizer
@@ -50,7 +50,7 @@ def arg_parser():
     ap.add_argument("--scheduler_gamma", type=float, default=0.5, help="...")
 
     # Training
-    ap.add_argument("-me", "--max_epochs", type=int, default=50, help="Max number of epochs")
+    ap.add_argument("-me", "--max_epochs", type=int, default=20, help="Max number of epochs")
     ap.add_argument("-r", "--restore", type=int, help="...")
     ap.add_argument("-rn", "--restored_name", type=str, help="...")
     ap.add_argument("-fih", "--filter_idle_hold", action="store_true", help="...")
@@ -58,6 +58,10 @@ def arg_parser():
     # Logging
     ap.add_argument("-n", "--name", required=True, type=str, help="Name of experiment for logging into Wandb")
     ap.add_argument("--disable_wandb",action="store_true", help="Disable wandb")
+
+    # Others
+    ap.add_argument("--gpu_id", type=int, default=0, help="...")
+
 
     return ap.parse_args()
 
