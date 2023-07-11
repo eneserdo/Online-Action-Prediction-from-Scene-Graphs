@@ -155,7 +155,7 @@ class ActionRecognition(torch.nn.Module):
         right_sequencial_embeddings=torch.stack(right_embedding_list)
 
 
-        if self.filter_it and not self.training:
+        if self.filter_it and self.training:
             # get filters
             left_filter, right_filter = get_filters_for_imbalance(dataBatchList)
 
