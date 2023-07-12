@@ -27,8 +27,8 @@ def arg_parser():
     ap.add_argument("-vt", "--validation_take", type=int, default=7, choices=[i for i in range(10)], help="...")
 
     # Model
-    ap.add_argument("-g", "--gnn_type", type=str, required=True, choices=["NNConv", "GATConv", "TransformerConv",
-                                                                          "GATv2Conv"], help="...")
+    ap.add_argument("-g", "--gnn_type", type=str, required=True, choices=["NNConv", "GATConv", "TransformerConv", "GATv2Conv"], help="...")
+    ap.add_argument("--temporal_type", type=str, default="lstm", choices=["lstm", "bi", "tr"], help="...")
     ap.add_argument("-hc", "--hidden_channels", type=int, default=64, help="...")
     ap.add_argument("-oc", "--out_channels", type=int, default=64, help="...")
     ap.add_argument("-hs", "--lstm_hidden_size", type=int, default=128, help="...")

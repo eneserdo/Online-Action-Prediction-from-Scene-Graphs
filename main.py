@@ -227,6 +227,7 @@ if __name__ == "__main__":
                             worker_init_fn=seed_worker)
 
     model = models.ActionRecognition(gnn_type=args.gnn_type,
+                                     temporal_type=args.temporal_type,
                                      num_edge_feat=len(RELATIONS),
                                      in_channels=len(OBJECTS),
                                      hidden_channels=args.hidden_channels,
