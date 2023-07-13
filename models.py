@@ -1,12 +1,56 @@
 from typing import List
 import torch
-from torch.nn import Sequential, Linear, ReLU, SELU, LSTM, Softmax, TransformerEncoder, TransformerEncoderLayer
+from torch.nn import Sequential, Dropout, Linear, ReLU, SELU, LSTM, Softmax, TransformerEncoder, TransformerEncoderLayer, Module
 import torch_geometric.nn as geometric_nn
 from torch_geometric.data import Data, Batch
 from torch_geometric.utils import dropout_edge
+import math
 
 from dataset import OBJECTS
 from utils import get_filters_for_imbalance, align_embeddings_to_right
+
+# Borrowed from https://github.com/pytorch/examples/blob/main/word_language_model/model.py
+class PositionalEncoding(Module):
+    r"""Inject some information about the relative or absolute position of the tokens in the sequence.
+        The positional encodings have the same dimension as the embeddings, so that the two can be summed.
+        Here, we use sine and cosine functions of different frequencies.
+    .. math:
+        \text{PosEncoder}(pos, 2i) = sin(pos/10000^(2i/d_model))
+        \text{PosEncoder}(pos, 2i+1) = cos(pos/10000^(2i/d_model))
+        \text{where pos is the word position and i is the embed idx)
+    Args:
+        d_model: the embed dim (required).
+        dropout: the dropout value (default=0.1).
+        max_len: the max. length of the incoming sequence (default=5000).
+    Examples:
+        >>> pos_encoder = PositionalEncoding(d_model)
+    """
+
+    def __init__(self, d_model, dropout=0.1, max_len=5000):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = Dropout(p=dropout)
+
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0).transpose(0, 1)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x):
+        r"""Inputs of forward function
+        Args:
+            x: the sequence fed to the positional encoder model (required).
+        Shape:
+            x: [sequence length, batch size, embed dim]
+            output: [sequence length, batch size, embed dim]
+        Examples:
+            >>> output = pos_encoder(x)
+        """
+
+        x = x + self.pe[:x.size(0), :]
+        return self.dropout(x)
 
 
 class ActionRecognition(torch.nn.Module):
@@ -78,9 +122,12 @@ class ActionRecognition(torch.nn.Module):
             self.temporal_layer = LSTM(effective_out_ch2, lstm_hidden_size, num_rnn_layers, bidirectional = is_bidirectional, dropout=dropout)
 
         elif temporal_type == "tr":
-            raise NotImplementedError
+            # Default dropout is 0.1
             lstm_hidden_size = lstm_hidden_size//4*3
             self.temporal_layer = TransformerEncoder(TransformerEncoderLayer(effective_out_ch2, 4, lstm_hidden_size), 2)
+            self.PE_coef = math.sqrt(effective_out_ch2)
+            self.pos_encoder = PositionalEncoding(effective_out_ch2)
+
 
         self.mlp=Sequential(Linear(lstm_hidden_size, num_action_classes), Softmax(dim=1))
 
@@ -131,15 +178,14 @@ class ActionRecognition(torch.nn.Module):
                 edge_index, edge_mask = dropout_edge(edge_index, p=0.1)
                 edge_attr = edge_attr[edge_mask]
 
-            # H1 = self.act1(self.conv1(x, edge_index, edge_attr)) # x dim -> [n, d]    
-            # H2 = self.act2(self.conv2(H1, edge_index, edge_attr)) # x dim -> [n, d]    
-            H2 = self.gnn(x, edge_index, edge_attr)
+   
+            H = self.gnn(x, edge_index, edge_attr)
 
             if self.use_hand_pooling:
-                left_embeddings, right_embeddings = self._hands_pooling(x, H2, batch) 
+                left_embeddings, right_embeddings = self._hands_pooling(x, H, batch) 
             else:
-                # Inefficient implementation
-                graph_embedding = geometric_nn.pool.global_mean_pool(H2, batch)
+                # A bit inefficient implementation
+                graph_embedding = geometric_nn.pool.global_mean_pool(H, batch)
                 left_embeddings = graph_embedding
                 right_embeddings = graph_embedding
                 
@@ -153,7 +199,7 @@ class ActionRecognition(torch.nn.Module):
         left_sequencial_embeddings=torch.stack(left_embedding_list)
         right_sequencial_embeddings=torch.stack(right_embedding_list)
 
-
+        # Filtering imbalanced data
         if self.filter_it and self.training:
             # get filters
             left_filter, right_filter = get_filters_for_imbalance(dataBatchList)
@@ -168,34 +214,17 @@ class ActionRecognition(torch.nn.Module):
             left_sequencial_embeddings = align_embeddings_to_right(left_sequencial_embeddings, left_filter)
         
 
-        # n_samples = y.size(0)
-        # h_t = torch.zeros(n_samples, self.hidden_layer_size, dtype=torch.float32)
-        # c_t = torch.zeros(n_samples, self.hidden_layer_size, dtype=torch.float32)
-
         both_sequencial_embeddings=torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=1)
 
-        # y, (hn, cn) = self.temporal_layer(sequencial_embeddings)
-        # y[-1] is equal to hn (checked)
+
         if self.temporal_type == "tr":
+            both_sequencial_embeddings = self.pos_encoder(both_sequencial_embeddings * self.PE_coef)
             both_hn = self.temporal_layer(both_sequencial_embeddings)
+            both_hn = both_hn.mean(dim=0)
         else: 
             _, (both_hn, _) = self.temporal_layer(both_sequencial_embeddings)
-        assert both_hn.shape[0]==1
+            assert both_hn.shape[0]==1
+            both_hn=both_hn.squeeze()
+            
 
-        both_hn=both_hn.squeeze()
-        # _, (left_hn, _) = self.temporal_layer(left_sequencial_embeddings)
-        # _, (right_hn, _) = self.temporal_layer(right_sequencial_embeddings)
-
-        # return self.pred_left(hn), self.pred_right(hn)
-        # return self.pred_left(left_hn), self.pred_right(right_hn)
         return self.mlp(both_hn)
-
-    # def print_summary(self):
-    # req pyg 2.3 
-    #     x = torch.randn(100, 15) # num_node, inp_dim 
-    #     edge_index = torch.randint(0, 20, size=(2, 20)) # 20 relation
-    #     edge_attr = torch.randint(0, 2, size=(20,15)) # their attr
-    #     batch = torch.randint(0, 5, size=(20,)) # their attr
-    #     b=Batch(x=x, edge_attr=edge_attr, edge_index=edge_index, batch=batch)
-    #     inp=[b, b, b, b]
-    #     print(summary(self, inp))
