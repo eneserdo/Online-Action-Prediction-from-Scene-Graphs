@@ -123,10 +123,10 @@ class ActionRecognition(torch.nn.Module):
 
         elif temporal_type == "tr":
             # Default dropout is 0.1
-            lstm_hidden_size = lstm_hidden_size//4*3
-            self.temporal_layer = TransformerEncoder(TransformerEncoderLayer(effective_out_ch2, 4, lstm_hidden_size), 2)
+            self.temporal_layer = TransformerEncoder(TransformerEncoderLayer(effective_out_ch2, 4, lstm_hidden_size//4*3), 2)
             self.PE_coef = math.sqrt(effective_out_ch2)
             self.pos_encoder = PositionalEncoding(effective_out_ch2)
+            lstm_hidden_size=effective_out_ch2
 
 
         self.mlp=Sequential(Linear(lstm_hidden_size, num_action_classes), Softmax(dim=1))
