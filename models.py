@@ -120,7 +120,8 @@ class ActionRecognition(torch.nn.Module):
             lstm_hidden_size = lstm_hidden_size*2//3 if is_bidirectional else lstm_hidden_size
 
             self.temporal_layer = LSTM(effective_out_ch2, lstm_hidden_size, num_rnn_layers, bidirectional = is_bidirectional, dropout=dropout)
-
+            lstm_hidden_size = lstm_hidden_size*2 if is_bidirectional else lstm_hidden_size
+            
         elif temporal_type == "tr":
             # Default dropout is 0.1
             self.temporal_layer = TransformerEncoder(TransformerEncoderLayer(effective_out_ch2, 4, lstm_hidden_size//4*3), 2)
@@ -221,9 +222,12 @@ class ActionRecognition(torch.nn.Module):
             both_sequencial_embeddings = self.pos_encoder(both_sequencial_embeddings * self.PE_coef)
             both_hn = self.temporal_layer(both_sequencial_embeddings)
             both_hn = both_hn.mean(dim=0)
+        elif self.temporal_type == "bi":
+            _, (both_hn, _) = self.temporal_layer(both_sequencial_embeddings)
+            both_hn = torch.cat([both_hn[0], both_hn[1]], dim=1)
         else: 
             _, (both_hn, _) = self.temporal_layer(both_sequencial_embeddings)
-            assert both_hn.shape[0]==1
+            # assert both_hn.shape[0]==1
             both_hn=both_hn.squeeze()
             
 
