@@ -217,7 +217,8 @@ if __name__ == "__main__":
                                                                test_subject=args.test_subject,
                                                                validation_take=args.validation_take,
                                                                temporal_length=args.temporal_length,
-                                                               contact_only=args.contact_only)
+                                                               contact_only=args.contact_only,
+                                                               fix_fps=args.fix_fps)
 
     train_loader = DataLoader(train_set, args.batch_size, shuffle=True, num_workers=3, drop_last=True,
                               worker_init_fn=seed_worker)
