@@ -11,6 +11,7 @@ import shutil
 from os.path import join as opj
 from typing import List, Tuple
 import json
+import gdown
 
 import enlighten
 import natsort
@@ -49,7 +50,9 @@ def crawl_dataset():
 
 
 class BimanualDataset(Dataset):
-    def __init__(self, root: str, is_processed: bool, split: str, test_subject: int, validation_take: int , temporal_length: int, contact_only: bool):
+    def __init__(self, root: str, is_processed: bool, split: str, test_subject: int, validation_take: int , temporal_length: int, contact_only: bool, fix_fps: bool=False):
+        
+        assert fix_fps and temporal_length%2==0, "When fix fps enabled, temporal_length must be even"
         self.temporal_length = temporal_length
         self.is_processed = is_processed
         self.test_subject = test_subject
@@ -58,6 +61,7 @@ class BimanualDataset(Dataset):
         self.config = None
         transform, pre_transform, pre_filter=None, None, None
         self.deleted_once=False
+        self.fix_fps=fix_fps
 
         self.root = root
         self.contact_only=contact_only
@@ -104,7 +108,13 @@ class BimanualDataset(Dataset):
         for url in urls:
             path = download_url(url, self.raw_dir)
             extract_zip(path, self.raw_dir)
+        
+        # Features https://drive.google.com/drive/folders/1yfwItIoQrAnbnk5GTjbbfN8Ls8Ybl_hr
 
+        gdown.download(id="1FceipuZMUjp1ES2THqlAmQgPdE18-flk", output=opj(self.raw_dir, "BimanualActions.zip"))
+        extract_zip(opj(self.raw_dir, "BimanualActions.zip"), self.raw_dir)
+        
+        
     # def _get_graph(self, relation_json, object_json, gt_action_json, frame) -> Data:
     def _get_graph(self, relation_json, object_json, gt_action_json, frame, subject, task, take) -> Tuple[Data, Data]:
         # returns edge index and edge features
@@ -305,6 +315,10 @@ class BimanualDataset(Dataset):
         
         self.split_len=self.config[self.split]
 
+        with open(opj(self.raw_dir, "BimanualActions", "bimacs_video_id_to_video_fps.json"), "r") as f:
+            self.fps_info = json.load(f)
+
+
     def process(self):
         global TOTAL_FRAME_COUNT
         os.mkdir(opj(self.processed_dir, "train"))
@@ -342,8 +356,7 @@ class BimanualDataset(Dataset):
                 TOTAL_FRAME_COUNT+=1
                 graph, graph_mirrored = self._get_graph(relation_json, object_json, gt_action_json, frame, subject, task, take)
                 
-
-                # if the graph is not approptiate, resets the sequence and continues
+                # if the graph is not appropriate, resets the sequence and continues
                 if not self._check_validity(graph):
                     data_list=[]
                     data_list_mirrored=[]
@@ -353,6 +366,12 @@ class BimanualDataset(Dataset):
                 data_list.append(graph)
                 data_list_mirrored.append(graph_mirrored)
 
+                # Check if fps need to be fixed. If so, add same graph again  
+                if self.fix_fps and self.fps_info[subject+"-"+task+"-"+take] == 15:
+                    data_list.append(graph)
+                    data_list_mirrored.append(graph_mirrored)
+                    
+                # if the sequence is complete, saves it
                 if len(data_list) == self.temporal_length:
                     
                     if int(subject[-1])==self.test_subject:
