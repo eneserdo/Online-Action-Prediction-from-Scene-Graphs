@@ -41,6 +41,11 @@ torch.cuda.manual_seed(SEED)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
+# # To fix the following error:
+# OSError: [Errno 24] Too many open files
+# Alternatively ulimit can be increased
+torch.multiprocessing.set_sharing_strategy('file_system')
+
 # # An attempt to fix the following error:
 # XIO:  fatal IO error 25 (Inappropriate ioctl for device) on X server "localhost:10.0" after 2627 requests (2627 known processed) with 8 events remaining.
 pyplot.ioff()
