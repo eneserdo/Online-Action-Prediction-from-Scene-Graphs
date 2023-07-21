@@ -315,9 +315,6 @@ class BimanualDataset(Dataset):
         
         self.split_len=self.config[self.split]
 
-        with open(opj(self.raw_dir, "BimanualActions", "bimacs_video_id_to_video_fps.json"), "r") as f:
-            self.fps_info = json.load(f)
-
 
     def process(self):
         global TOTAL_FRAME_COUNT
@@ -327,6 +324,9 @@ class BimanualDataset(Dataset):
 
         derived_dir = opj(self.raw_dir, "bimacs_derived_data")
         gt_dir = opj(self.raw_dir, "bimacs_rgbd_data_ground_truth")
+
+        with open(opj(self.raw_dir, "BimanualActions", "bimacs_video_id_to_video_fps.json"), "r") as f:
+            self.fps_info = json.load(f)
 
         train_sample_idx=0
         val_sample_idx=0
