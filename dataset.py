@@ -3,6 +3,8 @@
     - mirrored graph
     - remove data.verify and unnecessary asserts
     - bimanual paper sample count: 442216 vs our: 421610 
+
+    - !!! prepating dataset and getting Dataset instances should be separate
 """
 import glob
 import json

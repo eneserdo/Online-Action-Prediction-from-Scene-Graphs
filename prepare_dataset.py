@@ -23,15 +23,14 @@ def main():
 
     # Initiating a single instance will download and process the dataset
     _ = BimanualDataset(root=args.root, 
-                        is_processed=False, 
-                        split="train", 
+                        is_processed=False,
+                        split="train",
                         test_subject=args.test_subject, 
                         validation_take=args.validation_take,
                         temporal_length=args.temporal_length,
-                        pred_length=args.pred_length, 
                         contact_only=args.contact_only,
                         fix_fps=args.fix_fps)
-    
+
     print("Dataset preparation is done! You can now train your model")
     
 
