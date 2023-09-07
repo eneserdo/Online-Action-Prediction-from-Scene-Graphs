@@ -136,30 +136,15 @@ class ActionRecognition(torch.nn.Module):
         
         labels=torch.argmax(x, dim=1)
 
-        # left_hand=torch.zeros((1, len(OBJECTS)))
-        # left_hand[0, OBJECTS.index("LeftHand")]=1
-  
-        # right_hand=torch.zeros((1, len(OBJECTS)))
-        # right_hand[0, OBJECTS.index("RightHand")]=1
-
-        graph_hand_indicies=torch.zeros((self.batch_size*2), dtype=torch.long)
         left_hand_indicies=torch.zeros((self.batch_size), dtype=torch.long)
         right_hand_indicies=torch.zeros((self.batch_size), dtype=torch.long)
 
-        # for i, obj in enumerate(x):    
-        #     if obj==left_hand:
-        #         graph_hand_indicies[i]=1
-
-        #     if obj==right_hand:
-        #         graph_hand_indicies[i]=2
-        
 
         for i, l in enumerate(labels):
             if l == OBJECTS.index("LeftHand"):
-                # graph_hand_indicies[batch[i]*2+0]=i
                 left_hand_indicies[batch[i]]=i
+
             elif l == OBJECTS.index("RightHand"):
-                # graph_hand_indicies[batch[i]*2+1]=i
                 right_hand_indicies[batch[i]]=i
 
         # left, right: [batch_size, len(embedding)]
@@ -168,7 +153,6 @@ class ActionRecognition(torch.nn.Module):
 
     def forward(self, dataBatchList: List[Batch]):
 
-        # embedding_list=[]
         left_embedding_list=[]
         right_embedding_list=[]
 
@@ -196,7 +180,6 @@ class ActionRecognition(torch.nn.Module):
             # assert graph_embedding.shape[0]==self.batch_size and graph_embedding.shape[1]==self.conv_out
 
 
-        # sequencial_embeddings=torch.stack(embedding_list)
         left_sequencial_embeddings=torch.stack(left_embedding_list)
         right_sequencial_embeddings=torch.stack(right_embedding_list)
 

@@ -51,64 +51,6 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 pyplot.ioff()
 
 
-def test(model, loader):
-    warnings.warn("Temporarily using old test code", UserWarning)
-    dummy_i = 0
-
-    model.eval()
-    len_actions = len(ACTIONS)
-    action_indices = [range(0, len_actions)]
-    conf_mat_top = np.zeros((len_actions, len_actions), dtype=float)
-    conf_mat_top_3 = np.zeros((len_actions, len_actions), dtype=float)
-
-    with warnings.catch_warnings():
-        warnings.filterwarnings('ignore', '.*There is a performance drop.*|.*NaN values found in confusion matrix.*',
-                                UserWarning)  # ignores warning about functorch
-
-        for data in loader:  # Iterate in batches over the training/test dataset.
-            dummy_i += 1
-            data = [d.to(device) for d in data]
-
-            left_right_pred = model(data)
-            # pred = left_right_pred.argmax(dim=1)
-            pred_top_3 = torch.argsort(left_right_pred, dim=1, descending=True)[:, :3]
-            pred_top_1 = pred_top_3[:, 0]
-
-            ground_truth_left_right = torch.cat([data[-1].y[::2], data[-1].y[1::2]])
-            ground_truth = ground_truth_left_right.argmax(dim=1)
-
-            pred_top_3_final = torch.where(functorch.vmap(lambda t1, t2: torch.isin(t1, t2))(ground_truth, pred_top_3),
-                                           ground_truth, pred_top_1)
-
-            # conf_mat_top += conf_mat_from_left_right(ground_truth, pred, action_indices)
-            # conf_mat_top_3 += conf_mat_from_left_right(ground_truth, pred_top_3_final, action_indices)
-            conf_mat_top += confusion_matrix(ground_truth.cpu().detach().numpy(), pred_top_1.cpu().detach().numpy(),
-                                             labels=action_indices)
-            conf_mat_top_3 += confusion_matrix(ground_truth.cpu().detach().numpy(),
-                                               pred_top_3_final.cpu().detach().numpy(), labels=action_indices)
-            # if dummy_i==5:
-            #     print("TEST ONLY RUNNED 5 STEP")
-            #     break
-
-    scores = classification_scores(conf_mat_top)
-    scores_top_3 = classification_scores(conf_mat_top_3)
-    print(f"F1 top1: {scores['F1']['avg']['macro']}, top3 {scores_top_3['F1']['avg']['macro']}")
-
-    conf_mat_top = conf_mat_top.astype('float') / conf_mat_top.sum(axis=1)[:, np.newaxis]
-    conf_mat_top_3 = conf_mat_top_3.astype('float') / conf_mat_top_3.sum(axis=1)[:, np.newaxis]
-    plt = plot_conf_mat(conf_mat_top, "aa_restored_top1", do_return_plot=True)
-    plt3 = plot_conf_mat(conf_mat_top_3, "aa_restored_top3", do_return_plot=True)
-
-    wandb.log({"test/confusion_matrix/": {'top1': wandb.Image(plt), 'top3': wandb.Image(plt3)}})
-    plt.close()
-    plt3.close()
-
-
-#     print("Test acc: ", scores['accuracy'])
-#     print("Test top3 acc: ", scores_top_3['accuracy'])
-
-#     return scores, scores_top_3
-
 
 def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: int):
     global step
