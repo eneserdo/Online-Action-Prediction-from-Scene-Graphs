@@ -69,7 +69,9 @@ else:
 class BimanualDataset(Dataset):
     def __init__(self, root: str, is_processed: bool, split: str, test_subject: int, validation_take: int , temporal_length: int, contact_only: bool, fix_fps: bool=False):
         
-        assert fix_fps and temporal_length%2==0, "When fix fps enabled, temporal_length must be even"
+        if fix_fps:
+            assert temporal_length%2==0, "When fix fps enabled, temporal_length must be even"
+        
         self.temporal_length = temporal_length
         self.is_processed = is_processed
         self.test_subject = test_subject
