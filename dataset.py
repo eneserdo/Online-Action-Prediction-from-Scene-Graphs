@@ -17,6 +17,7 @@ import gdown
 
 import enlighten
 import natsort
+import numpy as np
 import torch
 from torch_geometric.data import Data, Dataset, download_url, extract_zip
 from torch_geometric.loader import DataLoader
@@ -67,14 +68,21 @@ class BimanualDataset(Dataset):
 
         self.root = root
         self.contact_only=contact_only
-        
+        self.distribution = torch.zeros((len(ACTIONS)))
+
         assert split in ["val", "train", "test"], "split can only be val, train or test"
         if is_processed:
             self._load_config()
             assert self.config["test_subject"]==test_subject
             assert self.config["validation_take"]==validation_take
+            assert self.config["temporal_length"]==temporal_length
+
 
         super().__init__(root, transform, pre_transform, pre_filter)
+
+    @property
+    def processed_dir(self) -> str:
+        return opj(self.root, 'processed'+str(self.temporal_length))
 
     @property
     def raw_file_names(self):
@@ -316,6 +324,7 @@ class BimanualDataset(Dataset):
             self.config = json.load(f)
         
         self.split_len=self.config[self.split]
+        self.distribution = self.config["distribution"]
 
 
     def process(self):
@@ -397,6 +406,7 @@ class BimanualDataset(Dataset):
                         torch.save(data_list_mirrored, opj(self.processed_dir, "train", f'data_{train_sample_idx}.pt'))
                         train_sample_idx+=1
 
+                    self.distribution = self.distribution + data_list[0].y[0] + data_list[0].y[1]
                     data_list[0].validate(raise_on_error=True)
                     data_list_mirrored[0].validate(raise_on_error=True)
                     data_list.pop(0)
@@ -412,7 +422,9 @@ class BimanualDataset(Dataset):
                        "train": train_sample_idx, 
                        "val": val_sample_idx, 
                        "test_subject": self.test_subject, 
-                       "validation_take": self.validation_take}
+                       "validation_take": self.validation_take,
+                       "temporal_length": self.temporal_length,
+                       "distribution": self.distribution.tolist()}
         
         print(self.config)
         

@@ -39,6 +39,7 @@ def arg_parser():
     ap.add_argument("--use_global_pooling", action="store_true", help="...")
     ap.add_argument("--edge_dropout", type=float, default=0.0, help="...")
     ap.add_argument("--dropout", type=float, default=0.0, help="...")
+    ap.add_argument("--use_cls_token", action="store_true", help="Use class token in transformer")
 
     # Optimizer
     ap.add_argument("-o", "--optimizer_type", type=str, required=True,
@@ -49,6 +50,7 @@ def arg_parser():
     ap.add_argument("-wd", "--weight_decay", type=float, default=0.0, help="...")
     ap.add_argument("--scheduler_step_size", type=int, default=10, help="...")
     ap.add_argument("--scheduler_gamma", type=float, default=0.5, help="...")
+    ap.add_argument("--weighted_loss", type=str, default="none", choices=["none", "inv", "sqrt_inv" "effective"], help="Use class frequencies as weight for loss function")
 
     # Training
     ap.add_argument("-me", "--max_epochs", type=int, default=20, help="Max number of epochs")

@@ -67,7 +67,8 @@ class ActionRecognition(torch.nn.Module):
                        filter_it, 
                        use_hand_pooling, 
                        edge_dropout,
-                       dropout, 
+                       dropout,
+                       use_cls_token, 
                        **kwargs):
         """ Accepts kwargs for non-general params of gnns """
         super().__init__()
@@ -77,6 +78,7 @@ class ActionRecognition(torch.nn.Module):
         self.use_hand_pooling=use_hand_pooling
         self.edge_dropout=edge_dropout
         self.temporal_type=temporal_type
+        self.use_cls_token=use_cls_token
 
         # Sets Graph Network
         if gnn_type == "NNConv":
@@ -127,6 +129,10 @@ class ActionRecognition(torch.nn.Module):
             self.temporal_layer = TransformerEncoder(TransformerEncoderLayer(effective_out_ch2, 4, lstm_hidden_size//4*3), 2)
             self.PE_coef = math.sqrt(effective_out_ch2)
             self.pos_encoder = PositionalEncoding(effective_out_ch2)
+            
+            if use_cls_token:
+                self.cls_tokens = torch.nn.Parameter(torch.randn(1, 1, effective_out_ch2)).expand(self.batch_size, -1, -1)
+            
             lstm_hidden_size=effective_out_ch2
 
 
@@ -202,9 +208,19 @@ class ActionRecognition(torch.nn.Module):
 
 
         if self.temporal_type == "tr":
+            if self.use_cls_token:
+                both_sequencial_embeddings = torch.cat((self.cls_tokens, both_sequencial_embeddings), dim=1)
+
             both_sequencial_embeddings = self.pos_encoder(both_sequencial_embeddings * self.PE_coef)
+
             both_hn = self.temporal_layer(both_sequencial_embeddings)
-            both_hn = both_hn.mean(dim=0)
+            
+            if self.use_cls_token:
+                both_hn = both_hn[0]
+            else: 
+                both_hn = both_hn.mean(dim=0) # FIXME: It is dim=1 in the original code ?
+
+
         elif self.temporal_type == "bi":
             _, (both_hn, _) = self.temporal_layer(both_sequencial_embeddings)
             both_hn = torch.cat([both_hn[0], both_hn[1]], dim=1)

@@ -188,7 +188,8 @@ if __name__ == "__main__":
                                      filter_it=args.filter_idle_hold,
                                      use_hand_pooling=not args.use_global_pooling,
                                      edge_dropout=not args.edge_dropout,
-                                     dropout=args.dropout).to(device=device)
+                                     dropout=args.dropout,
+                                     use_cls_token=args.use_cls_token).to(device=device)
 
 
 
@@ -218,7 +219,26 @@ if __name__ == "__main__":
                                                               weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.scheduler_step_size,
                                                 gamma=args.scheduler_gamma, verbose=True)
-    criterion = torch.nn.CrossEntropyLoss()
+    
+    
+    
+    if args.weighted_loss == "none":
+        loss_weights = None
+    elif args.weighted_loss == "inv":
+        loss_weights = 1.0 / torch.tensor(train_set.distribution)
+        loss_weights = loss_weights / loss_weights.sum() * len(ACTIONS)
+    elif args.weighted_loss == "sqrt_inv":
+        loss_weights = 1.0 / torch.sqrt(torch.tensor(train_set.distribution))
+        loss_weights = loss_weights / loss_weights.sum() * len(ACTIONS)
+    elif args.weighted_loss == "effective":
+        beta=0.9999
+        effective_num = 1.0 - torch.power(beta, train_set.distribution)
+        loss_weights = (1.0 - beta) / effective_num
+        loss_weights = loss_weights / loss_weights.sum() * len(ACTIONS)
+    else:
+        raise NotImplementedError(f"Weighted loss type {args.weighted_loss} is not implemented")
+    
+    criterion = torch.nn.CrossEntropyLoss(weight=loss_weights).to(device=device)
 
     save_dir = f"saved_{args.name}"
     if not os.path.isdir(save_dir):
