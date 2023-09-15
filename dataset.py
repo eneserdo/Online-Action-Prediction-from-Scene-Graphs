@@ -52,15 +52,18 @@ def crawl_dataset_FULL():
                 yield subject, task, take
 
 def crawl_dataset_DEBUG():
-    subject = 'subject_2'
-    task = 'task_1_k_cooking'
-    for take in ['take_{}'.format(take_i) for take_i in range(10)]:
-        yield subject, task, take
+    for subject in ['subject_1', 'subject_2']: # (1, 7)
+        # for task in ['task_1_k_cooking', 'task_2_k_cooking_with_bowls']:
+        for task in ['task_1_k_cooking', 'task_2_k_cooking_with_bowls', 'task_3_k_pouring',
+                     'task_4_k_wiping', 'task_5_k_cereals', 'task_6_w_hard_drive',
+                     'task_7_w_free_hard_drive', 'task_8_w_hammering', 'task_9_w_sawing']:
+            for take in ['take_1', 'take_7']: # 10
+                yield subject, task, take
 
-DEBUG_MODE = False
+DEBUG_MODE = True
 
 if DEBUG_MODE:
-    Warning.warn("Debug mode is on")
+    print("Debug mode is on\n"*5)
     crawl_dataset = crawl_dataset_DEBUG
 else:
     crawl_dataset = crawl_dataset_FULL
