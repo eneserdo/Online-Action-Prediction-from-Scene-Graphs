@@ -1,9 +1,14 @@
 import argparse
+import glob
+import json
+import os
 from os.path import join as opj
 import random
+import shutil
 
 import functorch
 import matplotlib.pyplot as plt
+import natsort
 import numpy as np
 import seaborn as sns
 import torch
@@ -302,3 +307,99 @@ def debug_align(device="cpu"):
     # print("y[:, :, 0]:\n", y[:, :, 0])
 
     return x, y, index, mask
+
+
+
+def get_relations(base_dir, subject, task, take, i):
+    """ Returns a set for relations in the frame """
+    
+    # derived_dir=base_dir+"bimacs_derived_data/"
+    derived_dir=opj(base_dir, "bimacs_derived_data")
+
+    _3d_objects_dirs=opj(derived_dir, subject, task, take, "3d_objects")
+    _3d_objects_json_list=natsort.natsorted(glob.glob(opj(_3d_objects_dirs, "*.json")))
+
+    relation_json_dirs=opj(derived_dir, subject, task, take, "spatial_relations")
+    relations_path=natsort.natsorted(glob.glob(opj(relation_json_dirs, "*.json")))
+
+
+    with open(relations_path[i]) as f:
+        relations = json.load(f)
+
+    with open(_3d_objects_json_list[i]) as f:
+        _3d = json.load(f)
+
+    
+    # log=""
+    # text=""
+    readable_relations=[]
+
+    for relation in relations:
+        oi=relation["object_index"]
+        si=relation["subject_index"]
+
+        # log = log + _3d[oi]["class_name"]+ " - " + relation["relation_name"] + " - " + _3d[si]["class_name"] +"; "
+        # log = log + _3d[oi]["class_name"]+ " - " + relation["relation_name"] + " - " + _3d[si]["class_name"] +"; "
+
+        readable_relations.append(_3d[oi]["class_name"]+ " - " + relation["relation_name"] + " - " + _3d[si]["class_name"])
+
+        # if relation["relation_name"]=="contact":
+            
+            # text=text + f"({oi})"+object_mapping[oi] + " - " + f"({si})"+ object_mapping[si] + "\n"
+            # if oi < si:
+            #     text=text + _3d[oi]["class_name"]+ " - " + _3d[si]["class_name"] +"\n"
+            
+            
+
+    # print("FRAME:\n", log, "\n")
+    return readable_relations
+
+
+def visualize_incorrect_preds(preds, labels, idxes, mapping_path, graph_dataset_dir="raw", rgb_dataset_dir="/home/stannis/enes/bimanual/bimacs_rgbd_data"):
+    
+    assert os.path.exists(rgb_dataset_dir), "RGB dataset directory does not exist"
+    assert os.path.exists(graph_dataset_dir), "Graph dataset directory does not exist"
+
+    save_dir_name = "incorrect_predictions"
+    # if os.path.exists(save_dir_name):
+        # print("Removing existing", save_dir_name)
+        # shutil.rmtree(save_dir_name)
+    os.makedirs(save_dir_name, exist_ok=True)
+
+    with open(mapping_path, "r") as f:
+        test_idx_sample_mapping = json.load(f)
+
+    incorrect_mask = preds != labels
+    preds, labels, idxes = preds[incorrect_mask], labels[incorrect_mask], idxes[incorrect_mask]
+
+    num_of_samples = 10
+    random_samples=np.random.randint(0, len(preds), num_of_samples)
+    preds, labels, idxes = preds[random_samples], labels[random_samples], idxes[random_samples]
+
+    
+    for idx, p, gt in zip(idxes, preds, labels):
+        subject, task, take, start_frame, end_frame, is_mirrored = test_idx_sample_mapping[idx]
+        sample_save_dir = opj(save_dir_name, f"{ACTIONS[p]}_{ACTIONS[gt]}_{idx}")
+        os.mkdir(sample_save_dir)
+
+        # Copy frames
+        for frame in range(start_frame, end_frame+1):    
+            chunk_no = frame//100
+            frame_path = opj(rgb_dataset_dir, subject, task, take, "rgb", f"chunk_{chunk_no}", f"frame_{frame}.png")
+            shutil.copy(frame_path, sample_save_dir)
+
+        # Open a text file, and save relations
+        with open(opj(sample_save_dir, "relations.txt"), "w") as f:
+            prev_relations = []
+            for frame in range(start_frame, end_frame+1):
+                f.write(f"Frame {frame}:\n\n")
+
+                curr_relations = get_relations(graph_dataset_dir, subject, task, take, frame)
+                
+                diff_relations=list(set(curr_relations) - set(prev_relations))
+
+                for relation in diff_relations:
+                    f.write(relation + "; ")
+                f.write("\n")
+
+                prev_relations = curr_relations

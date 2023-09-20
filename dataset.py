@@ -60,7 +60,7 @@ def crawl_dataset_DEBUG():
             for take in ['take_1', 'take_7']: # 10
                 yield subject, task, take
 
-DEBUG_MODE = True
+DEBUG_MODE = False
 
 if DEBUG_MODE:
     print("Debug mode is on\n"*5)
@@ -365,6 +365,7 @@ class BimanualDataset(Dataset):
         progressbar_manager=enlighten.get_manager()
         ticks=progressbar_manager.counter(total=540, desc="Progress:", unit="folder", color="blue")
         
+        test_idx_sample_mapping = {} # aslında list de olur ama ne olur ne olmaz
 
         for subject, task, take in crawl_dataset():
             # make sure there is no cross-folder graph sequence
@@ -406,9 +407,11 @@ class BimanualDataset(Dataset):
                     
                     if int(subject[-1])==self.test_subject:
                         torch.save(data_list, opj(self.processed_dir, "test", f'data_{test_sample_idx}.pt'))
+                        test_idx_sample_mapping[test_sample_idx] = (subject, task, take, frame-self.temporal_length, frame, "not_mirrored")
                         test_sample_idx+=1
 
                         torch.save(data_list_mirrored, opj(self.processed_dir, "test", f'data_{test_sample_idx}.pt'))
+                        test_idx_sample_mapping[test_sample_idx] = (subject, task, take, frame-self.temporal_length, frame, "mirrored")
                         test_sample_idx+=1
                     
                     elif int(take[-1])==self.validation_take:
@@ -448,6 +451,10 @@ class BimanualDataset(Dataset):
         print(self.config)
         
         self._save_config(self.config)
+        
+        with open(opj(self.processed_dir, "test_idx_sample_mapping.json"), "w") as f:
+            json.dump(test_idx_sample_mapping, f)
+        
         self.is_processed=True
 
     def len(self):
@@ -460,7 +467,7 @@ class BimanualDataset(Dataset):
         # data = torch.load(f[0])
 
         data = torch.load(opj(self.processed_dir, self.split, f'data_{idx}.pt'))
-        return data
+        return idx, data
 
 
 # Simple test

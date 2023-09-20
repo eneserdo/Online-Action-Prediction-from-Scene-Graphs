@@ -29,7 +29,7 @@ import models
 import wandb
 from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits)
 from utils import (arg_parser, classification_scores, conf_mat_from_left_right,
-                   get_minutes, plot_conf_mat, seed_worker)
+                   get_minutes, plot_conf_mat, seed_worker, visualize_incorrect_preds)
 
 
 SEED = 34
@@ -74,7 +74,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     with warnings.catch_warnings():
         warnings.filterwarnings('ignore', '.*There is a performance drop.*|.*NaN values found in confusion matrix.*', UserWarning)  # ignores warning about functorch
 
-        for data in loader:
+        for idxes, data in loader:
             step += 1
 
             if mode == "train":
@@ -122,11 +122,12 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             #     print("20 BATCH ÇALIŞIYOR SADECE")
             #     break
 
-    overall_f1_top1 = f1_calc_top1.compute()
-    overall_f1_top3 = f1_calc_top3.compute()
+        overall_f1_top1 = f1_calc_top1.compute()
+        overall_f1_top3 = f1_calc_top3.compute()
 
-    overall_conf_mat_top1 = conf_mat_top1.compute()
-    overall_conf_mat_top3 = conf_mat_top3.compute()
+        overall_conf_mat_top1 = conf_mat_top1.compute()
+        overall_conf_mat_top3 = conf_mat_top3.compute()
+
 
     if mode != "test":
         wandb.log({f"{mode}/epoch/": {'top1_F1': overall_f1_top1, 'top3_F1': overall_f1_top3}, 'epoch': epoch})
@@ -139,6 +140,12 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     # scores_top_3 = classification_scores(conf_mat_top_3)
 
     # wandb.log({'top1/':{'F1':overall_f1_top1}, 'top3/':{'F1':overall_f1_top3}})
+
+    dummy_i = 0
+    if mode == "test":
+        dummy_i += 1
+        visualize_incorrect_preds(pred_top_1, ground_truth, idxes, 
+                                  mapping_path="processed10/test_idx_sample_mapping.json")
 
     if mode in ["test", "val"]:
         return overall_f1_top1, overall_f1_top3, overall_conf_mat_top1, overall_conf_mat_top3
