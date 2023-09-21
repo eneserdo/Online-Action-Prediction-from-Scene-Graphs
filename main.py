@@ -141,11 +141,11 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
     # wandb.log({'top1/':{'F1':overall_f1_top1}, 'top3/':{'F1':overall_f1_top3}})
 
-    dummy_i = 0
-    if mode == "test":
-        dummy_i += 1
-        visualize_incorrect_preds(pred_top_1, ground_truth, idxes, 
-                                  mapping_path="processed10/test_idx_sample_mapping.json")
+#    dummy_i = 0
+#    if mode == "test":
+#        dummy_i += 1
+#        visualize_incorrect_preds(pred_top_1, ground_truth, idxes, 
+#                                  mapping_path="processed10/test_idx_sample_mapping.json")
 
     if mode in ["test", "val"]:
         return overall_f1_top1, overall_f1_top3, overall_conf_mat_top1, overall_conf_mat_top3
