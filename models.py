@@ -1,6 +1,6 @@
 from typing import List
 import torch
-from torch.nn import Sequential, Dropout, Linear, ReLU, SELU, LSTM, Softmax, TransformerEncoder, TransformerEncoderLayer, Module
+from torch.nn import Sequential, Dropout, Linear, ReLU, SELU, LSTM, Softmax, TransformerEncoder, TransformerEncoderLayer, Module, functional as F
 import torch_geometric.nn as geometric_nn
 from torch_geometric.data import Data, Batch
 from torch_geometric.utils import dropout_edge
@@ -138,6 +138,8 @@ class ActionRecognition(torch.nn.Module):
 
         self.mlp=Sequential(Linear(lstm_hidden_size, num_action_classes), Softmax(dim=1))
 
+        self.segment_boundary_detector = Sequential(Linear(lstm_hidden_size + effective_out_ch2, 2), F.gumbel_softmax(dim=1))
+
     def _hands_pooling(self, x, embeddings, batch):
         
         labels=torch.argmax(x, dim=1)
@@ -228,6 +230,13 @@ class ActionRecognition(torch.nn.Module):
             _, (both_hn, _) = self.temporal_layer(both_sequencial_embeddings)
             # assert both_hn.shape[0]==1
             both_hn=both_hn.squeeze()
-            
 
-        return self.mlp(both_hn)
+        action_prediction = self.mlp(both_hn)    
+
+        # Segmentation task - predict segment change (0,1)
+        # TODO: 
+        #   -> Should both rnn and gnn output be fed here, like in ASSIGN? 
+        hn_se = torch.concat([both_hn, both_sequencial_embeddings], dim=-1)
+        segment_change_prediction = self.segment_boundary_detector(hn_se)
+
+        return action_prediction, segment_change_prediction
