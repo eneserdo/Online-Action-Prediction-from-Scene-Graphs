@@ -81,8 +81,9 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                 optimizer.zero_grad()
 
             data = [d.to(device) for d in data]
-
-            left_right_pred = model(data)
+            
+            # TODO: obtain 0,1 valued targets of whether action changes via algorithm here or in data porcessing phase -> FSD 20.09.2023
+            left_right_pred, segment_change_pred = model(data) # left_right_pred = model(data) # segmentation task -> FSD 20.09.2023
             ground_truth_left_right = torch.cat([data[-1].y[::2], data[-1].y[1::2]])
 
             loss = criterion(left_right_pred, ground_truth_left_right)
@@ -245,7 +246,9 @@ if __name__ == "__main__":
     else:
         raise NotImplementedError(f"Weighted loss type {args.weighted_loss} is not implemented")
     
-    criterion = torch.nn.CrossEntropyLoss(weight=loss_weights).to(device=device)
+    # TODO: multiple loss -> FSD 22.09.2023
+    label_criterion = torch.nn.CrossEntropyLoss(weight=loss_weights).to(device=device)
+    segmentation_criterion = torch.nn.BCELoss(weight=loss_weights).to(device=device)
 
     save_dir = f"saved_{args.name}"
     if not os.path.isdir(save_dir):
