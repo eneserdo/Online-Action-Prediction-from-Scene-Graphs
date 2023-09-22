@@ -370,6 +370,7 @@ def visualize_incorrect_preds(preds, labels, idxes, mapping_path, graph_dataset_
         test_idx_sample_mapping = json.load(f)
 
     incorrect_mask = preds != labels
+    idxes = torch.concat([idxes, idxes])
     preds, labels, idxes = preds[incorrect_mask], labels[incorrect_mask], idxes[incorrect_mask]
 
     num_of_samples = 10
@@ -378,7 +379,7 @@ def visualize_incorrect_preds(preds, labels, idxes, mapping_path, graph_dataset_
 
     
     for idx, p, gt in zip(idxes, preds, labels):
-        subject, task, take, start_frame, end_frame, is_mirrored = test_idx_sample_mapping[idx]
+        subject, task, take, start_frame, end_frame, is_mirrored = test_idx_sample_mapping[str(idx.item())]
         sample_save_dir = opj(save_dir_name, f"{ACTIONS[p]}_{ACTIONS[gt]}_{idx}")
         os.mkdir(sample_save_dir)
 
