@@ -29,7 +29,7 @@ import models
 import wandb
 from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits)
 from utils import (arg_parser, classification_scores, conf_mat_from_left_right,
-                   get_minutes, plot_conf_mat, seed_worker, visualize_incorrect_preds)
+                   get_minutes, plot_conf_mat, seed_worker, visualize_incorrect_preds, create_ground_truth_segments)
 
 
 SEED = 34
@@ -81,12 +81,16 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                 optimizer.zero_grad()
 
             data = [d.to(device) for d in data]
+
+            ground_truth_left_right = torch.cat([data[-1].y[::2], data[-1].y[1::2]])
+            ground_truth_segments = create_ground_truth_segments(ground_truth_left_right)
             
             # TODO: obtain 0,1 valued targets of whether action changes via algorithm here or in data porcessing phase -> FSD 20.09.2023
             left_right_pred, segment_change_pred = model(data) # left_right_pred = model(data) # segmentation task -> FSD 20.09.2023
-            ground_truth_left_right = torch.cat([data[-1].y[::2], data[-1].y[1::2]])
 
-            loss = criterion(left_right_pred, ground_truth_left_right)
+
+            loss = label_criterion(left_right_pred, ground_truth_left_right) + \
+                   segmentation_criterion(segment_change_pred, ground_truth_segments)
 
             if mode == "train":
                 loss.backward()
@@ -142,11 +146,11 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
     # wandb.log({'top1/':{'F1':overall_f1_top1}, 'top3/':{'F1':overall_f1_top3}})
 
-    dummy_i = 0
+    """dummy_i = 0
     if mode == "test":
         dummy_i += 1
         visualize_incorrect_preds(pred_top_1, ground_truth, idxes, 
-                                  mapping_path="processed10/test_idx_sample_mapping.json")
+                                  mapping_path="processed10/test_idx_sample_mapping.json")"""
 
     if mode in ["test", "val"]:
         return overall_f1_top1, overall_f1_top3, overall_conf_mat_top1, overall_conf_mat_top3
@@ -158,9 +162,8 @@ if __name__ == "__main__":
     args = arg_parser()
     print("ARGS:\n", args)
 
-    assert args.gpu_id < torch.cuda.device_count(), f"gpu_id:{args.gpu_id} not found. Total gpu count: {torch.cuda.device_count()}"
-    device = torch.device('cuda:'+str(args.gpu_id))
-    # device = torch.device('cuda:'+str(args.gpu_id) if torch.cuda.is_available() else 'cpu')
+    # assert args.gpu_id < torch.cuda.device_count(), f"gpu_id:{args.gpu_id} not found. Total gpu count: {torch.cuda.device_count()}"
+    device = torch.device('cuda:'+str(args.gpu_id) if torch.cuda.is_available() else 'cpu')
     
     wandb.init(project="online-action-prediction-from-scene-graphs", name=args.name, config=args.__dict__,
                mode="disabled" if args.disable_wandb else "online")

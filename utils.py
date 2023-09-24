@@ -18,8 +18,8 @@ from dataset import ACTIONS
 
 plt.ioff()
 
-def arg_parser():
 
+def arg_parser():
     ap = argparse.ArgumentParser()
 
     # Dataset
@@ -33,7 +33,8 @@ def arg_parser():
     ap.add_argument("-vt", "--validation_take", type=int, default=7, choices=[i for i in range(10)], help="...")
 
     # Model
-    ap.add_argument("-g", "--gnn_type", type=str, required=True, choices=["NNConv", "GATConv", "TransformerConv", "GATv2Conv"], help="...")
+    ap.add_argument("-g", "--gnn_type", type=str, required=True,
+                    choices=["NNConv", "GATConv", "TransformerConv", "GATv2Conv"], help="...")
     ap.add_argument("--temporal_type", type=str, default="lstm", choices=["lstm", "bi", "tr"], help="...")
     ap.add_argument("-hc", "--hidden_channels", type=int, default=64, help="...")
     ap.add_argument("-oc", "--out_channels", type=int, default=64, help="...")
@@ -55,7 +56,8 @@ def arg_parser():
     ap.add_argument("-wd", "--weight_decay", type=float, default=0.0, help="...")
     ap.add_argument("--scheduler_step_size", type=int, default=10, help="...")
     ap.add_argument("--scheduler_gamma", type=float, default=0.5, help="...")
-    ap.add_argument("--weighted_loss", type=str, default="none", choices=["none", "inv", "sqrt_inv" "effective"], help="Use class frequencies as weight for loss function")
+    ap.add_argument("--weighted_loss", type=str, default="none", choices=["none", "inv", "sqrt_inv" "effective"],
+                    help="Use class frequencies as weight for loss function")
 
     # Training
     ap.add_argument("-me", "--max_epochs", type=int, default=20, help="Max number of epochs")
@@ -65,20 +67,18 @@ def arg_parser():
 
     # Logging
     ap.add_argument("-n", "--name", required=True, type=str, help="Name of experiment for logging into Wandb")
-    ap.add_argument("--disable_wandb",action="store_true", help="Disable wandb")
+    ap.add_argument("--disable_wandb", action="store_true", help="Disable wandb")
 
     # Others
     ap.add_argument("--gpu_id", type=int, default=0, help="...")
-
 
     return ap.parse_args()
 
 
 def arg_parser_inference():
-
     ap = argparse.ArgumentParser()
 
-    ap.add_argument("-f", "--folder_path", required=True, type=str, help="...")    
+    ap.add_argument("-f", "--folder_path", required=True, type=str, help="...")
     ap.add_argument("-tl", "--temporal_length", type=int, default=10, help="...")
 
     ap.add_argument("-gt", "--ground_truth_path", help="...")
@@ -93,19 +93,19 @@ def arg_parser_inference():
 
 
 def conf_mat_from_left_right(truth, pred, labels):
-    #pred_left, pred_right = pred[:batch_size], pred[batch_size:]
-    #truth_left, truth_right = truth[::2], truth[1::2]
+    # pred_left, pred_right = pred[:batch_size], pred[batch_size:]
+    # truth_left, truth_right = truth[::2], truth[1::2]
 
-
-    #res = confusion_matrix(truth_left.cpu().detach().numpy(), pred_left.cpu().detach().numpy(), labels=[range(0,len(ACTIONS)]) + \
+    # res = confusion_matrix(truth_left.cpu().detach().numpy(), pred_left.cpu().detach().numpy(), labels=[range(0,len(ACTIONS)]) + \
     #  confusion_matrix(truth_right.cpu().detach().numpy(), pred_right.cpu().detach().numpy(), labels=[range(0,len(ACTIONS)])
 
-    #pred = torch.cat([pred[:batch_size], pred[batch_size:]])
+    # pred = torch.cat([pred[:batch_size], pred[batch_size:]])
     truth = torch.cat([truth[::2], truth[1::2]])
 
     res = confusion_matrix(truth.cpu().detach().numpy(), pred.cpu().detach().numpy(), labels=labels)
 
     return res
+
 
 def predicted_labels(pred_scores, corect_labels, k: float):
     # pred_scores -> (n_samples, n_labels)
@@ -119,6 +119,7 @@ def predicted_labels(pred_scores, corect_labels, k: float):
     pred_at_k = torch.where(pred_scores[corect_labels] >= k, corect_labels, pred_top_1)
 
     return pred_top_1, pred_top_3_final, pred_at_k
+
 
 def classification_scores(conf_mat):
     scores = {'recall': {}, 'precision': {}, 'F1': {}}
@@ -164,19 +165,21 @@ def classification_scores(conf_mat):
     scores['F1']['avg']['weighted'] = np.sum(scores['F1']['all'] * TP_p_FN) / sum_labels
 
     # Normalized confusion matrix
-    scores['normalized confusion matrix'] = np.divide(conf_mat, conf_mat.sum(axis=1,keepdims=True))
+    scores['normalized confusion matrix'] = np.divide(conf_mat, conf_mat.sum(axis=1, keepdims=True))
 
     return scores
 
 
 def get_minutes(elapsed) -> str:
-    return f"{round((elapsed)//60)}.{round((elapsed)%60)}"
+    return f"{round((elapsed) // 60)}.{round((elapsed) % 60)}"
+
 
 def plot_conf_mat(mat, name, do_save=False, do_return_plot=False):
-    mat_long=torch.round(mat*100).long()
+    mat_long = torch.round(mat * 100).long()
 
-    plt.figure(figsize=(14,12))
-    sns.heatmap(mat_long, square=True, annot=True, cmap='Blues', cbar=False, xticklabels=ACTIONS, yticklabels=ACTIONS, vmin=0, vmax=100)
+    plt.figure(figsize=(14, 12))
+    sns.heatmap(mat_long, square=True, annot=True, cmap='Blues', cbar=False, xticklabels=ACTIONS, yticklabels=ACTIONS,
+                vmin=0, vmax=100)
     plt.yticks(rotation=0)
     plt.title(f"{name}")
     plt.xlabel('Predicted')
@@ -188,40 +191,44 @@ def plot_conf_mat(mat, name, do_save=False, do_return_plot=False):
         return plt
     else:
         plt.close()
-    
+
+
+def create_ground_truth_segments(label_series):
+    change_occurring = label_series[1:] - label_series[:-1]
+    return torch.where(change_occurring != 0, 1, 0)
+
+
 def seed_worker(worker_id):
-    worker_seed = torch.initial_seed() % 2**32
+    worker_seed = torch.initial_seed() % 2 ** 32
     np.random.seed(worker_seed)
     random.seed(worker_seed)
 
 
-
 def get_filters_for_imbalance(dataBatchList):
-    """ 2 out of 3 samples for the actions idle and hold were discarded """ 
+    """ 2 out of 3 samples for the actions idle and hold were discarded """
 
-    batch_size=dataBatchList[0].y.shape[0]
-    left_filter=torch.full((len(dataBatchList), batch_size//2), True) # shape = [sequence_length, batch_size]
-    right_filter=torch.full((len(dataBatchList), batch_size//2), True) # shape = [sequence_length, batch_size]
-    
+    batch_size = dataBatchList[0].y.shape[0]
+    left_filter = torch.full((len(dataBatchList), batch_size // 2), True)  # shape = [sequence_length, batch_size]
+    right_filter = torch.full((len(dataBatchList), batch_size // 2), True)  # shape = [sequence_length, batch_size]
 
-    for i in range(batch_size//2):
-        count_idle_left=0
-        count_idle_right=0
-        count_hold_left=0
-        count_hold_right=0
+    for i in range(batch_size // 2):
+        count_idle_left = 0
+        count_idle_right = 0
+        count_hold_left = 0
+        count_hold_right = 0
 
         for t, dataBatch in enumerate(dataBatchList):
-            count_idle_left = (count_idle_left + torch.argmax(dataBatch[i].y[0])==ACTIONS.index("idle")) % 3
-            count_idle_right = (count_idle_right + torch.argmax(dataBatch[i].y[1])==ACTIONS.index("idle")) % 3
-            count_hold_left = (count_hold_left + torch.argmax(dataBatch[i].y[0])==ACTIONS.index("hold")) % 3
-            count_hold_right = (count_hold_right + torch.argmax(dataBatch[i].y[1])==ACTIONS.index("hold")) % 3
+            count_idle_left = (count_idle_left + torch.argmax(dataBatch[i].y[0]) == ACTIONS.index("idle")) % 3
+            count_idle_right = (count_idle_right + torch.argmax(dataBatch[i].y[1]) == ACTIONS.index("idle")) % 3
+            count_hold_left = (count_hold_left + torch.argmax(dataBatch[i].y[0]) == ACTIONS.index("hold")) % 3
+            count_hold_right = (count_hold_right + torch.argmax(dataBatch[i].y[1]) == ACTIONS.index("hold")) % 3
 
             left_filter[t, i] = not (count_idle_left in [1, 2])
             right_filter[t, i] = not (count_idle_right in [1, 2])
-            
+
             left_filter[t, i] = not (count_hold_left in [1, 2])
             right_filter[t, i] = not (count_hold_right in [1, 2])
-            
+
     return left_filter, right_filter
 
 
@@ -236,7 +243,7 @@ def align_embeddings_to_right(x, mask):
 
     # Somehow when it is on gpu it gives wrong values, to fix it I used "stable=True"
     # Still suspicious
-    index = torch.sort(~mask.repeat(1,1,emd_size).to(x.device) * 1, dim=0, descending=True, stable=True)[1]
+    index = torch.sort(~mask.repeat(1, 1, emd_size).to(x.device) * 1, dim=0, descending=True, stable=True)[1]
     y = x.gather(0, index)
 
     # d_mask = torch.sum(mask, dim=0, keepdims=True) > torch.arange(x.shape[0]).reshape(-1,1)
@@ -247,28 +254,26 @@ def align_embeddings_to_right(x, mask):
 
 
 def debug_fih(dataBatchList, b):
-    
     for i in range(10):
-        
+
         # hold
-        if torch.argmax(dataBatchList[i].y[b]).item()==5:
+        if torch.argmax(dataBatchList[i].y[b]).item() == 5:
             print("h ", end="")
         # idle
-        elif torch.argmax(dataBatchList[i].y[b]).item()==0:
+        elif torch.argmax(dataBatchList[i].y[b]).item() == 0:
             print("i ", end="")
         else:
             print(torch.argmax(dataBatchList[i].y[b]).item(), end=" ")
 
-    print("")    
+    print("")
 
 
 def print_non_uniform_ys(dataBatchList):
-    bs=dataBatchList[0].y.shape[0]
+    bs = dataBatchList[0].y.shape[0]
     for b in range(bs):
-        act=torch.argmax(dataBatchList[0].y[b]).item()
+        act = torch.argmax(dataBatchList[0].y[b]).item()
         for i in range(10):
             if act != torch.argmax(dataBatchList[i].y[b]).item():
-
                 print("b id: ", b)
                 debug_fih(dataBatchList, b)
                 break
@@ -276,22 +281,22 @@ def print_non_uniform_ys(dataBatchList):
 
 def debug_align(device="cpu"):
     mask = torch.full((4, 3), True)
-    mask[0, 0]=False
-    mask[2, 2]=False
-    mask[3, 0]=False
-    mask[3, 1]=False
-    
+    mask[0, 0] = False
+    mask[2, 2] = False
+    mask[3, 0] = False
+    mask[3, 1] = False
+
     # print("mask:\n", mask)
-    
-    x = torch.arange(12).reshape(4,3,1)
+
+    x = torch.arange(12).reshape(4, 3, 1)
     x = x.repeat(1, 1, 2)
-    x[~mask]=0
+    x[~mask] = 0
 
     x = x.to(device)
     mask = mask.to(device)
-    
+
     # t=4, bs=3, emb_size=2
-    
+
     # print("x:\n", x)
     # print("x[:, :, 0]:\n", x[:, :, 0])
 
@@ -300,28 +305,25 @@ def debug_align(device="cpu"):
     mask = mask[:, :, None]
 
     # Somehow when it is on gpu it gives wrong values
-    index = torch.sort(~mask.repeat(1,1,emd_size).to(x.device) * 1, dim=0, descending=True)[1]
+    index = torch.sort(~mask.repeat(1, 1, emd_size).to(x.device) * 1, dim=0, descending=True)[1]
     y = x.gather(0, index)
-
 
     # print("y[:, :, 0]:\n", y[:, :, 0])
 
     return x, y, index, mask
 
 
-
 def get_relations(base_dir, subject, task, take, i):
     """ Returns a set for relations in the frame """
-    
+
     # derived_dir=base_dir+"bimacs_derived_data/"
-    derived_dir=opj(base_dir, "bimacs_derived_data")
+    derived_dir = opj(base_dir, "bimacs_derived_data")
 
-    _3d_objects_dirs=opj(derived_dir, subject, task, take, "3d_objects")
-    _3d_objects_json_list=natsort.natsorted(glob.glob(opj(_3d_objects_dirs, "*.json")))
+    _3d_objects_dirs = opj(derived_dir, subject, task, take, "3d_objects")
+    _3d_objects_json_list = natsort.natsorted(glob.glob(opj(_3d_objects_dirs, "*.json")))
 
-    relation_json_dirs=opj(derived_dir, subject, task, take, "spatial_relations")
-    relations_path=natsort.natsorted(glob.glob(opj(relation_json_dirs, "*.json")))
-
+    relation_json_dirs = opj(derived_dir, subject, task, take, "spatial_relations")
+    relations_path = natsort.natsorted(glob.glob(opj(relation_json_dirs, "*.json")))
 
     with open(relations_path[i]) as f:
         relations = json.load(f)
@@ -329,41 +331,39 @@ def get_relations(base_dir, subject, task, take, i):
     with open(_3d_objects_json_list[i]) as f:
         _3d = json.load(f)
 
-    
     # log=""
     # text=""
-    readable_relations=[]
+    readable_relations = []
 
     for relation in relations:
-        oi=relation["object_index"]
-        si=relation["subject_index"]
+        oi = relation["object_index"]
+        si = relation["subject_index"]
 
         # log = log + _3d[oi]["class_name"]+ " - " + relation["relation_name"] + " - " + _3d[si]["class_name"] +"; "
         # log = log + _3d[oi]["class_name"]+ " - " + relation["relation_name"] + " - " + _3d[si]["class_name"] +"; "
 
-        readable_relations.append(_3d[oi]["class_name"]+ " - " + relation["relation_name"] + " - " + _3d[si]["class_name"])
+        readable_relations.append(
+            _3d[oi]["class_name"] + " - " + relation["relation_name"] + " - " + _3d[si]["class_name"])
 
         # if relation["relation_name"]=="contact":
-            
-            # text=text + f"({oi})"+object_mapping[oi] + " - " + f"({si})"+ object_mapping[si] + "\n"
-            # if oi < si:
-            #     text=text + _3d[oi]["class_name"]+ " - " + _3d[si]["class_name"] +"\n"
-            
-            
+
+        # text=text + f"({oi})"+object_mapping[oi] + " - " + f"({si})"+ object_mapping[si] + "\n"
+        # if oi < si:
+        #     text=text + _3d[oi]["class_name"]+ " - " + _3d[si]["class_name"] +"\n"
 
     # print("FRAME:\n", log, "\n")
     return readable_relations
 
 
-def visualize_incorrect_preds(preds, labels, idxes, mapping_path, graph_dataset_dir="raw", rgb_dataset_dir="/home/stannis/enes/bimanual/bimacs_rgbd_data"):
-    
+def visualize_incorrect_preds(preds, labels, idxes, mapping_path, graph_dataset_dir="raw",
+                              rgb_dataset_dir="/home/stannis/enes/bimanual/bimacs_rgbd_data"):
     assert os.path.exists(rgb_dataset_dir), "RGB dataset directory does not exist"
     assert os.path.exists(graph_dataset_dir), "Graph dataset directory does not exist"
 
     save_dir_name = "incorrect_predictions"
     # if os.path.exists(save_dir_name):
-        # print("Removing existing", save_dir_name)
-        # shutil.rmtree(save_dir_name)
+    # print("Removing existing", save_dir_name)
+    # shutil.rmtree(save_dir_name)
     os.makedirs(save_dir_name, exist_ok=True)
 
     with open(mapping_path, "r") as f:
@@ -373,30 +373,29 @@ def visualize_incorrect_preds(preds, labels, idxes, mapping_path, graph_dataset_
     preds, labels, idxes = preds[incorrect_mask], labels[incorrect_mask], idxes[incorrect_mask]
 
     num_of_samples = 10
-    random_samples=np.random.randint(0, len(preds), num_of_samples)
+    random_samples = np.random.randint(0, len(preds), num_of_samples)
     preds, labels, idxes = preds[random_samples], labels[random_samples], idxes[random_samples]
 
-    
     for idx, p, gt in zip(idxes, preds, labels):
         subject, task, take, start_frame, end_frame, is_mirrored = test_idx_sample_mapping[idx]
         sample_save_dir = opj(save_dir_name, f"{ACTIONS[p]}_{ACTIONS[gt]}_{idx}")
         os.mkdir(sample_save_dir)
 
         # Copy frames
-        for frame in range(start_frame, end_frame+1):    
-            chunk_no = frame//100
+        for frame in range(start_frame, end_frame + 1):
+            chunk_no = frame // 100
             frame_path = opj(rgb_dataset_dir, subject, task, take, "rgb", f"chunk_{chunk_no}", f"frame_{frame}.png")
             shutil.copy(frame_path, sample_save_dir)
 
         # Open a text file, and save relations
         with open(opj(sample_save_dir, "relations.txt"), "w") as f:
             prev_relations = []
-            for frame in range(start_frame, end_frame+1):
+            for frame in range(start_frame, end_frame + 1):
                 f.write(f"Frame {frame}:\n\n")
 
                 curr_relations = get_relations(graph_dataset_dir, subject, task, take, frame)
-                
-                diff_relations=list(set(curr_relations) - set(prev_relations))
+
+                diff_relations = list(set(curr_relations) - set(prev_relations))
 
                 for relation in diff_relations:
                     f.write(relation + "; ")
