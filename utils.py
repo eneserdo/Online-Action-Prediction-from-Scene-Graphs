@@ -6,6 +6,7 @@ import os
 from os.path import join as opj
 import random
 import shutil
+from time import sleep
 from typing import List
 import cv2
 
@@ -373,15 +374,18 @@ def combine_imgs(imgs: List[np.ndarray], num_row, num_col, resize_ratio):
 
 
 
-def visualize_incorrect_preds(preds, labels, idxes, mapping_path, num_of_samples=10, graph_dataset_dir="raw", rgb_dataset_dir="/home/stannis/enes/bimacs_rgbd_data"):
+def visualize_incorrect_preds(preds, labels, idxes, mapping_path, num_of_samples=10, graph_dataset_dir="raw", rgb_dataset_dir="/home/stannis/enes/bimacs_rgbd_data", _called_once=[False]):
     
     assert os.path.exists(rgb_dataset_dir), "RGB dataset directory does not exist"
     assert os.path.exists(graph_dataset_dir), "Graph dataset directory does not exist"
 
     save_dir_name = "incorrect_predictions"
-    # if os.path.exists(save_dir_name):
-        # print("Removing existing", save_dir_name)
-        # shutil.rmtree(save_dir_name)
+    if not _called_once[0] and os.path.exists(save_dir_name):
+        print("Removing existing", save_dir_name)
+        sleep(1) # To prevent accidental deletion
+        shutil.rmtree(save_dir_name)
+        _called_once[0]=True
+
     os.makedirs(save_dir_name, exist_ok=True)
 
     with open(mapping_path, "r") as f:
@@ -397,8 +401,8 @@ def visualize_incorrect_preds(preds, labels, idxes, mapping_path, num_of_samples
     left_preds, left_labels, left_idxes = left_pred[left_incorrect_mask], left_label[left_incorrect_mask], idxes[left_incorrect_mask]
     right_preds, right_labels, right_idxes = right_pred[right_incorrect_mask], right_label[right_incorrect_mask], idxes[right_incorrect_mask]
 
-    left_random_samples=np.random.randint(0, len(left_preds), num_of_samples//2)
-    right_random_samples=np.random.randint(0, len(right_preds), num_of_samples//2)
+    left_random_samples=np.random.permutation(np.arange(0, len(left_preds)))[:num_of_samples//2]
+    right_random_samples=np.random.permutation(np.arange(0, len(right_preds)))[:num_of_samples//2]
 
     left_preds, left_labels, left_idxes = left_preds[left_random_samples], left_labels[left_random_samples], left_idxes[left_random_samples]
     right_preds, right_labels, right_idxes = right_preds[right_random_samples], right_labels[right_random_samples], right_idxes[right_random_samples]
@@ -408,11 +412,7 @@ def visualize_incorrect_preds(preds, labels, idxes, mapping_path, num_of_samples
         for idx, p, gt in zip(c_idxes, c_preds, c_labels):
             subject, task, take, start_frame, end_frame, is_mirrored = test_idx_sample_mapping[str(idx.item())]
             sample_save_dir = opj(save_dir_name, f"P_{ACTIONS[p]}_GT_{ACTIONS[gt]}_i{idx}_f{start_frame}_f{end_frame}_{hand}")
-            try:
-                os.mkdir(sample_save_dir)
-            except FileExistsError:
-                print(f"[ERROR] Sample {sample_save_dir} already exists, skipping...")
-                continue
+            os.mkdir(sample_save_dir)
 
             imgs = []
             # Copy frames
@@ -430,19 +430,22 @@ def visualize_incorrect_preds(preds, labels, idxes, mapping_path, num_of_samples
             with open(opj(sample_save_dir, "relations.txt"), "w") as f:
                 prev_relations = []
                 for frame in range(start_frame, end_frame+1):
-                    f.write(f"\n\n\nFrame {frame}:")
+                    f.write(f"\n\n\nFrame {frame}:\n")
 
                     curr_relations = get_relations(graph_dataset_dir, subject, task, take, frame)
                     
-                    new_relations=set(curr_relations).difference(set(prev_relations))
-                    removed_relations=set(prev_relations).difference(set(curr_relations))
+                    # new_relations=set(curr_relations).difference(set(prev_relations))
+                    # removed_relations=set(prev_relations).difference(set(curr_relations))
 
-                    f.write("\nnew:")
-                    for relation in new_relations:
-                        f.write(relation + "; ")
+                    # f.write("\nnew:")
+                    # for relation in new_relations:
+                    #     f.write(relation + "; ")
                     
-                    f.write("\nremoved:")
-                    for relation in removed_relations:
+                    # f.write("\nremoved:")
+                    # for relation in removed_relations:
+                    #     f.write(relation + "; ")
+
+                    for relation in curr_relations:
                         f.write(relation + "; ")
                     
                     # f.write("\n")
