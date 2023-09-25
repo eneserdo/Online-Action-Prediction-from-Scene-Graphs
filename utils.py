@@ -194,7 +194,7 @@ def plot_conf_mat(mat, name, do_save=False, do_return_plot=False):
 
 
 def create_ground_truth_segments(label_series):
-    change_occurring = label_series[1:] - label_series[:-1]
+    change_occurring = torch.concat([torch.zeros(size=(1, 32)), label_series[1:] - label_series[:-1]], dim=0)
     return torch.where(change_occurring != 0, 1, 0)
 
 
