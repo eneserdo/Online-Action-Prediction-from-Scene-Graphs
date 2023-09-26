@@ -86,13 +86,17 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             ground_truth_left_right = torch.stack([torch.cat([d.y[::2], d.y[1::2]]) for d in data], dim=0)  # FIXME: maybe
             # there can be a more efficient way -> FSD 25.09.2023
             ground_truth_segments = create_ground_truth_segments(torch.argmax(ground_truth_left_right, dim=-1))
+
+            # TODO: Make prediction for each segment using mask
+            # 1. from predicted segments
+            # or
+            # 2. from ground truth segments
             
             # TODO: obtain 0,1 valued targets of whether action changes via algorithm here or in data porcessing phase -> FSD 20.09.2023
             left_right_pred, segment_change_pred = model(data) # left_right_pred = model(data) # segmentation task -> FSD 20.09.2023
 
-
-            loss = label_criterion(left_right_pred, ground_truth_left_right) + \
-                   segmentation_criterion(segment_change_pred, ground_truth_segments)
+            # label_criterion(left_right_pred, ground_truth_left_right) + \
+            loss = segmentation_criterion(segment_change_pred, ground_truth_segments)
 
             if mode == "train":
                 loss.backward()
@@ -116,28 +120,30 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             # conf_mat_top_3 += confusion_matrix(ground_truth.cpu().detach().numpy(), pred_top_3_final.cpu().detach().numpy(), labels=action_indices)
 
             # torchmetric
-            step_f1_top1 = f1_calc_top1(left_right_pred, ground_truth)
-            step_f1_top3 = f1_calc_top3(pred_top_3_final, ground_truth)
+            # step_f1_top1 = f1_calc_top1(left_right_pred, ground_truth)
+            # step_f1_top3 = f1_calc_top3(pred_top_3_final, ground_truth)
 
-            step_conf_mat_top1 = conf_mat_top1(pred_top_1, ground_truth)
-            step_conf_mat_top3 = conf_mat_top3(pred_top_3_final, ground_truth)
+            # step_conf_mat_top1 = conf_mat_top1(pred_top_1, ground_truth)
+            # step_conf_mat_top3 = conf_mat_top3(pred_top_3_final, ground_truth)
 
             if mode != "test":
-                wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()}, 'batch': step}, step=step)
+                wandb.log({f"{mode}/batch/": {"Loss": loss.item()}, 'batch': step}, step=step)
+                # wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()}, 'batch': step}, step=step)
+
 
             # if (step+1)%20==0:
             #     print("20 BATCH ÇALIŞIYOR SADECE")
             #     break
 
-        overall_f1_top1 = f1_calc_top1.compute()
-        overall_f1_top3 = f1_calc_top3.compute()
+        # overall_f1_top1 = f1_calc_top1.compute()
+        # overall_f1_top3 = f1_calc_top3.compute()
 
-        overall_conf_mat_top1 = conf_mat_top1.compute()
-        overall_conf_mat_top3 = conf_mat_top3.compute()
+        # overall_conf_mat_top1 = conf_mat_top1.compute()
+        # overall_conf_mat_top3 = conf_mat_top3.compute()
 
 
-    if mode != "test":
-        wandb.log({f"{mode}/epoch/": {'top1_F1': overall_f1_top1, 'top3_F1': overall_f1_top3}, 'epoch': epoch})
+    # if mode != "test":
+    #     wandb.log({f"{mode}/epoch/": {'top1_F1': overall_f1_top1, 'top3_F1': overall_f1_top3}, 'epoch': epoch})
 
     # cf1=wandb.Table(data=overall_conf_mat_top1.cpu().numpy(), columns=ACTIONS, rows=ACTIONS)
     # cf3=wandb.Table(data=overall_conf_mat_top3.cpu().numpy(), columns=ACTIONS, rows=ACTIONS)
@@ -154,10 +160,10 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
         visualize_incorrect_preds(pred_top_1, ground_truth, idxes, 
                                   mapping_path="processed10/test_idx_sample_mapping.json")"""
 
-    if mode in ["test", "val"]:
-        return overall_f1_top1, overall_f1_top3, overall_conf_mat_top1, overall_conf_mat_top3
-    elif mode == "train":
-        return overall_f1_top1, overall_f1_top3
+    # if mode in ["test", "val"]:
+    #     return overall_f1_top1, overall_f1_top3, overall_conf_mat_top1, overall_conf_mat_top3
+    # elif mode == "train":
+    #     return overall_f1_top1, overall_f1_top3
 
 
 if __name__ == "__main__":

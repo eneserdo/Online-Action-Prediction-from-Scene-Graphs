@@ -140,7 +140,7 @@ class ActionRecognition(torch.nn.Module):
 
             lstm_hidden_size = effective_out_ch2
 
-        self.mlp = Sequential(Linear(lstm_hidden_size, num_action_classes), Softmax(dim=1))
+        self.mlp = Sequential(Linear(lstm_hidden_size, num_action_classes), Softmax(dim=-1))
 
         self.segment_boundary_detector = Sequential(Linear(lstm_hidden_size + effective_out_ch2, 2))
 
@@ -223,19 +223,25 @@ class ActionRecognition(torch.nn.Module):
 
 
         elif self.temporal_type == "bi":
+            both_out, _ = self.temporal_layer(both_sequencial_embeddings)
+            """
             _, (both_hn, _) = self.temporal_layer(both_sequencial_embeddings)
             both_hn = torch.cat([both_hn[0], both_hn[1]], dim=1)
+            """
         else:
-            _, (both_hn, _) = self.temporal_layer(both_sequencial_embeddings)
+            both_out, _ = self.temporal_layer(both_sequencial_embeddings)
+            
+            """_, (both_hn, _) = self.temporal_layer(both_sequencial_embeddings)
             # assert both_hn.shape[0]==1
-            both_hn = both_hn.squeeze()
-
-        action_prediction = self.mlp(both_hn)
+            both_hn = both_hn.squeeze()"""
 
         # Segmentation task - predict segment change (0,1)
         # TODO: 
         #   -> Should both rnn and gnn output be fed here, like in ASSIGN? 
-        hn_se = torch.concat([both_hn, both_sequencial_embeddings], dim=-1)
-        segment_change_prediction = F.gumbel_softmax(self.segment_boundary_detector(hn_se), dim=1)
+        hn_se = torch.concat([both_out, both_sequencial_embeddings], dim=-1)
+        segment_change_prediction = F.gumbel_softmax(self.segment_boundary_detector(hn_se), dim=-1) # FIXME: Check if dim is correct
+
+        # Label prediction task
+        action_prediction = self.mlp(both_out) 
 
         return action_prediction, segment_change_prediction

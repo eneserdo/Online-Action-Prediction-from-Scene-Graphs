@@ -194,8 +194,9 @@ def plot_conf_mat(mat, name, do_save=False, do_return_plot=False):
 
 
 def create_ground_truth_segments(label_series):
-    change_occurring = torch.concat([torch.zeros(size=(1, 32)), label_series[1:] - label_series[:-1]], dim=0)
-    return torch.where(change_occurring != 0, 1, 0)
+    change_occurring = torch.concat([torch.zeros(size=(1, label_series.shape[-1]), device=label_series.device), label_series[1:] - label_series[:-1]], dim=0)
+    x = torch.where(change_occurring != 0, 1.0, 0.0)
+    return torch.stack([x,1-x], dim=-1)
 
 
 def seed_worker(worker_id):

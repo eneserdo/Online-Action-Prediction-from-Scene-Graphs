@@ -145,3 +145,4 @@ deneme*.ipynb
 saved*/
 wandb/
 conf_mat/
+incorrect_predictions/
