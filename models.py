@@ -161,6 +161,14 @@ class ActionRecognition(torch.nn.Module):
         # left, right: [batch_size, len(embedding)]
         # return embeddings[graph_hand_indicies]
         return embeddings[left_hand_indicies], embeddings[right_hand_indicies]
+    
+    def _segment_prediction(self, gnn_output, rnn_output):
+        hn_se = torch.concat([rnn_output, gnn_output], dim=-1)
+        segment_change_prediction = F.gumbel_softmax(self.segment_boundary_detector(hn_se), dim=-1)[:,:,:1]
+        s_hard = (segment_change_prediction > 0.5).float()
+        hard_segment_change = ((s_hard - segment_change_prediction).detach() + segment_change_prediction)
+        return segment_change_prediction, hard_segment_change
+        
 
     def forward(self, dataBatchList: List[Batch]):
 
@@ -236,10 +244,11 @@ class ActionRecognition(torch.nn.Module):
             both_hn = both_hn.squeeze()"""
 
         # Segmentation task - predict segment change (0,1)
-        # TODO: 
-        #   -> Should both rnn and gnn output be fed here, like in ASSIGN? 
-        hn_se = torch.concat([both_out, both_sequencial_embeddings], dim=-1)
-        segment_change_prediction = F.gumbel_softmax(self.segment_boundary_detector(hn_se), dim=-1) # FIXME: Check if dim is correct
+        segment_change_prediction, hard_segment_change_prediction = self._segment_prediction(both_sequencial_embeddings, both_out)
+        
+
+        # mask 
+
 
         # Label prediction task
         action_prediction = self.mlp(both_out) 
