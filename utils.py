@@ -78,16 +78,31 @@ def arg_parser_inference():
 
     ap = argparse.ArgumentParser()
 
-    ap.add_argument("-f", "--folder_path", required=True, type=str, help="...")    
+    ap.add_argument("-f", "--folder_path", type=str, help="...")    
+    # ap.add_argument("-gt", "--ground_truth_path", help="...")
+    
     ap.add_argument("-tl", "--temporal_length", type=int, default=10, help="...")
-
-    ap.add_argument("-gt", "--ground_truth_path", help="...")
+    ap.add_argument("-bs", "--batch_size", type=int, default=256, help="...")
 
     # Model
-    ap.add_argument("-ch", "--conv_hidden", type=int, default=64, help="...")
-    ap.add_argument("-co", "--conv_out", type=int, default=64, help="...")
-    ap.add_argument("-hs", "--hidden_size", type=int, default=128, help="...")
+    ap.add_argument("-g", "--gnn_type", type=str, required=True, choices=["NNConv", "GATConv", "TransformerConv", "GATv2Conv"], help="...")
+    ap.add_argument("--temporal_type", type=str, default="lstm", choices=["lstm", "bi", "tr"], help="...")
+    ap.add_argument("-hc", "--hidden_channels", type=int, default=64, help="...")
+    ap.add_argument("-oc", "--out_channels", type=int, default=64, help="...")
+    ap.add_argument("-hs", "--lstm_hidden_size", type=int, default=128, help="...")
+    ap.add_argument("-nh", "--num_heads", type=int, default=2, help="...")
+    ap.add_argument("--saving_freq", type=int, default=5, help="...")
+    ap.add_argument("-nbn", "--no_bn", action="store_true", help="...")
+    ap.add_argument("--use_global_pooling", action="store_true", help="...")
+    ap.add_argument("--edge_dropout", type=float, default=0.0, help="...")
+    ap.add_argument("--dropout", type=float, default=0.0, help="...")
+    ap.add_argument("--use_cls_token", action="store_true", help="Use class token in transformer")
+
+
+    # Restore
     ap.add_argument("-r", "--restore", type=int, required=True, help="...")
+    ap.add_argument("-rn", "--restored_name", type=str, required=True, help="...")
+    ap.add_argument("-fih", "--filter_idle_hold", action="store_true", help="...")
 
     return ap.parse_args()
 
