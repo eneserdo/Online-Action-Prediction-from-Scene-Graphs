@@ -105,9 +105,11 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                 optimizer.step()
 
             # testden gelen
+            # TODO: evaluate F1 for all frames in the future
+            ground_truth_left_right_last = ground_truth_left_right[-1]
             pred_top_3 = torch.argsort(left_right_pred, dim=1, descending=True)[:, :3]
             pred_top_1 = pred_top_3[:, 0]
-            ground_truth = ground_truth_left_right.argmax(dim=1)
+            ground_truth = ground_truth_left_right_last.argmax(dim=-1)
             pred_top_3_final = torch.where(functorch.vmap(lambda t1, t2: torch.isin(t1, t2))(ground_truth, pred_top_3),
                                            ground_truth, pred_top_1)
 

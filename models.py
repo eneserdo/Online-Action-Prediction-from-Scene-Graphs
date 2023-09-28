@@ -167,7 +167,7 @@ class ActionRecognition(torch.nn.Module):
         segment_change_pred = (F.gumbel_softmax(self.segment_boundary_detector(hn_se), dim=-1)[:, :, :1]).squeeze()
         s_hard = (segment_change_pred > 0.5).float()
         hard_segment_change = ((s_hard - segment_change_pred).detach() + segment_change_pred)
-        return segment_change_pred, hard_segment_change.to(torch.bool)
+        return segment_change_pred, hard_segment_change
 
     def forward(self, dataBatchList: List[Batch]):
 
@@ -224,9 +224,9 @@ class ActionRecognition(torch.nn.Module):
             both_hn = self.temporal_layer(both_sequencial_embeddings)
 
             if self.use_cls_token:
-                both_hn = both_hn[0]
+                both_out = both_hn[0]
             else:
-                both_hn = both_hn.mean(dim=0)  # FIXME: It is dim=1 in the original code ?
+                both_out = both_hn.mean(dim=0)  # FIXME: It is dim=1 in the original code ?
 
 
         elif self.temporal_type == "bi":
@@ -249,7 +249,7 @@ class ActionRecognition(torch.nn.Module):
         # TODO: Remove for-loop for optimization
         seg_batches_list = []
         for b in range(self.batch_size * 2):
-            mask = hard_segment_change_pred[:, b]
+            mask = hard_segment_change_pred[:, b].clone().to(torch.bool)
             # [0,0,1,0,0,0,1,0,1] -> segments last frames 1
 
             segments = torch.concat([torch.zeros(size=(1,), device=mask.device),
