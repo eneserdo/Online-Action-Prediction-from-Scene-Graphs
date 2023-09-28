@@ -167,7 +167,7 @@ class ActionRecognition(torch.nn.Module):
         segment_change_pred = F.gumbel_softmax(self.segment_boundary_detector(hn_se), dim=-1)[:,:,:1]
         s_hard = (segment_change_pred > 0.5).float()
         hard_segment_change = ((s_hard - segment_change_pred).detach() + segment_change_pred).squeeze()
-        return segment_change_pred, hard_segment_change.to(torch.long)
+        return segment_change_pred, hard_segment_change.to(torch.bool)
         
 
     def forward(self, dataBatchList: List[Batch]):
@@ -247,9 +247,12 @@ class ActionRecognition(torch.nn.Module):
         segment_change_pred, hard_segment_change_pred = self._segment_prediction(both_sequencial_embeddings, both_out)
         
 
-        # mask 
-        
+        # mask  
         both_out[hard_segment_change_pred]
+        for b in range(self.batch_size*2):
+            mask = hard_segment_change_pred[:,b]
+            segments = torch.concat([torch.zeros(size=(1,), device=mask.device), torch.cumsum(mask[:-1],dim=-1)], dim=0)
+            a=both_out[:,b,:][hard_segment_change_pred[:,b]]
 
 
         # Label prediction task
