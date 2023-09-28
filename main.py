@@ -29,7 +29,7 @@ import models
 import wandb
 from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits)
 from utils import (arg_parser, classification_scores, conf_mat_from_left_right,
-                   get_minutes, plot_conf_mat, seed_worker, visualize_incorrect_preds)
+                   get_minutes, get_weight_loss, plot_conf_mat, seed_worker, visualize_incorrect_preds)
 
 
 SEED = 34
@@ -118,6 +118,10 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             if mode != "test":
                 wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()}, 'batch': step}, step=step)
 
+
+            if mode == "test":
+                visualize_incorrect_preds(pred_top_1, ground_truth, idxes, num_of_samples=4, 
+                                          mapping_path="processed10/test_idx_sample_mapping.json")
             # if (step+1)%20==0:
             #     print("20 BATCH ÇALIŞIYOR SADECE")
             #     break
@@ -141,11 +145,6 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
     # wandb.log({'top1/':{'F1':overall_f1_top1}, 'top3/':{'F1':overall_f1_top3}})
 
-#    dummy_i = 0
-#    if mode == "test":
-#        dummy_i += 1
-#        visualize_incorrect_preds(pred_top_1, ground_truth, idxes, 
-#                                  mapping_path="processed10/test_idx_sample_mapping.json")
 
     if mode in ["test", "val"]:
         return overall_f1_top1, overall_f1_top3, overall_conf_mat_top1, overall_conf_mat_top3
@@ -229,21 +228,7 @@ if __name__ == "__main__":
     
     
     
-    if args.weighted_loss == "none":
-        loss_weights = None
-    elif args.weighted_loss == "inv":
-        loss_weights = 1.0 / torch.tensor(train_set.distribution)
-        loss_weights = loss_weights / loss_weights.sum() * len(ACTIONS)
-    elif args.weighted_loss == "sqrt_inv":
-        loss_weights = 1.0 / torch.sqrt(torch.tensor(train_set.distribution))
-        loss_weights = loss_weights / loss_weights.sum() * len(ACTIONS)
-    elif args.weighted_loss == "effective":
-        beta=0.9999
-        effective_num = 1.0 - torch.power(beta, train_set.distribution)
-        loss_weights = (1.0 - beta) / effective_num
-        loss_weights = loss_weights / loss_weights.sum() * len(ACTIONS)
-    else:
-        raise NotImplementedError(f"Weighted loss type {args.weighted_loss} is not implemented")
+    loss_weights = get_weight_loss(train_set, args.weighted_loss)
     
     criterion = torch.nn.CrossEntropyLoss(weight=loss_weights).to(device=device)
 

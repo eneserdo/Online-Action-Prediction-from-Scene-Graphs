@@ -1,10 +1,14 @@
 import argparse
 import glob
 import json
+from math import ceil
 import os
 from os.path import join as opj
 import random
 import shutil
+from time import sleep
+from typing import List
+import cv2
 
 import functorch
 import matplotlib.pyplot as plt
@@ -370,51 +374,115 @@ def get_relations(base_dir, subject, task, take, i):
     return readable_relations
 
 
-def visualize_incorrect_preds(preds, labels, idxes, mapping_path, graph_dataset_dir="raw", rgb_dataset_dir="/home/stannis/enes/bimanual/bimacs_rgbd_data"):
+def combine_imgs(imgs: List[np.ndarray], num_row, num_col, resize_ratio):
+    # combine images into a single image
+    h, w, c = imgs[0].shape
+    combined_img = np.zeros((h*num_row, w*num_col, c), dtype=np.uint8)
+    for i, img in enumerate(imgs):
+        row = i // num_col
+        col = i % num_col
+        combined_img[row*h:(row+1)*h, col*w:(col+1)*w] = img
+
+    combined_img = cv2.resize(combined_img, (0, 0), fx=resize_ratio, fy=resize_ratio)
+    
+    return combined_img
+
+
+
+def visualize_incorrect_preds(preds, labels, idxes, mapping_path, num_of_samples=10, graph_dataset_dir="raw", rgb_dataset_dir="/home/stannis/enes/bimacs_rgbd_data", _called_once=[False]):
     
     assert os.path.exists(rgb_dataset_dir), "RGB dataset directory does not exist"
     assert os.path.exists(graph_dataset_dir), "Graph dataset directory does not exist"
 
     save_dir_name = "incorrect_predictions"
-    # if os.path.exists(save_dir_name):
-        # print("Removing existing", save_dir_name)
-        # shutil.rmtree(save_dir_name)
+    if not _called_once[0] and os.path.exists(save_dir_name):
+        print("Removing existing", save_dir_name)
+        sleep(1) # To prevent accidental deletion
+        shutil.rmtree(save_dir_name)
+        _called_once[0]=True
+
     os.makedirs(save_dir_name, exist_ok=True)
 
     with open(mapping_path, "r") as f:
         test_idx_sample_mapping = json.load(f)
 
-    incorrect_mask = preds != labels
-    preds, labels, idxes = preds[incorrect_mask], labels[incorrect_mask], idxes[incorrect_mask]
+    # idxes = torch.concat([idxes, idxes])
+    left_pred, right_pred=preds[:len(preds)//2], preds[len(preds)//2:]
+    left_label, right_label=labels[:len(preds)//2], labels[len(preds)//2:]
 
-    num_of_samples = 10
-    random_samples=np.random.randint(0, len(preds), num_of_samples)
-    preds, labels, idxes = preds[random_samples], labels[random_samples], idxes[random_samples]
+    left_incorrect_mask = left_pred != left_label
+    right_incorrect_mask = right_pred != right_label
 
+    left_preds, left_labels, left_idxes = left_pred[left_incorrect_mask], left_label[left_incorrect_mask], idxes[left_incorrect_mask]
+    right_preds, right_labels, right_idxes = right_pred[right_incorrect_mask], right_label[right_incorrect_mask], idxes[right_incorrect_mask]
+
+    left_random_samples=np.random.permutation(np.arange(0, len(left_preds)))[:num_of_samples//2]
+    right_random_samples=np.random.permutation(np.arange(0, len(right_preds)))[:num_of_samples//2]
+
+    left_preds, left_labels, left_idxes = left_preds[left_random_samples], left_labels[left_random_samples], left_idxes[left_random_samples]
+    right_preds, right_labels, right_idxes = right_preds[right_random_samples], right_labels[right_random_samples], right_idxes[right_random_samples]
     
-    for idx, p, gt in zip(idxes, preds, labels):
-        subject, task, take, start_frame, end_frame, is_mirrored = test_idx_sample_mapping[idx]
-        sample_save_dir = opj(save_dir_name, f"{ACTIONS[p]}_{ACTIONS[gt]}_{idx}")
-        os.mkdir(sample_save_dir)
+    
+    for hand, c_idxes, c_preds, c_labels in zip(["L", "R"], [left_idxes, right_idxes], [left_preds, right_preds], [left_labels, right_labels]):
+        for idx, p, gt in zip(c_idxes, c_preds, c_labels):
+            subject, task, take, start_frame, end_frame, is_mirrored = test_idx_sample_mapping[str(idx.item())]
+            sample_save_dir = opj(save_dir_name, f"P_{ACTIONS[p]}_GT_{ACTIONS[gt]}_i{idx}_f{start_frame}_f{end_frame}_{hand}")
+            os.mkdir(sample_save_dir)
 
-        # Copy frames
-        for frame in range(start_frame, end_frame+1):    
-            chunk_no = frame//100
-            frame_path = opj(rgb_dataset_dir, subject, task, take, "rgb", f"chunk_{chunk_no}", f"frame_{frame}.png")
-            shutil.copy(frame_path, sample_save_dir)
+            imgs = []
+            # Copy frames
+            for frame in range(start_frame, end_frame):    
+                chunk_no = frame//100
+                frame_path = opj(rgb_dataset_dir, subject, task, take, "rgb", f"chunk_{chunk_no}", f"frame_{frame}.png")
+                # shutil.copy(frame_path, sample_save_dir)
+                imgs.append(cv2.imread(frame_path))
 
-        # Open a text file, and save relations
-        with open(opj(sample_save_dir, "relations.txt"), "w") as f:
-            prev_relations = []
-            for frame in range(start_frame, end_frame+1):
-                f.write(f"Frame {frame}:\n\n")
+            
+            combined_img = combine_imgs(imgs, 2, ceil(len(imgs)/2), resize_ratio=0.3)
+            cv2.imwrite(opj(sample_save_dir, "combined_img.png"), combined_img)
 
-                curr_relations = get_relations(graph_dataset_dir, subject, task, take, frame)
-                
-                diff_relations=list(set(curr_relations) - set(prev_relations))
+            # Open a text file, and save relations
+            with open(opj(sample_save_dir, "relations.txt"), "w") as f:
+                prev_relations = []
+                for frame in range(start_frame, end_frame+1):
+                    f.write(f"\n\n\nFrame {frame}:\n")
 
-                for relation in diff_relations:
-                    f.write(relation + "; ")
-                f.write("\n")
+                    curr_relations = get_relations(graph_dataset_dir, subject, task, take, frame)
+                    
+                    # new_relations=set(curr_relations).difference(set(prev_relations))
+                    # removed_relations=set(prev_relations).difference(set(curr_relations))
 
-                prev_relations = curr_relations
+                    # f.write("\nnew:")
+                    # for relation in new_relations:
+                    #     f.write(relation + "; ")
+                    
+                    # f.write("\nremoved:")
+                    # for relation in removed_relations:
+                    #     f.write(relation + "; ")
+
+                    for relation in curr_relations:
+                        f.write(relation + "; ")
+                    
+                    # f.write("\n")
+                    prev_relations = curr_relations
+
+
+def get_weight_loss(distribution, type):
+    
+    if type == "none":
+        loss_weights = None
+    elif type == "inv":
+        loss_weights = 1.0 / torch.tensor(distribution)
+        loss_weights = loss_weights / loss_weights.sum() * len(ACTIONS)
+    elif type == "sqrt_inv":
+        loss_weights = 1.0 / torch.sqrt(torch.tensor(distribution))
+        loss_weights = loss_weights / loss_weights.sum() * len(ACTIONS)
+    elif type == "effective":
+        beta=0.9999
+        effective_num = 1.0 - torch.power(beta, distribution)
+        loss_weights = (1.0 - beta) / effective_num
+        loss_weights = loss_weights / loss_weights.sum() * len(ACTIONS)
+    else:
+        raise NotImplementedError(f"Weighted loss type {type} is not implemented")
+
+    return loss_weights
