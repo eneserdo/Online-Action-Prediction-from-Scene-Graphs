@@ -161,14 +161,13 @@ class ActionRecognition(torch.nn.Module):
         # left, right: [batch_size, len(embedding)]
         # return embeddings[graph_hand_indicies]
         return embeddings[left_hand_indicies], embeddings[right_hand_indicies]
-    
+
     def _segment_prediction(self, gnn_output, rnn_output):
         hn_se = torch.concat([rnn_output, gnn_output], dim=-1)
-        segment_change_pred = F.gumbel_softmax(self.segment_boundary_detector(hn_se), dim=-1)[:,:,:1]
+        segment_change_pred = (F.gumbel_softmax(self.segment_boundary_detector(hn_se), dim=-1)[:, :, :1]).squeeze()
         s_hard = (segment_change_pred > 0.5).float()
-        hard_segment_change = ((s_hard - segment_change_pred).detach() + segment_change_pred).squeeze()
+        hard_segment_change = ((s_hard - segment_change_pred).detach() + segment_change_pred)
         return segment_change_pred, hard_segment_change.to(torch.bool)
-        
 
     def forward(self, dataBatchList: List[Batch]):
 
@@ -238,24 +237,41 @@ class ActionRecognition(torch.nn.Module):
             """
         else:
             both_out, _ = self.temporal_layer(both_sequencial_embeddings)
-            
+
             """_, (both_hn, _) = self.temporal_layer(both_sequencial_embeddings)
             # assert both_hn.shape[0]==1
             both_hn = both_hn.squeeze()"""
 
         # Segmentation task - predict segment change (0,1)
         segment_change_pred, hard_segment_change_pred = self._segment_prediction(both_sequencial_embeddings, both_out)
-        
 
-        # mask  
-        both_out[hard_segment_change_pred]
-        for b in range(self.batch_size*2):
-            mask = hard_segment_change_pred[:,b]
-            segments = torch.concat([torch.zeros(size=(1,), device=mask.device), torch.cumsum(mask[:-1],dim=-1)], dim=0)
-            a=both_out[:,b,:][hard_segment_change_pred[:,b]]
+        # mask
+        # TODO: Remove for-loop for optimization
+        seg_batches_list = []
+        for b in range(self.batch_size * 2):
+            mask = hard_segment_change_pred[:, b]
+            # [0,0,1,0,0,0,1,0,1] -> segments last frames 1
+
+            segments = torch.concat([torch.zeros(size=(1,), device=mask.device),
+                                     torch.cumsum(mask[:-1], dim=-1)], dim=0)
+            # [0,0,0,1,1,1,1,2,2] -> segments
+
+            # FIXME: Is it correct to consider last frame of seq. to be the last frame of its respective segment?
+            mask[-1] = True
+
+            segment_last_frame_features = both_out[:, b, :][mask]   # (s, f)
+            # [f2, f6, f8] -> features at last frames of respective segments
+
+            # TODO: Does a better method exist for below solution of mapping?
+            map_s_to_f = F.one_hot(segments.to(torch.long)).to(torch.float32)  # (n, s)
+            batch_segment_wise_features = map_s_to_f @ segment_last_frame_features  # (n, f)
+
+            seg_batches_list.append(batch_segment_wise_features)
+
+        segment_wise_features = torch.stack(seg_batches_list, dim=1)
 
 
         # Label prediction task
-        action_prediction = self.mlp(both_out) 
+        action_prediction = self.mlp(segment_wise_features)
 
         return action_prediction, segment_change_pred

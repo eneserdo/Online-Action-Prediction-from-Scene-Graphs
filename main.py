@@ -31,7 +31,6 @@ from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits)
 from utils import (arg_parser, classification_scores, conf_mat_from_left_right,
                    get_minutes, plot_conf_mat, seed_worker, visualize_incorrect_preds, create_ground_truth_segments)
 
-
 SEED = 34
 random.seed(SEED)
 np.random.seed(SEED)
@@ -51,7 +50,6 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 pyplot.ioff()
 
 
-
 def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: int):
     global step
 
@@ -66,13 +64,15 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     # conf_mat_top_3 = np.zeros((len_actions, len_actions), dtype=float)
 
     f1_calc_top1 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(device)
-    f1_calc_top3 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(device)  # top_k is intentionally 1
+    f1_calc_top3 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(
+        device)  # top_k is intentionally 1
 
     conf_mat_top1 = MulticlassConfusionMatrix(num_classes=len(ACTIONS), normalize="true").to(device)
     conf_mat_top3 = MulticlassConfusionMatrix(num_classes=len(ACTIONS), normalize="true").to(device)
 
     with warnings.catch_warnings():
-        warnings.filterwarnings('ignore', '.*There is a performance drop.*|.*NaN values found in confusion matrix.*', UserWarning)  # ignores warning about functorch
+        warnings.filterwarnings('ignore', '.*There is a performance drop.*|.*NaN values found in confusion matrix.*',
+                                UserWarning)  # ignores warning about functorch
 
         for idxes, data in loader:
             step += 1
@@ -83,7 +83,8 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             data = [d.to(device) for d in data]
 
             # ground_truth_left_right = torch.cat([data[-1].y[::2], data[-1].y[1::2]])
-            ground_truth_left_right = torch.stack([torch.cat([d.y[::2], d.y[1::2]]) for d in data], dim=0)  # FIXME: maybe
+            ground_truth_left_right = torch.stack([torch.cat([d.y[::2], d.y[1::2]]) for d in data],
+                                                  dim=0)  # FIXME: maybe
             # there can be a more efficient way -> FSD 25.09.2023
             ground_truth_segments = create_ground_truth_segments(torch.argmax(ground_truth_left_right, dim=-1))
 
@@ -91,12 +92,13 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             # 1. from predicted segments
             # or
             # 2. from ground truth segments
-            
-            # TODO: obtain 0,1 valued targets of whether action changes via algorithm here or in data porcessing phase -> FSD 20.09.2023
-            left_right_pred, segment_change_pred = model(data) # left_right_pred = model(data) # segmentation task -> FSD 20.09.2023
 
-            # label_criterion(left_right_pred, ground_truth_left_right) + \
-            loss = segmentation_criterion(segment_change_pred, ground_truth_segments)
+            # TODO: obtain 0,1 valued targets of whether action changes via algorithm here or in data porcessing phase -> FSD 20.09.2023
+            left_right_pred, segment_change_pred = model(
+                data)  # left_right_pred = model(data) # segmentation task -> FSD 20.09.2023
+
+            loss = label_criterion(left_right_pred, ground_truth_left_right) + \
+                   segmentation_criterion(segment_change_pred, ground_truth_segments)
 
             if mode == "train":
                 loss.backward()
@@ -117,12 +119,13 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             conf_mat_top3(pred_top_3_final, ground_truth)
 
             if mode != "test":
-                wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()}, 'batch': step}, step=step)
-
+                wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()},
+                           'batch': step}, step=step)
 
             # if (step+1)%20==0:
             #     print("20 BATCH ÇALIŞIYOR SADECE")
             #     break
+            break
 
         overall_f1_top1 = f1_calc_top1.compute()
         overall_f1_top3 = f1_calc_top3.compute()
@@ -130,18 +133,17 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
         overall_conf_mat_top1 = conf_mat_top1.compute()
         overall_conf_mat_top3 = conf_mat_top3.compute()
 
-
     if mode != "test":
         wandb.log({f"{mode}/epoch/": {'top1_F1': overall_f1_top1, 'top3_F1': overall_f1_top3}, 'epoch': epoch})
 
-    cf1=wandb.Table(data=overall_conf_mat_top1.cpu().numpy(), columns=ACTIONS, rows=ACTIONS)
-    cf3=wandb.Table(data=overall_conf_mat_top3.cpu().numpy(), columns=ACTIONS, rows=ACTIONS)
-    wandb.log({f"{mode}_cf/":{"top1": cf1, "top3": cf3}}, step=step)
+    cf1 = wandb.Table(data=overall_conf_mat_top1.cpu().numpy(), columns=ACTIONS, rows=ACTIONS)
+    cf3 = wandb.Table(data=overall_conf_mat_top3.cpu().numpy(), columns=ACTIONS, rows=ACTIONS)
+    wandb.log({f"{mode}_cf/": {"top1": cf1, "top3": cf3}}, step=step)
 
     # scores = classification_scores(conf_mat_top)
     # scores_top_3 = classification_scores(conf_mat_top_3)
 
-    wandb.log({'top1/':{'F1':overall_f1_top1}, 'top3/':{'F1':overall_f1_top3}})
+    wandb.log({'top1/': {'F1': overall_f1_top1}, 'top3/': {'F1': overall_f1_top3}})
 
     """dummy_i = 0
     if mode == "test":
@@ -160,8 +162,8 @@ if __name__ == "__main__":
     print("ARGS:\n", args)
 
     # assert args.gpu_id < torch.cuda.device_count(), f"gpu_id:{args.gpu_id} not found. Total gpu count: {torch.cuda.device_count()}"
-    device = torch.device('cuda:'+str(args.gpu_id) if torch.cuda.is_available() else 'cpu')
-    
+    device = torch.device('cuda:' + str(args.gpu_id) if torch.cuda.is_available() else 'cpu')
+
     wandb.init(project="online-action-prediction-from-scene-graphs", name=args.name, config=args.__dict__,
                mode="disabled" if args.disable_wandb else "online")
 
@@ -199,8 +201,6 @@ if __name__ == "__main__":
                                      dropout=args.dropout,
                                      use_cls_token=args.use_cls_token).to(device=device)
 
-
-
     print(model)
     print("# of parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))
 
@@ -227,9 +227,7 @@ if __name__ == "__main__":
                                                               weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.scheduler_step_size,
                                                 gamma=args.scheduler_gamma, verbose=True)
-    
-    
-    
+
     if args.weighted_loss == "none":
         loss_weights = None
     elif args.weighted_loss == "inv":
@@ -239,13 +237,13 @@ if __name__ == "__main__":
         loss_weights = 1.0 / torch.sqrt(torch.tensor(train_set.distribution))
         loss_weights = loss_weights / loss_weights.sum() * len(ACTIONS)
     elif args.weighted_loss == "effective":
-        beta=0.9999
+        beta = 0.9999
         effective_num = 1.0 - torch.power(beta, train_set.distribution)
         loss_weights = (1.0 - beta) / effective_num
         loss_weights = loss_weights / loss_weights.sum() * len(ACTIONS)
     else:
         raise NotImplementedError(f"Weighted loss type {args.weighted_loss} is not implemented")
-    
+
     # TODO: multiple loss -> FSD 22.09.2023
     label_criterion = torch.nn.CrossEntropyLoss(weight=loss_weights).to(device=device)
     segmentation_criterion = torch.nn.BCELoss(weight=loss_weights).to(device=device)
