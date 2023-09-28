@@ -270,7 +270,6 @@ class ActionRecognition(torch.nn.Module):
 
         segment_wise_features = torch.stack(seg_batches_list, dim=1)
 
-
         # Label prediction task
         action_prediction = self.mlp(segment_wise_features)
 
