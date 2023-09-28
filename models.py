@@ -164,10 +164,10 @@ class ActionRecognition(torch.nn.Module):
     
     def _segment_prediction(self, gnn_output, rnn_output):
         hn_se = torch.concat([rnn_output, gnn_output], dim=-1)
-        segment_change_prediction = F.gumbel_softmax(self.segment_boundary_detector(hn_se), dim=-1)[:,:,:1]
-        s_hard = (segment_change_prediction > 0.5).float()
-        hard_segment_change = ((s_hard - segment_change_prediction).detach() + segment_change_prediction)
-        return segment_change_prediction, hard_segment_change
+        segment_change_pred = F.gumbel_softmax(self.segment_boundary_detector(hn_se), dim=-1)[:,:,:1]
+        s_hard = (segment_change_pred > 0.5).float()
+        hard_segment_change = ((s_hard - segment_change_pred).detach() + segment_change_pred).squeeze()
+        return segment_change_pred, hard_segment_change.to(torch.long)
         
 
     def forward(self, dataBatchList: List[Batch]):
@@ -244,13 +244,15 @@ class ActionRecognition(torch.nn.Module):
             both_hn = both_hn.squeeze()"""
 
         # Segmentation task - predict segment change (0,1)
-        segment_change_prediction, hard_segment_change_prediction = self._segment_prediction(both_sequencial_embeddings, both_out)
+        segment_change_pred, hard_segment_change_pred = self._segment_prediction(both_sequencial_embeddings, both_out)
         
 
         # mask 
+        
+        both_out[hard_segment_change_pred]
 
 
         # Label prediction task
         action_prediction = self.mlp(both_out) 
 
-        return action_prediction, segment_change_prediction
+        return action_prediction, segment_change_pred
