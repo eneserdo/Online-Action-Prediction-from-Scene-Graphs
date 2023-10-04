@@ -97,8 +97,9 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             left_right_pred, segment_change_pred = model(
                 data)  # left_right_pred = model(data) # segmentation task -> FSD 20.09.2023
 
-            loss = label_criterion(left_right_pred, ground_truth_left_right) + \
-                   segmentation_criterion(segment_change_pred, ground_truth_segments)
+            label_loss = label_criterion(left_right_pred, ground_truth_left_right)
+            segmentation_loss = segmentation_criterion(segment_change_pred, ground_truth_segments)
+            loss = label_loss * label_loss_weight + segmentation_loss
 
             if mode == "train":
                 loss.backward()
@@ -123,7 +124,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             conf_mat_top3(pred_top_3_final, ground_truth)
 
             if mode != "test":
-                wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()},
+                wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item(), "Label Loss": label_loss.item(), "Segmentation Loss": segmentation_loss.item()},
                            'batch': step}, step=step)
 
             # if (step+1)%20==0:
@@ -247,6 +248,8 @@ if __name__ == "__main__":
         loss_weights = loss_weights / loss_weights.sum() * len(ACTIONS)
     else:
         raise NotImplementedError(f"Weighted loss type {args.weighted_loss} is not implemented")
+    
+    label_loss_weight = args.label_loss_weight
 
     # TODO: multiple loss -> FSD 22.09.2023
     label_criterion = torch.nn.CrossEntropyLoss(weight=loss_weights).to(device=device)

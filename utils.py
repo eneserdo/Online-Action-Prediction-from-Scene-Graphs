@@ -58,6 +58,8 @@ def arg_parser():
     ap.add_argument("--scheduler_gamma", type=float, default=0.5, help="...")
     ap.add_argument("--weighted_loss", type=str, default="none", choices=["none", "inv", "sqrt_inv" "effective"],
                     help="Use class frequencies as weight for loss function")
+    ap.add_argument("--label_loss_weight", type=float, default=1.0,
+                    help="Weight upon action label prediction task loss")
 
     # Training
     ap.add_argument("-me", "--max_epochs", type=int, default=20, help="Max number of epochs")
