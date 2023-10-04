@@ -82,11 +82,11 @@ def arg_parser_inference():
 
     ap = argparse.ArgumentParser()
 
-    ap.add_argument("-f", "--folder_path", type=str, help="...")    
+    ap.add_argument("--raw_dir", type=str, help="...") 
+    ap.add_argument("-s", "--test_subject", type=int, required=True, help="...") 
     # ap.add_argument("-gt", "--ground_truth_path", help="...")
     
     ap.add_argument("-tl", "--temporal_length", type=int, default=10, help="...")
-    ap.add_argument("-bs", "--batch_size", type=int, default=256, help="...")
 
     # Model
     ap.add_argument("-g", "--gnn_type", type=str, required=True, choices=["NNConv", "GATConv", "TransformerConv", "GATv2Conv"], help="...")
