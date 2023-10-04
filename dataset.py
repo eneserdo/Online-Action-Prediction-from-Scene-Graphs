@@ -69,6 +69,195 @@ else:
     crawl_dataset = crawl_dataset_FULL
 
 
+def _get_actions(gt_action_json: os.PathLike, i: int) -> Tuple[int, int]:
+    # Returns the action of left hand and right hand, respectively.
+
+    with open(gt_action_json) as f:
+        actions_json = json.load(f)
+
+    # right
+    for t in range(0, len(actions_json["right_hand"]) - 1, 2):
+
+        begin = actions_json["right_hand"][t]
+        right_act = actions_json["right_hand"][t + 1]
+        end = actions_json["right_hand"][t + 2]
+
+        if begin <= i < end:
+            break
+
+    if i == actions_json["right_hand"][-1]:
+        right_act = actions_json["right_hand"][-2]
+
+    # left
+    for t in range(0, len(actions_json["left_hand"]) - 1, 2):
+
+        begin = actions_json["left_hand"][t]
+        left_act = actions_json["left_hand"][t + 1]
+        end = actions_json["left_hand"][t + 2]
+
+        if begin <= i < end:
+            break
+
+    if i == actions_json["left_hand"][-1]:
+        left_act = actions_json["left_hand"][-2]
+
+    return left_act, right_act
+
+
+# def _get_graph(self, relation_json, object_json, gt_action_json, frame) -> Data:
+def _get_graph(relation_json, object_json, gt_action_json, frame, subject, task, take) -> Tuple[Data, Data]:
+    # returns edge index and edge features
+    
+    with open(relation_json) as f:
+        curr_relations = json.load(f)
+
+    with open(object_json) as f:
+        curr_objects = json.load(f)
+
+    # initialize "Data" params
+    x = torch.zeros((len(curr_objects), len(OBJECTS)), dtype=torch.float)
+    x_mirrored = torch.zeros((len(curr_objects), len(OBJECTS)), dtype=torch.float)
+    
+    y = torch.zeros((2, len(ACTIONS)), dtype=torch.float)
+    y_mirrored = torch.zeros((2, len(ACTIONS)), dtype=torch.float)
+
+    # To debug add embed some info
+    # y = torch.zeros((2, len(ACTIONS)+1), dtype=torch.float)
+    # y_mirrored = torch.zeros((2, len(ACTIONS)+1), dtype=torch.float)
+
+    edge_index = []
+    edge_index_mirrored = []
+
+    num_possible_relations=len(curr_objects)*(len(curr_objects)-1)
+
+    edge_attr = torch.zeros((int(num_possible_relations), len(RELATIONS)))
+    edge_attr_mirrored = torch.zeros((int(num_possible_relations), len(RELATIONS)))
+
+    ### Fill them
+
+    for i, obj in enumerate(curr_objects):
+        x[i, OBJECTS.index(obj["class_name"])] = 1
+
+        # # # Mirrorred # # #
+        if obj["class_name"]=='LeftHand':
+            x_mirrored[i, OBJECTS.index('RightHand')] = 1
+
+        elif obj["class_name"]=='RightHand':
+            x_mirrored[i, OBJECTS.index('LeftHand')] = 1
+
+        else:
+            x_mirrored[i, OBJECTS.index(obj["class_name"])] = 1
+        # # # # # # # # # # # #
+    
+    for relation in curr_relations:
+
+        # if self.contact_only and (relation["relation_name"] != "contact"):
+        #     # Skips the other relations if desired
+        #     continue
+
+        oi = relation["object_index"]
+        si = relation["subject_index"]
+
+        edge=[oi, si]
+
+        if edge not in edge_index:
+            edge_index.append(edge)
+
+        edge_attr[edge_index.index(edge), RELATIONS.index(relation["relation_name"])] = 1
+        
+        # # # Mirrorred # # #
+        if edge not in edge_index_mirrored:
+            edge_index_mirrored.append(edge)
+        
+        if relation["relation_name"]=='right of':
+            edge_attr_mirrored[edge_index_mirrored.index(edge), RELATIONS.index('left of')] = 1
+
+        elif relation["relation_name"]=='left of':
+            edge_attr_mirrored[edge_index_mirrored.index(edge), RELATIONS.index('right of')] = 1
+
+        else:
+            edge_attr_mirrored[edge_index_mirrored.index(edge), RELATIONS.index(relation["relation_name"])] = 1
+        # # # # # # # # # # # #
+        
+
+    edge_attr=edge_attr[:len(edge_index)]
+    edge_index=torch.tensor(edge_index, dtype=torch.long)
+
+    # # # Mirrorred # # #
+    edge_attr_mirrored=edge_attr_mirrored[:len(edge_index_mirrored)]
+    edge_index_mirrored=torch.tensor(edge_index_mirrored, dtype=torch.long)
+    # # # # # # # # # # # #
+
+    left_act, right_act = _get_actions(gt_action_json, frame)
+
+    # subject, task, take were just added for debugging purposes, and will be removed
+    # y[0]=torch.tensor([left_act, int(subject[-1]+task[5]+take[-1]+str(frame))], dtype=torch.float)
+    # y[1]=torch.tensor([right_act, int(subject[-1]+task[5]+take[-1]+str(frame))], dtype=torch.float)
+
+    graph_str=subject[-1]+task[5]+take[-1]+str(frame)
+
+    if left_act is not None:
+        y[0, left_act]=1
+        y_mirrored[1, left_act]=1
+        
+        # To debug
+        # y[0, -1]=int("1"+graph_str)
+        # y_mirrored[1, -1]=int("2"+graph_str)
+
+
+    if right_act is not None:
+        y[1, right_act] = 1
+        y_mirrored[0, right_act] = 1
+
+        # To debug
+        # y[1, -1] = int("1"+graph_str)
+        # y_mirrored[0, -1] = int("2"+graph_str)
+    
+
+    data = Data(x=x, edge_index=edge_index.t().contiguous(),
+                edge_attr=edge_attr, y=y)
+
+    data_mirrored = Data(x=x_mirrored, edge_index=edge_index_mirrored.t().contiguous(),
+                            edge_attr=edge_attr_mirrored, y=y_mirrored)
+
+    return data, data_mirrored
+
+
+def _check_validity(data: Data) -> bool:
+    # Checks: both hands exists, action != null, has edge, not empty 
+    
+    global MISSING_HAND_COUNT, NULL_COUNT, EMPTY_COUNT, NO_EDGE_COUNT
+
+    Lhand, Rhand=False, False
+    # null
+    if torch.sum(data.y[0])==0 or torch.sum(data.y[1])==0:
+        NULL_COUNT+=1
+        return False
+
+    # not empty
+    if len(data.x)==0:
+        EMPTY_COUNT+=1
+        return False
+    
+    # both hands
+    for row in data.x:
+        if row[OBJECTS.index("LeftHand")]==1:
+            Lhand=True
+        
+        if row[OBJECTS.index("RightHand")]==1:
+            Rhand=True
+            
+    if not (Rhand and Lhand):
+        MISSING_HAND_COUNT+=1
+        return False
+
+    # has edge
+    if len(data.edge_index)==0:
+        NO_EDGE_COUNT+=1
+        return False
+    
+    return True
+
 class BimanualDataset(Dataset):
     def __init__(self, root: str, is_processed: bool, split: str, test_subject: int, validation_take: int , temporal_length: int, contact_only: bool, fix_fps: bool=False):
         
@@ -143,194 +332,7 @@ class BimanualDataset(Dataset):
         gdown.download(id="1FceipuZMUjp1ES2THqlAmQgPdE18-flk", output=opj(self.raw_dir, "BimanualActions.zip"))
         extract_zip(opj(self.raw_dir, "BimanualActions.zip"), self.raw_dir)
         
-        
-    # def _get_graph(self, relation_json, object_json, gt_action_json, frame) -> Data:
-    def _get_graph(self, relation_json, object_json, gt_action_json, frame, subject, task, take) -> Tuple[Data, Data]:
-        # returns edge index and edge features
-        
-        with open(relation_json) as f:
-            curr_relations = json.load(f)
 
-        with open(object_json) as f:
-            curr_objects = json.load(f)
-
-        # initialize "Data" params
-        x = torch.zeros((len(curr_objects), len(OBJECTS)), dtype=torch.float)
-        x_mirrored = torch.zeros((len(curr_objects), len(OBJECTS)), dtype=torch.float)
-        
-        y = torch.zeros((2, len(ACTIONS)), dtype=torch.float)
-        y_mirrored = torch.zeros((2, len(ACTIONS)), dtype=torch.float)
-
-        # To debug add embed some info
-        # y = torch.zeros((2, len(ACTIONS)+1), dtype=torch.float)
-        # y_mirrored = torch.zeros((2, len(ACTIONS)+1), dtype=torch.float)
-
-        edge_index = []
-        edge_index_mirrored = []
-
-        num_possible_relations=len(curr_objects)*(len(curr_objects)-1)
-
-        edge_attr = torch.zeros((int(num_possible_relations), len(RELATIONS)))
-        edge_attr_mirrored = torch.zeros((int(num_possible_relations), len(RELATIONS)))
-
-        ### Fill them
-
-        for i, obj in enumerate(curr_objects):
-            x[i, OBJECTS.index(obj["class_name"])] = 1
-
-            # # # Mirrorred # # #
-            if obj["class_name"]=='LeftHand':
-                x_mirrored[i, OBJECTS.index('RightHand')] = 1
-
-            elif obj["class_name"]=='RightHand':
-                x_mirrored[i, OBJECTS.index('LeftHand')] = 1
-
-            else:
-                x_mirrored[i, OBJECTS.index(obj["class_name"])] = 1
-            # # # # # # # # # # # #
-        
-        for relation in curr_relations:
-
-            if self.contact_only and (relation["relation_name"] != "contact"):
-                # Skips the other relations if desired
-                continue
-
-            oi = relation["object_index"]
-            si = relation["subject_index"]
-
-            edge=[oi, si]
-
-            if edge not in edge_index:
-                edge_index.append(edge)
-
-            edge_attr[edge_index.index(edge), RELATIONS.index(relation["relation_name"])] = 1
-            
-            # # # Mirrorred # # #
-            if edge not in edge_index_mirrored:
-                edge_index_mirrored.append(edge)
-            
-            if relation["relation_name"]=='right of':
-                edge_attr_mirrored[edge_index_mirrored.index(edge), RELATIONS.index('left of')] = 1
-
-            elif relation["relation_name"]=='left of':
-                edge_attr_mirrored[edge_index_mirrored.index(edge), RELATIONS.index('right of')] = 1
-
-            else:
-                edge_attr_mirrored[edge_index_mirrored.index(edge), RELATIONS.index(relation["relation_name"])] = 1
-            # # # # # # # # # # # #
-            
-    
-        edge_attr=edge_attr[:len(edge_index)]
-        edge_index=torch.tensor(edge_index, dtype=torch.long)
-
-        # # # Mirrorred # # #
-        edge_attr_mirrored=edge_attr_mirrored[:len(edge_index_mirrored)]
-        edge_index_mirrored=torch.tensor(edge_index_mirrored, dtype=torch.long)
-        # # # # # # # # # # # #
-
-        left_act, right_act = self._get_actions(gt_action_json, frame)
-
-        # subject, task, take were just added for debugging purposes, and will be removed
-        # y[0]=torch.tensor([left_act, int(subject[-1]+task[5]+take[-1]+str(frame))], dtype=torch.float)
-        # y[1]=torch.tensor([right_act, int(subject[-1]+task[5]+take[-1]+str(frame))], dtype=torch.float)
-
-        graph_str=subject[-1]+task[5]+take[-1]+str(frame)
-
-        if left_act is not None:
-            y[0, left_act]=1
-            y_mirrored[1, left_act]=1
-            
-            # To debug
-            # y[0, -1]=int("1"+graph_str)
-            # y_mirrored[1, -1]=int("2"+graph_str)
-
-
-        if right_act is not None:
-            y[1, right_act] = 1
-            y_mirrored[0, right_act] = 1
-
-            # To debug
-            # y[1, -1] = int("1"+graph_str)
-            # y_mirrored[0, -1] = int("2"+graph_str)
-        
-
-        data = Data(x=x, edge_index=edge_index.t().contiguous(),
-                    edge_attr=edge_attr, y=y)
-
-        data_mirrored = Data(x=x_mirrored, edge_index=edge_index_mirrored.t().contiguous(),
-                             edge_attr=edge_attr_mirrored, y=y_mirrored)
-
-        return data, data_mirrored
-
-    def _get_actions(self, gt_action_json: os.PathLike, i: int) -> Tuple[int, int]:
-        # Returns the action of left hand and right hand, respectively.
-
-        with open(gt_action_json) as f:
-            actions_json = json.load(f)
-
-        # right
-        for t in range(0, len(actions_json["right_hand"]) - 1, 2):
-
-            begin = actions_json["right_hand"][t]
-            right_act = actions_json["right_hand"][t + 1]
-            end = actions_json["right_hand"][t + 2]
-
-            if begin <= i < end:
-                break
-
-        if i == actions_json["right_hand"][-1]:
-            right_act = actions_json["right_hand"][-2]
-
-        # left
-        for t in range(0, len(actions_json["left_hand"]) - 1, 2):
-
-            begin = actions_json["left_hand"][t]
-            left_act = actions_json["left_hand"][t + 1]
-            end = actions_json["left_hand"][t + 2]
-
-            if begin <= i < end:
-                break
-
-        if i == actions_json["left_hand"][-1]:
-            left_act = actions_json["left_hand"][-2]
-
-        return left_act, right_act
-
-    def _check_validity(self, data: Data) -> bool:
-        # Checks: both hands exists, action != null, has edge, not empty 
-        
-        global MISSING_HAND_COUNT, NULL_COUNT, EMPTY_COUNT, NO_EDGE_COUNT
-
-        Lhand, Rhand=False, False
-        # null
-        if torch.sum(data.y[0])==0 or torch.sum(data.y[1])==0:
-            NULL_COUNT+=1
-            return False
-
-        # not empty
-        if len(data.x)==0:
-            EMPTY_COUNT+=1
-            return False
-        
-        # both hands
-        for row in data.x:
-            if row[OBJECTS.index("LeftHand")]==1:
-                Lhand=True
-            
-            if row[OBJECTS.index("RightHand")]==1:
-                Rhand=True
-                
-        if not (Rhand and Lhand):
-            MISSING_HAND_COUNT+=1
-            return False
-
-
-        # has edge
-        if len(data.edge_index)==0:
-            NO_EDGE_COUNT+=1
-            return False
-        
-        return True
 
     def _save_config(self, config_info: dict) -> None:
         with open(opj(self.processed_dir, "config_info.json"), "w") as f:
@@ -385,10 +387,10 @@ class BimanualDataset(Dataset):
             for frame, (relation_json, object_json) in enumerate(zip(relation_json_list, object_json_list)):
                 
                 TOTAL_FRAME_COUNT+=1
-                graph, graph_mirrored = self._get_graph(relation_json, object_json, gt_action_json, frame, subject, task, take)
+                graph, graph_mirrored = _get_graph(relation_json, object_json, gt_action_json, frame, subject, task, take)
                 
                 # if the graph is not appropriate, resets the sequence and continues
-                if not self._check_validity(graph):
+                if not _check_validity(graph):
                     data_list=[]
                     data_list_mirrored=[]
                     # print("Skipped: ", subject, task, take, "f", frame)
