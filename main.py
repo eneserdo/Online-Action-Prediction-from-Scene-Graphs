@@ -130,7 +130,6 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             # if (step+1)%20==0:
             #     print("20 BATCH ÇALIŞIYOR SADECE")
             #     break
-            break
 
 
         overall_f1_top1 = f1_calc_top1.compute()
