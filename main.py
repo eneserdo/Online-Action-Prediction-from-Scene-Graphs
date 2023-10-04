@@ -95,7 +95,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
             # TODO: obtain 0,1 valued targets of whether action changes via algorithm here or in data porcessing phase -> FSD 20.09.2023
             left_right_pred, segment_change_pred = model(
-                data)  # left_right_pred = model(data) # segmentation task -> FSD 20.09.2023
+                data, ground_truth_segments)  # left_right_pred = model(data) # segmentation task -> FSD 20.09.2023
 
             label_loss = label_criterion(left_right_pred, ground_truth_left_right)
             segmentation_loss = segmentation_criterion(segment_change_pred, ground_truth_segments)
@@ -130,6 +130,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             # if (step+1)%20==0:
             #     print("20 BATCH ÇALIŞIYOR SADECE")
             #     break
+            break
 
 
         overall_f1_top1 = f1_calc_top1.compute()

@@ -169,7 +169,7 @@ class ActionRecognition(torch.nn.Module):
         hard_segment_change = ((s_hard - segment_change_pred).detach() + segment_change_pred)
         return segment_change_pred, hard_segment_change
 
-    def forward(self, dataBatchList: List[Batch]):
+    def forward(self, dataBatchList: List[Batch], segment_gt):
 
         left_embedding_list = []
         right_embedding_list = []
@@ -249,7 +249,7 @@ class ActionRecognition(torch.nn.Module):
         # TODO: Remove for-loop for optimization
         seg_batches_list = []
         for b in range(self.batch_size * 2):
-            mask = hard_segment_change_pred[:, b].clone().to(torch.bool)
+            mask = segment_gt[:, b].clone().to(torch.bool)
             # [0,0,1,0,0,0,1,0,1] -> segments last frames 1
 
             segments = torch.concat([torch.zeros(size=(1,), device=mask.device),
