@@ -73,26 +73,26 @@
 # python main.py -g TransformerConv -o RMSprop -lr 0.001 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name TFC_sc8_wd45_rmsprop --gpu_id 1
 # sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.001 -wd 0.0001 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_default -tl 10 -bs 512
+python main.py -g TransformerConv -o Adam -lr 0.001 -wd 0.0001 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_tl_50 -tl 50 -bs 512
 sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.001 -wd 0.0001 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_hs_64 -tl 10 -bs 512 -hs 64
+python main.py -g TransformerConv -o Adam -lr 0.001 -wd 0.0001 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_tl_30_hs_64 -tl 30 -bs 512 -hs 64
 sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.001 -wd 0.0001 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_oc_32 -tl 10 -bs 512 -oc 32
+python main.py -g TransformerConv -o Adam -lr 0.001 -wd 0.0001 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_tl_30_oc_32 -tl 30 -bs 512 -oc 32
 sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.0001 -wd 0.0001 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_lr_01 -tl 10 -bs 512
+python main.py -g TransformerConv -o Adam -lr 0.0001 -wd 0.0001 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_tl_30_lr_01 -tl 30 -bs 512
 sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.001 -wd 0.0001 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_slw_01 -tl 10 -bs 512 --label_loss_weight 0.01
+python main.py -g TransformerConv -o Adam -lr 0.001 -wd 0.0001 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_tl_30_slw_01 -tl 30 -bs 512 --label_loss_weight 0.01
 sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.001 -wd 0.0001 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_bi -tl 10 -bs 512 --temporal_type bi
+python main.py -g TransformerConv -o Adam -lr 0.001 -wd 0.0001 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_tl_30_bi -tl 30 -bs 512 --temporal_type bi
 sleep 5
 
-python prepare_dataset.py -tl 30
+# python prepare_dataset.py -tl 30
 
-python prepare_dataset.py -tl 50
+# python prepare_dataset.py -tl 50
 
-python prepare_dataset.py -tl 100
+# python prepare_dataset.py -tl 100
