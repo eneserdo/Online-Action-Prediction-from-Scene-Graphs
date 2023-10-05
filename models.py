@@ -252,7 +252,13 @@ class ActionRecognition(torch.nn.Module):
         # TODO: Remove for-loop for optimization
         # Possible solution:
         #   Combine time and batch dimension
-        
+        # action_prediction -> (n, b*2, a)
+        # segment_gt -> (n, b*2)
+        # 
+        # Merged form:
+        # 
+        action_prediction
+
         # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
         act_pred_batches_list = []
         for b in range(self.batch_size * 2):
