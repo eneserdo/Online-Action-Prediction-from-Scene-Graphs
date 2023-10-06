@@ -100,7 +100,10 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
             label_loss = label_criterion(left_right_pred, ground_truth_left_right)
             segmentation_loss = segmentation_criterion(segment_change_pred, ground_truth_segments)
-            loss = label_loss * label_loss_weight + segmentation_loss
+            
+            loss = label_loss * label_loss_weight
+            if args.perfect_seg:
+                loss += segmentation_loss
 
             if mode == "train":
                 loss.backward()
@@ -232,7 +235,8 @@ if __name__ == "__main__":
                                      use_hand_pooling=not args.use_global_pooling,
                                      edge_dropout=not args.edge_dropout,
                                      dropout=args.dropout,
-                                     use_cls_token=args.use_cls_token).to(device=device)
+                                     use_cls_token=args.use_cls_token,
+                                     perfect_seg=args.perfect_seg).to(device=device)
 
     print(model)
     print("# of parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))

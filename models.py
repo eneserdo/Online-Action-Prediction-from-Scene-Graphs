@@ -70,7 +70,8 @@ class ActionRecognition(torch.nn.Module):
                  use_hand_pooling,
                  edge_dropout,
                  dropout,
-                 use_cls_token,
+                 use_cls_token, 
+                 perfect_seg,
                  **kwargs):
         """ Accepts kwargs for non-general params of gnns """
         super().__init__()
@@ -81,6 +82,7 @@ class ActionRecognition(torch.nn.Module):
         self.edge_dropout = edge_dropout
         self.temporal_type = temporal_type
         self.use_cls_token = use_cls_token
+        self.perfect_seg = perfect_seg
 
         # Sets Graph Network
         if gnn_type == "NNConv":
@@ -249,7 +251,10 @@ class ActionRecognition(torch.nn.Module):
         # TODO: Remove for-loop for optimization
         seg_batches_list = []
         for b in range(self.batch_size * 2):
-            mask = segment_gt[:, b].clone().to(torch.bool)
+            if self.perfect_seg:
+                mask = segment_gt[:, b].clone().to(torch.bool)
+            else:
+                mask = hard_segment_change_pred[:, b].clone().to(torch.bool)
             # [0,0,1,0,0,0,1,0,1] -> segments last frames 1
 
             segments = torch.concat([torch.zeros(size=(1,), device=mask.device),
