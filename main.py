@@ -5,6 +5,7 @@
     - log final test results as bar-plot
 """
 
+import glob
 import os
 import random
 import time
@@ -152,6 +153,29 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
         return overall_f1_top1, overall_f1_top3
 
 
+def test_for_all_saved_weights(model, test_loader):
+    weight_list=sorted(glob.glob(opj(save_dir, "*.pt")))
+    
+    best_top1 = 0    
+    results = []
+    best_i = -1
+    for i, w_name in enumerate(weight_list):
+        checkpoint = torch.load(opj(save_dir, w_name))
+        model.load_state_dict(checkpoint["model_state_dict"])
+        scores_and_conf_mats = run_one_epoch(model, test_loader, 'test', epoch=-1)
+        # f_top1_test, f_top3_test, conf_mat_top1_test, conf_mat_top3_test = scores_and_conf_mats
+        
+        print(f"TEST: {w_name}: top1: {scores_and_conf_mats[0]}, top3: {scores_and_conf_mats[1]}")
+        
+        results.append(scores_and_conf_mats)
+        
+        if best_top1 < scores_and_conf_mats[0]:
+            best_top1 = scores_and_conf_mats[0]
+            best_i = i
+
+    return weight_list[best_i], *results[best_i]
+
+
 if __name__ == "__main__":
     args = arg_parser()
     print("ARGS:\n", args)
@@ -242,6 +266,7 @@ if __name__ == "__main__":
 
     # Load saved models if required
     if args.restore is not None:
+        assert args.restored_name is not None, "restored_name must be provided if restore is not None"
         checkpoint = torch.load(opj(f"saved_{args.restored_name}", f"model_epoch{args.restore:0>4}.pt"))
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         model.load_state_dict(checkpoint["model_state_dict"])
@@ -282,8 +307,8 @@ if __name__ == "__main__":
 
     # TEST
     print("Starts test...")
-    f_top1_test, f_top3_test, conf_mat_top1_test, conf_mat_top3_test = run_one_epoch(model, test_loader, 'test',
-                                                                                     epoch=-1)
+    # f_top1_test, f_top3_test, conf_mat_top1_test, conf_mat_top3_test = run_one_epoch(model, test_loader, 'test', epoch=-1)
+    f_top1_test, f_top3_test, conf_mat_top1_test, conf_mat_top3_test = test_for_all_saved_weights(model, test_loader)
 
     plt = plot_conf_mat(conf_mat_top1_test.cpu(), f"TEST_conf_mat_top1_e{epoch:0>4}", do_return_plot=True)
     wandb.log({'test/confusion_matrix/': {'top1': wandb.Image(plt)}})
