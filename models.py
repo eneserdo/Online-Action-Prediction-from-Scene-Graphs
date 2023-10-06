@@ -81,6 +81,7 @@ class ActionRecognition(torch.nn.Module):
         self.edge_dropout = edge_dropout
         self.temporal_type = temporal_type
         self.use_cls_token = use_cls_token
+        self.sparse_pred = False # FIXME: change this lol
 
         # Sets Graph Network
         if gnn_type == "NNConv":
@@ -258,19 +259,23 @@ class ActionRecognition(torch.nn.Module):
 
         # [0,0,1,0,0,0,1,0,1] -> segments last frames 1
         mask = segment_gt.to(torch.bool) # if need be use .clone()
+        if not self.sparse_pred:
+            segments = torch.concat([torch.zeros(size=(1, self.batch_size * 2), device=mask.device),
+                                     torch.cumsum(mask[:-1], dim=0)], dim=0)
+            
+
         # FIXME: Is it correct to consider last frame of seq. to be the last frame of its respective segment?
         mask[-1] = True
         mask = torch.flatten(mask, start_dim=0, end_dim=1)
 
         # [f2, f6, f8] -> features at last frames of respective segments
-        out_seg_ends = both_out[mask]
+        out_seg_ends = both_out[mask] # (s~*b*2,f)
 
-        if not sparse_pred:
-            segments
-
+        if not self.sparse_pred:
             # TODO: Does a better method exist for below solution of mapping?
-            map_s_to_f = F.one_hot(segments.to(torch.long)).to(torch.float32)  # (n, s)
-            batch_segment_wise_features = map_s_to_f @ segment_last_frame_features  # (n, f)
+            map_s_to_f = F.one_hot(segments.to(torch.long)).to(torch.float32)  # (n, b*2, s^)
+            map_s_to_f = torch.flatten(map_s_to_f, start_dim=1, end_dim=2) # (n,s^*b*2)
+            segment_wise_features = map_s_to_f @ out_seg_ends  # (n*b*2, f)
 
             out_seg_ends
         else:
