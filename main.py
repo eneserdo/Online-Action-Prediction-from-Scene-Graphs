@@ -170,12 +170,13 @@ def test_for_all_saved_weights(model, test_loader):
     results = []
     best_i = -1
     for i, w_name in enumerate(weight_list):
-        checkpoint = torch.load(opj(save_dir, w_name))
+        print(f"TESTING {w_name}:")
+        checkpoint = torch.load(w_name)
         model.load_state_dict(checkpoint["model_state_dict"])
         scores_and_conf_mats = run_one_epoch(model, test_loader, 'test', epoch=-1)
         # f_top1_test, f_top3_test, conf_mat_top1_test, conf_mat_top3_test = scores_and_conf_mats
         
-        print(f"TEST: {w_name}: top1: {scores_and_conf_mats[0]}, top3: {scores_and_conf_mats[1]}")
+        print(f"\tTop1: {scores_and_conf_mats[0]}, Top3: {scores_and_conf_mats[1]}")
         
         results.append(scores_and_conf_mats)
         
