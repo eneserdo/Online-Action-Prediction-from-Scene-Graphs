@@ -1,4 +1,4 @@
-# This file borrowed from https://github.com/RomeroBarata/human_object_interaction/blob/main/vhoi/visualisation.py
+# This file is borrowed from https://github.com/RomeroBarata/human_object_interaction/blob/main/vhoi/visualisation.py
 
 from itertools import groupby
 from typing import Dict
@@ -87,7 +87,7 @@ def plot_segmentation(target: list, *output, class_id_to_label: Dict[int, str], 
         ax.set_xticklabels(xlabels, fontsize=fontsize, horizontalalignment='left')
         ax.set_yticklabels([])
     if save_file is not None:
-        plt.savefig(save_file, bbox_inches='tight', pad_inches=0, transparent=True)
+        plt.savefig(save_file, bbox_inches='tight', pad_inches=0)
     else:
         plt.show()
     plt.close()

@@ -1,4 +1,4 @@
-# This file borrowed from https://github.com/RomeroBarata/human_object_interaction/tree/main/pyrutils
+# These functions are borrowed from https://github.com/RomeroBarata/human_object_interaction/tree/main/pyrutils
 
 from itertools import accumulate, groupby
 from typing import Dict, Iterable
