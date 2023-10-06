@@ -69,7 +69,9 @@ def arg_parser():
 
     # Logging
     ap.add_argument("-n", "--name", required=True, type=str, help="Name of experiment for logging into Wandb")
-    ap.add_argument("--disable_wandb", action="store_true", help="Disable wandb")
+    ap.add_argument("--disable_wandb",action="store_true", help="Disable wandb")
+    ap.add_argument("--save_incorrects",action="store_true", help="saves some incorrect samples")
+
 
     # Others
     ap.add_argument("--gpu_id", type=int, default=0, help="...")
