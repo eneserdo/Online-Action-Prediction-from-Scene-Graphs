@@ -245,36 +245,56 @@ class ActionRecognition(torch.nn.Module):
         # Segmentation task - predict segment change (0,1)
         segment_change_pred, hard_segment_change_pred = self._segment_prediction(both_sequencial_embeddings, both_out)
 
-        # Label prediction task
-        action_prediction = self.mlp(both_out)
-
         # mask
         # TODO: Remove for-loop for optimization
         # Possible solution:
         #   Combine time and batch dimension
-        # action_prediction -> (n, b*2, a)
-        # segment_gt -> (n, b*2)
+        # both_out : (n, b*2, f) -> (n*b*2, f)
+        # segment_gt : (n, b*2) -> (n*b*2)
         # 
         # Merged form:
         # 
-        action_prediction
+        both_out = torch.flatten(both_out, start_dim=0, end_dim=1)
 
-        # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-        act_pred_batches_list = []
-        for b in range(self.batch_size * 2):
-            mask = segment_gt[:, b].clone().to(torch.bool)
-            # [0,0,1,0,0,0,1,0,1] -> segments last frames 1
+        # [0,0,1,0,0,0,1,0,1] -> segments last frames 1
+        mask = segment_gt.to(torch.bool) # if need be use .clone()
+        # FIXME: Is it correct to consider last frame of seq. to be the last frame of its respective segment?
+        mask[-1] = True
+        mask = torch.flatten(mask, start_dim=0, end_dim=1)
 
-            # FIXME: Is it correct to consider last frame of seq. to be the last frame of its respective segment?
-            mask[-1] = True
+        # [f2, f6, f8] -> features at last frames of respective segments
+        out_seg_ends = both_out[mask]
 
-            segment_last_frame_predictions = action_prediction[:, b, :][mask]   # (s, f)
-            # [f2, f6, f8] -> features at last frames of respective segments
+        if not sparse_pred:
+            segments
 
             # TODO: Does a better method exist for below solution of mapping?
-            # map_s_to_f = F.one_hot(segments.to(torch.long)).to(torch.float32)  # (n, s)
-            # batch_segment_wise_features = map_s_to_f @ segment_last_frame_features  # (n, f)
+            map_s_to_f = F.one_hot(segments.to(torch.long)).to(torch.float32)  # (n, s)
+            batch_segment_wise_features = map_s_to_f @ segment_last_frame_features  # (n, f)
 
-            act_pred_batches_list.append((segment_last_frame_predictions, mask))
+            out_seg_ends
+        else:
+            pass
 
-        return act_pred_batches_list, segment_change_pred
+        # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+        # act_pred_batches_list = []
+        # for b in range(self.batch_size * 2):
+        #     mask = segment_gt[:, b].clone().to(torch.bool)
+        #     # [0,0,1,0,0,0,1,0,1] -> segments last frames 1
+
+            
+        #     mask[-1] = True
+
+        #     segment_last_frame_predictions = action_prediction[:, b, :][mask]   # (s, f)
+        #     # [f2, f6, f8] -> features at last frames of respective segments
+
+        #     # TODO: Does a better method exist for below solution of mapping?
+        #     # map_s_to_f = F.one_hot(segments.to(torch.long)).to(torch.float32)  # (n, s)
+        #     # batch_segment_wise_features = map_s_to_f @ segment_last_frame_features  # (n, f)
+
+        #     act_pred_batches_list.append((segment_last_frame_predictions, mask))
+
+        # Label prediction task
+        action_prediction = self.mlp(both_out)
+
+        return action_prediction, segment_change_pred
