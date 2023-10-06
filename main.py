@@ -120,7 +120,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                 wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()}, 'batch': step}, step=step)
 
 
-            if mode == "test":
+            if mode == "test" and args.save_incorrects:
                 visualize_incorrect_preds(pred_top_1, ground_truth, idxes, num_of_samples=4, 
                                           mapping_path="processed10/test_idx_sample_mapping.json")
             # if (step+1)%20==0:
