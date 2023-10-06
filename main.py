@@ -187,7 +187,7 @@ def test_for_all_saved_weights(model, test_loader):
             best_top1 = scores_and_conf_mats[0]
             best_i = i
 
-    return weight_list[best_i], *results[best_i]
+    return results[best_i]
 
 
 if __name__ == "__main__":
