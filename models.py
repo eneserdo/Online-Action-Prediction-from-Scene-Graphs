@@ -279,26 +279,21 @@ class ActionRecognition(torch.nn.Module):
         if not self.sparse_pred:
             # TODO: Does a better method exist for below solution of mapping?
             map_s_to_f = F.one_hot(indices_for_seg_f.to(torch.long)).to(torch.float32)  # (n*b*2, s~*b*2)
-            segment_wise_features = map_s_to_f @ out_seg_ends  # (n*b*2, f)
-
+            out_s = map_s_to_f @ out_seg_ends  # (n*b*2, f)
         else:
-            pass
+            out_s = out_seg_ends
 
-        # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-        # act_pred_batches_list = []
-        # for b in range(self.batch_size * 2):
-        #     mask = segment_gt[:, b].clone().to(torch.bool)
-        #     # [0,0,1,0,0,0,1,0,1] -> segments last frames 1
-        # [0,0,0,1,1,1,1,2,2] -> segments
-        #     mask[-1] = True
-        #     segment_last_frame_predictions = action_prediction[:, b, :][mask]   # (s, f)
-        #     # [f2, f6, f8] -> features at last frames of respective segments
-        #     # TODO: Does a better method exist for below solution of mapping?
-        #     # map_s_to_f = F.one_hot(segments.to(torch.long)).to(torch.float32)  # (n, s)
-        #     # batch_segment_wise_features = map_s_to_f @ segment_last_frame_features  # (n, f)
-        #     act_pred_batches_list.append((segment_last_frame_predictions, mask))
+        # TODO:
+        # -> Do operation to merge right and left features (concatenate )
+        #   so as to affect each others output predictions
+        # -> Create two mlps that take same(?) input but predict for each respective hand action
 
         # Label prediction task
-        action_prediction = self.mlp(both_out)
+        action_prediction = self.mlp(out_s)
 
-        return action_prediction, segment_change_pred
+        if not self.sparse_pred:
+            action_prediction = torch.unflatten(action_prediction, dim=0, sizes=segment_gt.shape)  # (n, b*2, a)
+            return action_prediction, segment_change_pred
+        else:
+            # action_prediction shape -> (s~*b*2, a)
+            return (action_prediction, mask), segment_change_pred
