@@ -8,6 +8,7 @@
 
 import glob
 import os
+import numpy as np
 import torch
 import torch.nn as nn
 from os.path import join as opj
@@ -19,6 +20,12 @@ import natsort
 from visualization_utils import plot_segmentation
 import models
 from dataset import ACTIONS, OBJECTS, RELATIONS
+
+# def majority_voting(y_pred_segmentation):
+#     left_segment=y_pred_segmentation[:, 0, :]
+#     right_segment=y_pred_segmentation[:, 1, :]
+#     pass
+
 
 def main(args):
     print(args)
@@ -54,6 +61,11 @@ def main(args):
     print(model)
     print("# of parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))
 
+
+    NULL_ACTION = len(ACTIONS)
+    class_id_to_label = {i: label for i, label in enumerate(ACTIONS)}
+    class_id_to_label[NULL_ACTION] = "NULL"
+
     # Load data
     for subject, task, take in crawl_dataset_FULL():
         if subject != int(test_subject[-1]):
@@ -71,12 +83,15 @@ def main(args):
         gt_action_json = opj(gt_dir, subject, task, f"{take}.json")
         
         f1_at_10_list = []
+        f1_at_25_list = []
         f1_at_50_list = []
 
-        y_pred = []
-        y_true = []
-        NULL_ACTION = len(ACTIONS)
+        y_pred = np.ones((len(relation_json_list), 2))*NULL_ACTION
+        y_true = np.ones((len(relation_json_list), 2))*NULL_ACTION
 
+        y_pred_segmentation = np.ones((len(relation_json_list), 2, len(relation_json_list)-args.temporal_lenght+1))*NULL_ACTION
+        
+        
         assert len(relation_json_list) == len(object_json_list)
 
         for frame, (relation_json, object_json) in enumerate(zip(relation_json_list, object_json_list)):
@@ -84,9 +99,14 @@ def main(args):
             TOTAL_FRAME_COUNT+=1
             graph, _ = _get_graph(relation_json, object_json, gt_action_json, frame, subject, task, take)
             
+            left_gt, right_gt = _get_actions(gt_action_json, frame)
+            y_true[frame, 0] = left_gt
+            y_true[frame, 1] = right_gt
+
             # if the graph is not appropriate, resets the sequence and continues
             if not _check_validity(graph):
                 data_list=[]
+            
                 # print("Skipped: ", subject, task, take, "f", frame)
                 continue
 
@@ -100,17 +120,38 @@ def main(args):
                 pred = model(data_list)
                 pred = torch.argmax(pred, dim=1)
                 pred = pred.cpu().numpy()
+                
+                # For frame-based evaluation
+                y_pred[frame-args.temporal_length:frame, 0] = pred[0]
+                y_pred[frame-args.temporal_length:frame, 1] = pred[1]
+                
+                # For segmentation evaluation
+                # y_pred_segmentation[frame-args.temporal_length:frame, 0, frame+args.temporal_length] = pred[:, 0]
 
+        
+        y_pred = majority_voting(y_pred_segmentation)
         # TODO: visualize and save result for whole video
         
-        segment_name=f"{subject}_{task}_{take}.png"
+        segment_name=f"{subject}_{task}_{take}_"
         plot_save_dir = opj(saved_dir, segment_name)
-        plot_segmentation()
+        plot_segmentation(y_true[:, 0], y_pred[:, 0], class_id_to_label, plot_save_dir+"L.png", bar_height=50)
+        plot_segmentation(y_true[:, 1], y_pred[:, 1], class_id_to_label, plot_save_dir+"R.png", bar_height=50)
+        
         # calculate f1@k score
-        f1_at_10_list.append(f1_at_k_single_example(y_true, y_pred, num_classes=len(ACTIONS)+1, overlap=0.1))
-        f1_at_50_list.append(f1_at_k_single_example(y_true, y_pred, num_classes=len(ACTIONS)+1, overlap=0.5))
+        # left
+        f1_at_10_list.append(f1_at_k_single_example(y_true[:, 0].tolist(), y_pred[:, 0].tolist(), num_classes=len(ACTIONS)+1, overlap=0.1))
+        f1_at_25_list.append(f1_at_k_single_example(y_true[:, 0].tolist(), y_pred[:, 0].tolist(), num_classes=len(ACTIONS)+1, overlap=0.25))
+        f1_at_50_list.append(f1_at_k_single_example(y_true[:, 0].tolist(), y_pred[:, 0].tolist(), num_classes=len(ACTIONS)+1, overlap=0.5))
+    
+        # right
+        f1_at_10_list.append(f1_at_k_single_example(y_true[:, 1].tolist(), y_pred[:, 1].tolist(), num_classes=len(ACTIONS)+1, overlap=0.1))
+        f1_at_25_list.append(f1_at_k_single_example(y_true[:, 1].tolist(), y_pred[:, 1].tolist(), num_classes=len(ACTIONS)+1, overlap=0.25))
+        f1_at_50_list.append(f1_at_k_single_example(y_true[:, 1].tolist(), y_pred[:, 1].tolist(), num_classes=len(ACTIONS)+1, overlap=0.5))
+    
     # average the f1@k score over all videos
-
+    f1_at_10 = np.mean(f1_at_10_list)
+    f1_at_25 = np.mean(f1_at_25_list)
+    f1_at_50 = np.mean(f1_at_50_list)
 
 
 if __name__ == '__main__':
