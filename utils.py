@@ -47,6 +47,7 @@ def arg_parser():
     ap.add_argument("--dropout", type=float, default=0.0, help="...")
     ap.add_argument("--use_cls_token", action="store_true", help="Use class token in transformer")
     ap.add_argument("--sparse_pred", action="store_true", help="Predict only frames at ends of segments")
+    ap.add_argument("--perfect_seg", action="store_true", help="Use ground truth segment ending info")
 
     # Optimizer
     ap.add_argument("-o", "--optimizer_type", type=str, required=True,

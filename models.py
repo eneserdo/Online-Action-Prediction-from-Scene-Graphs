@@ -71,7 +71,8 @@ class ActionRecognition(torch.nn.Module):
                  edge_dropout,
                  dropout,
                  use_cls_token,
-                 sparse_pred=False,
+                 sparse_pred,
+                 perfect_seg,
                  **kwargs):
         """ Accepts kwargs for non-general params of gnns """
         super().__init__()
@@ -83,6 +84,7 @@ class ActionRecognition(torch.nn.Module):
         self.temporal_type = temporal_type
         self.use_cls_token = use_cls_token
         self.sparse_pred = sparse_pred
+        self.perfect_seg = perfect_seg
 
         # Sets Graph Network
         if gnn_type == "NNConv":
@@ -247,6 +249,37 @@ class ActionRecognition(torch.nn.Module):
         # Segmentation task - predict segment change (0,1)
         segment_change_pred, hard_segment_change_pred = self._segment_prediction(both_sequencial_embeddings, both_out)
 
+        #               For-loop version:
+
+        # mask
+        # TODO: Remove for-loop for optimization
+        seg_batches_list = []
+        for b in range(self.batch_size * 2):
+            if self.perfect_seg:
+                mask1 = segment_gt[:, b].clone().to(torch.bool)
+            else:
+                mask1 = hard_segment_change_pred[:, b].clone().to(torch.bool)
+            # [0,0,1,0,0,0,1,0,1] -> segments last frames 1
+
+            segments1 = torch.concat([torch.zeros(size=(1,), device=mask1.device),
+                                     torch.cumsum(mask1[:-1], dim=-1)], dim=0)
+            # [0,0,0,1,1,1,1,2,2] -> segments
+
+            # FIXME: Is it correct to consider last frame of seq. to be the last frame of its respective segment?
+            mask1[-1] = True
+
+            segment_last_frame_features1 = both_out[:, b, :][mask1]   # (s, f)
+            # [f2, f6, f8] -> features at last frames of respective segments
+
+            # TODO: Does a better method exist for below solution of mapping?
+            map_s_to_f1 = F.one_hot(segments1.to(torch.long)).to(torch.float32)  # (n, s)
+            batch_segment_wise_features1 = map_s_to_f1 @ segment_last_frame_features1  # (n, f)
+
+            seg_batches_list.append(batch_segment_wise_features1)
+        out_s1 = torch.stack(seg_batches_list, dim=1)
+
+        #               Non-loop version:
+
         # mask
         # TODO: Remove for-loop for optimization
         # Possible solution:
@@ -261,7 +294,6 @@ class ActionRecognition(torch.nn.Module):
         # [0,0,1,0,0,0,1,0,1] -> segments last frames 1
         mask = segment_gt.to(torch.bool)  # if need be use .clone()
         if not self.sparse_pred:
-
             segment_starts = torch.concat([torch.ones(size=(1, self.batch_size * 2), device=mask.device),
                                            mask[:-1]], dim=0)
             segment_starts = torch.flatten(segment_starts, start_dim=0, end_dim=1)  # (n*b*2)
