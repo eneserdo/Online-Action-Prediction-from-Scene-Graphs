@@ -98,34 +98,11 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                 data, ground_truth_segments)  # left_right_pred = model(data) # segmentation task -> FSD 20.09.2023
 
             if args.sparse_pred:
-                label_pred, mask = left_right_pred
+                left_right_pred, mask = left_right_pred
                 # TODO: Check if working correctly
-                ground_truth_left_right = torch.flatten(ground_truth_left_right, start_dim=0, end_dim=1)
-                label_loss = label_criterion(label_pred, ground_truth_left_right[mask])
-                # testden gelen
-                pred_top_3 = torch.argsort(left_right_pred_eval, dim=-1, descending=True)[:, :3]
-                pred_top_1 = pred_top_3[:, 0]
-                ground_truth = ground_truth_left_right_eval.argmax(dim=-1)
-                pred_top_3_final = torch.where(functorch.vmap(lambda t1, t2: torch.isin(t1, t2))(ground_truth, pred_top_3),
-                                            ground_truth, pred_top_1)
-                # torchmetric
-                step_f1_top1 = f1_calc_top1(left_right_pred_eval, ground_truth)
-                step_f1_top3 = f1_calc_top3(pred_top_3_final, ground_truth)
-            else:
-                label_loss = label_criterion(left_right_pred, ground_truth_left_right)
-                # testden gelen
-                pred_top_3 = torch.argsort(left_right_pred, dim=-1, descending=True)[:, :3]
-                pred_top_1 = pred_top_3[:, 0]
-                ground_truth = ground_truth_left_right.argmax(dim=-1)
-                pred_top_3_final = torch.where(functorch.vmap(lambda t1, t2: torch.isin(t1, t2))(ground_truth, pred_top_3),
-                                            ground_truth, pred_top_1)
-                # torchmetric
-                step_f1_top1 = f1_calc_top1(left_right_pred, ground_truth)
-                step_f1_top3 = f1_calc_top3(pred_top_3_final, ground_truth)
+                ground_truth_left_right = torch.flatten(ground_truth_left_right, start_dim=0, end_dim=1)[mask]
 
-            conf_mat_top1(pred_top_1, ground_truth)
-            conf_mat_top3(pred_top_3_final, ground_truth)
-
+            label_loss = label_criterion(left_right_pred, ground_truth_left_right)
             segmentation_loss = segmentation_criterion(segment_change_pred, ground_truth_segments)
             loss = label_loss * label_loss_weight + segmentation_loss
 
@@ -133,6 +110,18 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                 loss.backward()
                 optimizer.step()
 
+            # testden gelen
+            pred_top_3 = torch.argsort(left_right_pred, dim=-1, descending=True)[:, :3]
+            pred_top_1 = pred_top_3[:, 0]
+            ground_truth = ground_truth_left_right.argmax(dim=-1)
+            pred_top_3_final = torch.where(functorch.vmap(lambda t1, t2: torch.isin(t1, t2))(ground_truth, pred_top_3),
+                                        ground_truth, pred_top_1)
+            # torchmetric
+            step_f1_top1 = f1_calc_top1(left_right_pred, ground_truth)
+            step_f1_top3 = f1_calc_top3(pred_top_3_final, ground_truth)
+
+            conf_mat_top1(pred_top_1, ground_truth)
+            conf_mat_top3(pred_top_3_final, ground_truth)
             
 
             if mode != "test":
@@ -142,6 +131,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             # if (step+1)%20==0:
             #     print("20 BATCH ÇALIŞIYOR SADECE")
             #     break
+            
 
 
         overall_f1_top1 = f1_calc_top1.compute()
