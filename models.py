@@ -270,7 +270,7 @@ class ActionRecognition(torch.nn.Module):
             # TODO: DEBUG below to check if working correctly
             indices_for_seg_f = torch.cumsum(segment_starts, dim=-1)  # (n*b*2)
 
-        # FIXME: Is it correct to consider last frame of seq. to be the last frame of its respective segment?
+        # NOTE: Is it correct to consider last frame of seq. to be the last frame of its respective segment?
         mask[-1] = True
         mask = torch.flatten(mask, start_dim=0, end_dim=1)  # (n*b*2)
 
@@ -280,7 +280,7 @@ class ActionRecognition(torch.nn.Module):
         if self.sparse_pred:
             out_s = out_seg_ends
         else:
-            # TODO: Does a better method exist for below solution of mapping?
+            # NOTE: Does a better method exist for below solution of mapping?
             map_s_to_f = F.one_hot(indices_for_seg_f.to(torch.long)).to(torch.float32)  # (n*b*2, s~*b*2)
             out_s = map_s_to_f @ out_seg_ends  # (n*b*2, f)
 
@@ -296,6 +296,6 @@ class ActionRecognition(torch.nn.Module):
             # action_prediction shape -> (s~*b*2, a)
             return (action_prediction, mask), segment_change_pred
         else: 
-            unflatten = Unflatten(dim=0, unflattened_size=segment_gt.shape)  # (n, b*2, a)
-            action_prediction = unflatten(action_prediction)
+            # unflatten = Unflatten(dim=0, unflattened_size=segment_gt.shape)  # (n, b*2, a)
+            # action_prediction = unflatten(action_prediction)
             return action_prediction, segment_change_pred
