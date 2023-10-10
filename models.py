@@ -1,6 +1,6 @@
 from typing import List
 import torch
-from torch.nn import Sequential, Dropout, Linear, ReLU, SELU, LSTM, Softmax, TransformerEncoder, \
+from torch.nn import Sequential, Dropout, Linear, ReLU, SELU, LSTM, Softmax, Unflatten, TransformerEncoder, \
     TransformerEncoderLayer, Module, functional as F
 import torch_geometric.nn as geometric_nn
 from torch_geometric.data import Data, Batch
@@ -71,6 +71,7 @@ class ActionRecognition(torch.nn.Module):
                  edge_dropout,
                  dropout,
                  use_cls_token,
+                 sparse_pred=False,
                  **kwargs):
         """ Accepts kwargs for non-general params of gnns """
         super().__init__()
@@ -81,7 +82,7 @@ class ActionRecognition(torch.nn.Module):
         self.edge_dropout = edge_dropout
         self.temporal_type = temporal_type
         self.use_cls_token = use_cls_token
-        self.sparse_pred = False  # FIXME: change this lol
+        self.sparse_pred = sparse_pred
 
         # Sets Graph Network
         if gnn_type == "NNConv":
@@ -276,24 +277,25 @@ class ActionRecognition(torch.nn.Module):
         # [f2, f6, f8] -> features at last frames of respective segments
         out_seg_ends = both_out[mask]  # (s~*b*2,f)
 
-        if not self.sparse_pred:
+        if self.sparse_pred:
+            out_s = out_seg_ends
+        else:
             # TODO: Does a better method exist for below solution of mapping?
             map_s_to_f = F.one_hot(indices_for_seg_f.to(torch.long)).to(torch.float32)  # (n*b*2, s~*b*2)
             out_s = map_s_to_f @ out_seg_ends  # (n*b*2, f)
-        else:
-            out_s = out_seg_ends
 
         # TODO:
-        # -> Do operation to merge right and left features (concatenate )
+        # -> Do operation to merge right and left features (concatenation or attention)
         #   so as to affect each others output predictions
         # -> Create two mlps that take same(?) input but predict for each respective hand action
 
         # Label prediction task
         action_prediction = self.mlp(out_s)
 
-        if not self.sparse_pred:
-            action_prediction = torch.unflatten(action_prediction, dim=0, sizes=segment_gt.shape)  # (n, b*2, a)
-            return action_prediction, segment_change_pred
-        else:
+        if self.sparse_pred:
             # action_prediction shape -> (s~*b*2, a)
             return (action_prediction, mask), segment_change_pred
+        else: 
+            unflatten = Unflatten(dim=0, unflattened_size=segment_gt.shape)  # (n, b*2, a)
+            action_prediction = unflatten(action_prediction)
+            return action_prediction, segment_change_pred
