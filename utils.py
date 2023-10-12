@@ -81,8 +81,9 @@ def arg_parser():
 
 def arg_parser_inference():
     ap = argparse.ArgumentParser()
-
-    ap.add_argument("--raw_dir", type=str, help="...") 
+    
+    ap.add_argument("--raw_dir", default="raw", type=str, help="...") 
+    ap.add_argument("--save_dir", default="tests", type=str, help="...") 
     ap.add_argument("-s", "--test_subject", type=int, required=True, help="...") 
     # ap.add_argument("-gt", "--ground_truth_path", help="...")
     
