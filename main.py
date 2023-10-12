@@ -98,7 +98,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                 data, ground_truth_segments)  # left_right_pred = model(data) # segmentation task -> FSD 20.09.2023
 
 
-            ground_truth_left_right = torch.flatten(ground_truth_left_right, start_dim=0, end_dim=1)
+            ground_truth_left_right = torch.flatten(torch.transpose(ground_truth_left_right,0,1), start_dim=0, end_dim=1)
             if args.sparse_pred:
                 left_right_pred, mask = left_right_pred
                 # TODO: Check if working correctly
