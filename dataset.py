@@ -69,11 +69,15 @@ else:
     crawl_dataset = crawl_dataset_FULL
 
 
-def _get_actions(gt_action_json: os.PathLike, i: int) -> Tuple[int, int]:
+
+def _get_actions_list(gt_action_json: os.PathLike, act_len: int) -> Tuple[int, int]:
     # Returns the action of left hand and right hand, respectively.
 
     with open(gt_action_json) as f:
         actions_json = json.load(f)
+
+
+    actions_list=np.zeros((act_len, 2))
 
     # right
     for t in range(0, len(actions_json["right_hand"]) - 1, 2):
@@ -82,11 +86,10 @@ def _get_actions(gt_action_json: os.PathLike, i: int) -> Tuple[int, int]:
         right_act = actions_json["right_hand"][t + 1]
         end = actions_json["right_hand"][t + 2]
 
-        if begin <= i < end:
-            break
+        actions_list[begin:end, 1]=right_act
 
-    if i == actions_json["right_hand"][-1]:
-        right_act = actions_json["right_hand"][-2]
+    
+    actions_list[end, 1]=actions_json["right_hand"][-2]
 
     # left
     for t in range(0, len(actions_json["left_hand"]) - 1, 2):
@@ -95,17 +98,15 @@ def _get_actions(gt_action_json: os.PathLike, i: int) -> Tuple[int, int]:
         left_act = actions_json["left_hand"][t + 1]
         end = actions_json["left_hand"][t + 2]
 
-        if begin <= i < end:
-            break
+        actions_list[begin:end, 0]=left_act
+    
+    actions_list[end, 0]=actions_json["left_hand"][-2]
 
-    if i == actions_json["left_hand"][-1]:
-        left_act = actions_json["left_hand"][-2]
-
-    return left_act, right_act
+    return actions_list
 
 
 # def _get_graph(self, relation_json, object_json, gt_action_json, frame) -> Data:
-def _get_graph(relation_json, object_json, gt_action_json, frame, subject, task, take) -> Tuple[Data, Data]:
+def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, take) -> Tuple[Data, Data]:
     # returns edge index and edge features
     
     with open(relation_json) as f:
@@ -188,7 +189,7 @@ def _get_graph(relation_json, object_json, gt_action_json, frame, subject, task,
     edge_index_mirrored=torch.tensor(edge_index_mirrored, dtype=torch.long)
     # # # # # # # # # # # #
 
-    left_act, right_act = _get_actions(gt_action_json, frame)
+    left_act, right_act = gt_actions
 
     # subject, task, take were just added for debugging purposes, and will be removed
     # y[0]=torch.tensor([left_act, int(subject[-1]+task[5]+take[-1]+str(frame))], dtype=torch.float)
@@ -223,7 +224,7 @@ def _get_graph(relation_json, object_json, gt_action_json, frame, subject, task,
     return data, data_mirrored
 
 
-def _check_validity(data: Data) -> bool:
+def _check_validity(data: Data) -> str:
     # Checks: both hands exists, action != null, has edge, not empty 
     
     global MISSING_HAND_COUNT, NULL_COUNT, EMPTY_COUNT, NO_EDGE_COUNT
@@ -232,12 +233,12 @@ def _check_validity(data: Data) -> bool:
     # null
     if torch.sum(data.y[0])==0 or torch.sum(data.y[1])==0:
         NULL_COUNT+=1
-        return False
+        return "null"
 
     # not empty
     if len(data.x)==0:
         EMPTY_COUNT+=1
-        return False
+        return "empty"
     
     # both hands
     for row in data.x:
@@ -249,14 +250,21 @@ def _check_validity(data: Data) -> bool:
             
     if not (Rhand and Lhand):
         MISSING_HAND_COUNT+=1
-        return False
+        return "missing hand"
 
     # has edge
     if len(data.edge_index)==0:
         NO_EDGE_COUNT+=1
-        return False
+        return "no edge"
     
-    return True
+    return "valid"
+
+
+def _impute_with_previous(graph: Data, previous_graph: Data, validity: str) -> Data:
+    # For now, just returns the previous graph
+    # If required, impute using the data of previous graph
+    return previous_graph.clone()
+    
 
 class BimanualDataset(Dataset):
     def __init__(self, root: str, is_processed: bool, split: str, test_subject: int, validation_take: int , temporal_length: int, contact_only: bool, fix_fps: bool=False):
@@ -332,8 +340,6 @@ class BimanualDataset(Dataset):
         gdown.download(id="1FceipuZMUjp1ES2THqlAmQgPdE18-flk", output=opj(self.raw_dir, "BimanualActions.zip"))
         extract_zip(opj(self.raw_dir, "BimanualActions.zip"), self.raw_dir)
         
-
-
     def _save_config(self, config_info: dict) -> None:
         with open(opj(self.processed_dir, "config_info.json"), "w") as f:
             json.dump(config_info, f)
@@ -346,7 +352,6 @@ class BimanualDataset(Dataset):
         
         self.split_len=self.config[self.split]
         self.distribution = self.config["distribution"]
-
 
     def process(self):
         global TOTAL_FRAME_COUNT
@@ -381,16 +386,29 @@ class BimanualDataset(Dataset):
             relation_json_list = natsort.natsorted(glob.glob(opj(relation_dir, "*.json")))
 
             gt_action_json = opj(gt_dir, subject, task, f"{take}.json")
+            act_list=_get_actions_list(gt_action_json, len(relation_json_list))
 
             assert len(relation_json_list) == len(object_json_list)
 
             for frame, (relation_json, object_json) in enumerate(zip(relation_json_list, object_json_list)):
                 
                 TOTAL_FRAME_COUNT+=1
-                graph, graph_mirrored = _get_graph(relation_json, object_json, gt_action_json, frame, subject, task, take)
+                graph, graph_mirrored = _get_graph(relation_json, object_json, act_list[frame], frame, subject, task, take)
+
+                # If the graph is not valid, try to fix it (impute maybe). 
+                # If it is not possible resets the sequence and continues
+                validity = _check_validity(graph)
                 
-                # if the graph is not appropriate, resets the sequence and continues
-                if not _check_validity(graph):
+                if validity == "valid":
+                    pass
+                # elif validity in ["missing hand", "null"] and len(data_list) > 0:
+                elif len(data_list) > 0:
+                    # use previous graph to impute
+                    graph = _impute_with_previous(graph, data_list[-1], validity)
+                    graph_mirrored = _impute_with_previous(graph_mirrored, data_list_mirrored[-1], validity)
+                else:
+                    # raise Exception(f"Unhandled graph error: {validity}")
+                    raise Exception(f"invalid graph and no previous graph to impute")
                     data_list=[]
                     data_list_mirrored=[]
                     # print("Skipped: ", subject, task, take, "f", frame)
