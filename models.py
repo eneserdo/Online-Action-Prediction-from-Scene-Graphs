@@ -136,7 +136,7 @@ class ActionRecognition(torch.nn.Module):
             lstm_hidden_size=effective_out_ch2
 
 
-        self.mlp=Sequential(Linear(lstm_hidden_size, num_action_classes), Softmax(dim=1))
+        self.mlp=Sequential(Linear(lstm_hidden_size, num_action_classes))
 
     def _hands_pooling(self, x, embeddings, batch):
         
