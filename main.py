@@ -196,7 +196,8 @@ if __name__ == "__main__":
                                                                validation_take=args.validation_take,
                                                                temporal_length=args.temporal_length,
                                                                contact_only=args.contact_only,
-                                                               fix_fps=args.fix_fps)
+                                                               fix_fps=args.fix_fps,
+                                                               fix_null=args.fix_null)
 
     train_loader = DataLoader(train_set, args.batch_size, shuffle=True, num_workers=3, drop_last=True,
                               worker_init_fn=seed_worker)

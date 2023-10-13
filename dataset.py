@@ -77,7 +77,7 @@ def _get_actions_list(gt_action_json: os.PathLike, act_len: int) -> Tuple[int, i
         actions_json = json.load(f)
 
 
-    actions_list=np.zeros((act_len, 2))
+    actions_list=np.zeros((act_len, 2), dtype=np.int32)
 
     # right
     for t in range(0, len(actions_json["right_hand"]) - 1, 2):
@@ -86,10 +86,9 @@ def _get_actions_list(gt_action_json: os.PathLike, act_len: int) -> Tuple[int, i
         right_act = actions_json["right_hand"][t + 1]
         end = actions_json["right_hand"][t + 2]
 
-        actions_list[begin:end, 1]=right_act
+        right_act = -1 if right_act == None else right_act
 
-    
-    actions_list[end, 1]=actions_json["right_hand"][-2]
+        actions_list[begin:end, 1]=right_act
 
     # left
     for t in range(0, len(actions_json["left_hand"]) - 1, 2):
@@ -98,10 +97,9 @@ def _get_actions_list(gt_action_json: os.PathLike, act_len: int) -> Tuple[int, i
         left_act = actions_json["left_hand"][t + 1]
         end = actions_json["left_hand"][t + 2]
 
+        left_act = -1 if left_act == None else left_act
         actions_list[begin:end, 0]=left_act
     
-    actions_list[end, 0]=actions_json["left_hand"][-2]
-
     return actions_list
 
 
@@ -197,7 +195,7 @@ def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, tak
 
     graph_str=subject[-1]+task[5]+take[-1]+str(frame)
 
-    if left_act is not None:
+    if left_act != -1:
         y[0, left_act]=1
         y_mirrored[1, left_act]=1
         
@@ -206,7 +204,7 @@ def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, tak
         # y_mirrored[1, -1]=int("2"+graph_str)
 
 
-    if right_act is not None:
+    if right_act != -1:
         y[1, right_act] = 1
         y_mirrored[0, right_act] = 1
 
@@ -233,6 +231,7 @@ def _check_validity(data: Data) -> str:
     # null
     if torch.sum(data.y[0])==0 or torch.sum(data.y[1])==0:
         NULL_COUNT+=1
+        raise Exception("Null action")
         return "null"
 
     # not empty
@@ -267,7 +266,15 @@ def _impute_with_previous(graph: Data, previous_graph: Data, validity: str) -> D
     
 
 class BimanualDataset(Dataset):
-    def __init__(self, root: str, is_processed: bool, split: str, test_subject: int, validation_take: int , temporal_length: int, contact_only: bool, fix_fps: bool=False):
+    def __init__(self, root: str, 
+                       is_processed: bool, 
+                       split: str, 
+                       test_subject: int, 
+                       validation_take: int , 
+                       temporal_length: int, 
+                       contact_only: bool, 
+                       fix_fps: bool=False,
+                       fix_null: bool=False):
         
         if fix_fps:
             assert temporal_length%2==0, "When fix fps enabled, temporal_length must be even"
@@ -281,6 +288,7 @@ class BimanualDataset(Dataset):
         transform, pre_transform, pre_filter=None, None, None
         self.deleted_once=False
         self.fix_fps=fix_fps
+        self.fix_null=fix_null
 
         self.root = root
         self.contact_only=contact_only
@@ -318,11 +326,54 @@ class BimanualDataset(Dataset):
                     print("Deleting processed_dir...")
                     shutil.rmtree(self.processed_dir)
                     os.mkdir(self.processed_dir)
-                    # os.mkdir(opj(self.processed_dir, "train"))
-                    # os.mkdir(opj(self.processed_dir, "test"))
-                    # os.mkdir(opj(self.processed_dir, "val"))
                     self.deleted_once=True
             return "some_dummy_name.pt"
+
+    def _fix_null(self):
+        # Somehow left hand in the video of subject_6-task_4-take_1 is all null. This is to fix it
+
+        def read_check_write(sub, task, tk_json, hand, new_vals):
+            # An internal function to read, check and write the json file
+            # Read
+            the_json_path=opj(self.raw_dir, "bimacs_rgbd_data_ground_truth", sub, task, tk_json)
+            with open(the_json_path, "r") as f:
+                the_dict = json.load(f)
+
+            # Check
+            old_time_steps = the_dict[hand][::2]
+            new_time_steps = new_vals[::2]
+            
+            assert old_time_steps == new_time_steps, f"{old_time_steps=}, {new_time_steps=}"
+            
+            none_found=False
+            act_labels = the_dict[hand][1::2]
+            for i in act_labels:
+                if i==None:
+                    none_found=True
+                    break
+            
+            if not none_found:
+                print("No null found: ", the_json_path)
+                return  # no need to fix            
+
+            # Write back
+            the_dict[hand] = new_vals
+            with open(the_json_path, "w") as f:
+                json.dump(the_dict, f)
+            
+            print("Fixed: ", the_json_path)
+
+
+        read_check_write("subject_6", "task_4_k_wiping", "take_1.json", "left_hand", 
+                         [0, 0, 91, 1, 114, 3, 129, 5, 150, 4, 165, 2, 189, 1, 209, 5, 357])
+        read_check_write("subject_1", "task_9_w_sawing", "take_2.json", "right_hand", 
+                         [0, 0, 14, 1, 32, 3, 42, 9, 97, 9, 133])
+        read_check_write("subject_1", "task_7_w_free_hard_drive", "take_7.json", "right_hand", 
+                         [0, 0, 13, 1, 28, 3, 36, 2, 39, 1, 44, 3, 56, 11, 135, 2, 138, 1, 142, 3, 154, 0, 181, 1, 207, 11, 285, 2, 290, 1, 292, 3, 300, 4, 309, 4, 331, 2, 333, 1, 337, 4, 350, 2, 358, 0, 381])
+        read_check_write("subject_3", "task_2_k_cooking_with_bowls", "take_1.json", "right_hand", 
+                         [0, 0, 61, 1, 85, 5, 194, 1, 199, 1, 206, 3, 241, 6, 339, 4, 366, 2, 371, 1, 376, 5, 475, 2, 521, 0, 542])
+
+        print("# Replaced null actions by manually detected labels (This is directly done on the raw data!)")
 
     def download(self):
         # Downloads Bimanual dataset to `self.raw_dir`.
@@ -339,6 +390,7 @@ class BimanualDataset(Dataset):
 
         gdown.download(id="1FceipuZMUjp1ES2THqlAmQgPdE18-flk", output=opj(self.raw_dir, "BimanualActions.zip"))
         extract_zip(opj(self.raw_dir, "BimanualActions.zip"), self.raw_dir)
+        self._fix_null()
         
     def _save_config(self, config_info: dict) -> None:
         with open(opj(self.processed_dir, "config_info.json"), "w") as f:
@@ -355,9 +407,16 @@ class BimanualDataset(Dataset):
 
     def process(self):
         global TOTAL_FRAME_COUNT
-        os.mkdir(opj(self.processed_dir, "train"))
-        os.mkdir(opj(self.processed_dir, "test"))
-        os.mkdir(opj(self.processed_dir, "val"))
+
+
+        if self.fix_null:
+            self._fix_null()
+
+        train_dir, test_dir, val_dir = opj(self.processed_dir, "train"), opj(self.processed_dir, "test"), opj(self.processed_dir, "val")
+        
+        os.mkdir(train_dir)
+        os.mkdir(test_dir)
+        os.mkdir(val_dir)
 
         derived_dir = opj(self.raw_dir, "bimacs_derived_data")
         gt_dir = opj(self.raw_dir, "bimacs_rgbd_data_ground_truth")
@@ -369,12 +428,24 @@ class BimanualDataset(Dataset):
         val_sample_idx=0
         test_sample_idx=0
 
+        imputation_count=0
+        prepended_things_count=0
+
         progressbar_manager=enlighten.get_manager()
         ticks=progressbar_manager.counter(total=540, desc="Progress:", unit="folder", color="blue")
         
         test_idx_sample_mapping = {} # aslında list de olur ama ne olur ne olmaz
 
+        # To double check
+        train_sample_count = 0
+        val_sample_count = 0
+        test_sample_count = 0
+
         for subject, task, take in crawl_dataset():
+            
+            # Sometimes initial graphs are invalid, so imputation is not working. This is to fix that
+            prepend_count=0
+
             # make sure there is no cross-folder graph sequence
             data_list = [] 
             data_list_mirrored = [] 
@@ -390,6 +461,15 @@ class BimanualDataset(Dataset):
 
             assert len(relation_json_list) == len(object_json_list)
 
+            # To double check
+            if int(subject[-1])==self.test_subject:
+                test_sample_count = test_sample_count + len(relation_json_list) - self.temporal_length + 1
+            elif int(take[-1])==self.validation_take:
+                val_sample_count = val_sample_count + len(relation_json_list) - self.temporal_length + 1
+            else:
+                train_sample_count = train_sample_count + len(relation_json_list) - self.temporal_length + 1
+
+
             for frame, (relation_json, object_json) in enumerate(zip(relation_json_list, object_json_list)):
                 
                 TOTAL_FRAME_COUNT+=1
@@ -401,22 +481,33 @@ class BimanualDataset(Dataset):
                 
                 if validity == "valid":
                     pass
-                # elif validity in ["missing hand", "null"] and len(data_list) > 0:
+                elif validity in ["null"]:
+                    raise Exception(f"Unhandled graph error: {validity}")
                 elif len(data_list) > 0:
                     # use previous graph to impute
                     graph = _impute_with_previous(graph, data_list[-1], validity)
                     graph_mirrored = _impute_with_previous(graph_mirrored, data_list_mirrored[-1], validity)
+                    imputation_count+=1
                 else:
-                    # raise Exception(f"Unhandled graph error: {validity}")
-                    raise Exception(f"invalid graph and no previous graph to impute")
-                    data_list=[]
-                    data_list_mirrored=[]
-                    # print("Skipped: ", subject, task, take, "f", frame)
-                    continue    
-
-                data_list.append(graph)
+                    # print("Skipping: invalid graph and no previous graph to impute: ", subject, task, take, "f", frame)
+                    prepend_count+=1
+                    prepended_things_count+=1
+                    # data_list=[]
+                    # data_list_mirrored=[]
+                    continue
+                
+                data_list.append(graph)    
                 data_list_mirrored.append(graph_mirrored)
+                
+                # TODO: Fix_fps and prepend_count are not compatible. Fix it
+                if prepend_count != 0 and len(data_list) == 1:
+                    for _ in range(prepend_count):
+                        data_list.append(graph.clone())
+                        data_list_mirrored.append(graph_mirrored.clone())
+                    assert len(data_list) == prepend_count+1
+                    prepend_count=0
 
+                # TODO: we pop only one graph, but when fix_fps is true, we need to pop two of them
                 # Check if fps need to be fixed. If so, add same graph again  
                 if self.fix_fps and self.fps_info[subject+"-"+task+"-"+take] == 15:
                     data_list.append(graph)
@@ -426,26 +517,26 @@ class BimanualDataset(Dataset):
                 if len(data_list) == self.temporal_length:
                     
                     if int(subject[-1])==self.test_subject:
-                        torch.save(data_list, opj(self.processed_dir, "test", f'data_{test_sample_idx}.pt'))
+                        torch.save(data_list, opj(test_dir, f'data_{test_sample_idx}.pt'))
                         test_idx_sample_mapping[test_sample_idx] = (subject, task, take, frame-self.temporal_length, frame, "not_mirrored")
                         test_sample_idx+=1
 
-                        torch.save(data_list_mirrored, opj(self.processed_dir, "test", f'data_{test_sample_idx}.pt'))
+                        torch.save(data_list_mirrored, opj(test_dir, f'data_{test_sample_idx}.pt'))
                         test_idx_sample_mapping[test_sample_idx] = (subject, task, take, frame-self.temporal_length, frame, "mirrored")
                         test_sample_idx+=1
                     
                     elif int(take[-1])==self.validation_take:
-                        torch.save(data_list, opj(self.processed_dir, "val", f'data_{val_sample_idx}.pt'))
+                        torch.save(data_list, opj(val_dir, f'data_{val_sample_idx}.pt'))
                         val_sample_idx+=1
                         
-                        torch.save(data_list_mirrored, opj(self.processed_dir, "val", f'data_{val_sample_idx}.pt'))
+                        torch.save(data_list_mirrored, opj(val_dir, f'data_{val_sample_idx}.pt'))
                         val_sample_idx+=1
 
                     else:
-                        torch.save(data_list, opj(self.processed_dir, "train", f'data_{train_sample_idx}.pt'))
+                        torch.save(data_list, opj(train_dir, f'data_{train_sample_idx}.pt'))
                         train_sample_idx+=1
 
-                        torch.save(data_list_mirrored, opj(self.processed_dir, "train", f'data_{train_sample_idx}.pt'))
+                        torch.save(data_list_mirrored, opj(train_dir, f'data_{train_sample_idx}.pt'))
                         train_sample_idx+=1
 
                     self.distribution = self.distribution + data_list[0].y[0] + data_list[0].y[1]
@@ -458,6 +549,11 @@ class BimanualDataset(Dataset):
 
 
         progressbar_manager.stop()
+        
+        assert train_sample_idx == train_sample_count*2, f"{train_sample_idx=} ,{train_sample_count*2=}"
+        assert val_sample_idx == val_sample_count*2, f"{val_sample_idx=} ,{val_sample_count*2=}"
+        assert test_sample_idx == test_sample_count*2, f"{test_sample_idx=} ,{test_sample_count*2=}"
+
         print(f"\n\n#######\n{TOTAL_FRAME_COUNT=}, {EMPTY_COUNT=}, {NO_EDGE_COUNT=}, {MISSING_HAND_COUNT=}, {NULL_COUNT=}")
         
         self.config = {"test": test_sample_idx, 
@@ -469,6 +565,7 @@ class BimanualDataset(Dataset):
                        "distribution": self.distribution.tolist()}
         
         print(self.config)
+        print(f"{imputation_count=}, {prepended_things_count=}")
         
         self._save_config(self.config)
         
@@ -521,10 +618,10 @@ def print_data_point(data: Data):
     print("Graph id: ", data.y[0,-1].item())
 
 
-def get_bimanual_dataset_splits(*, root: str, is_processed: bool, test_subject: int, validation_take: int , temporal_length: int, contact_only: bool, fix_fps: bool) -> Tuple[Dataset, Dataset, Dataset]:
+def get_bimanual_dataset_splits(*, root: str, is_processed: bool, test_subject: int, validation_take: int , temporal_length: int, contact_only: bool, fix_fps: bool, fix_null: bool) -> Tuple[Dataset, Dataset, Dataset]:
     # Wrapper function to prepare dataset splits (train, test, validation)
     
-    train_set=BimanualDataset(root, is_processed, "train", test_subject, validation_take, temporal_length, contact_only, fix_fps)
+    train_set=BimanualDataset(root, is_processed, "train", test_subject, validation_take, temporal_length, contact_only, fix_fps, fix_null)
     test_set=BimanualDataset(root, True, "test", test_subject, validation_take, temporal_length, contact_only, fix_fps)
     val_set=BimanualDataset(root, True, "val", test_subject, validation_take, temporal_length, contact_only, fix_fps)
     
