@@ -308,9 +308,6 @@ class ActionRecognition(torch.nn.Module):
             segment_starts = torch.concat([torch.ones(size=(1, self.batch_size * 2), device=mask.device),
                                            mask[:-1]], dim=0).T
 
-            # Debugging:
-            # segment_starts_2 = segment_starts.view(torch.numel(segment_starts))
-
             segment_starts = torch.flatten(segment_starts, start_dim=0, end_dim=1)  # (n*b*2)
 
             segment_starts[0] = 0.0
@@ -333,6 +330,7 @@ class ActionRecognition(torch.nn.Module):
             # # NOTE: Does a better method exist for below solution of mapping?
             # map_s_to_f = F.one_hot(indices_for_seg_f.to(torch.long)).to(torch.float32)  # (n*b*2, s~*b*2)
             # out_s = map_s_to_f @ out_seg_ends  # (n*b*2, f)
+            out_s = out_seg_ends[indices_for_seg_f.to(torch.long)]
 
         # TODO:
         # -> Do operation to merge right and left features (concatenation or attention)
