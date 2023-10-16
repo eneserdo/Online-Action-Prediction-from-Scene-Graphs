@@ -71,7 +71,9 @@ def arg_parser():
 
     # Logging
     ap.add_argument("-n", "--name", required=True, type=str, help="Name of experiment for logging into Wandb")
-    ap.add_argument("--disable_wandb", action="store_true", help="Disable wandb")
+    ap.add_argument("--disable_wandb",action="store_true", help="Disable wandb")
+    ap.add_argument("--save_incorrects",action="store_true", help="saves some incorrect samples")
+
 
     # Others
     ap.add_argument("--gpu_id", type=int, default=0, help="...")
@@ -81,9 +83,9 @@ def arg_parser():
 
 def arg_parser_inference():
     ap = argparse.ArgumentParser()
-    
+        
     ap.add_argument("--raw_dir", default="raw", type=str, help="...") 
-    ap.add_argument("--save_dir", default="tests", type=str, help="...") 
+    ap.add_argument("--save_dir", default="tests", default="raw", type=str, help="...") 
     ap.add_argument("-s", "--test_subject", type=int, required=True, help="...") 
     # ap.add_argument("-gt", "--ground_truth_path", help="...")
     

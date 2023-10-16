@@ -1,27 +1,10 @@
+# Bu kod inference_ros kodu ile birleştirilip tek bir kod haline getirilecek.
+
 # Use get graph function in dataset
 # Use buffer
 # Use is_valid function
 # Load model
 # visualize and save result for whole video
-
-# Color code:
-# map 16 actions to distinct colors
-action_colors = {   0: (0, 0, 255), 
-                    1: (0, 255, 0), 
-                    2: (255, 0, 0), 
-                    3: (255, 255, 0), 
-                    4: (255, 0, 255), 
-                    5: (0, 255, 255), 
-                    6: (255, 128, 0), 
-                    7: (128, 255, 0), 
-                    8: (0, 255, 128), 
-                    9: (0, 128, 255), 
-                    10: (128, 0, 255), 
-                    11: (255, 0, 128), 
-                    12: (128, 128, 0), 
-                    13: (128, 0, 128), 
-                    14: (0, 0, 0), # None  
-                }
 
 import glob
 import os
@@ -37,7 +20,8 @@ from utils import arg_parser_inference
 from metrics import f1_at_k_single_example
 import natsort
 from visualization_utils import plot_segmentation
-
+import models
+from dataset import ACTIONS, OBJECTS, RELATIONS
 
 def main(args):
     print(args)
@@ -52,7 +36,6 @@ def main(args):
     save_dir = opj(args.save_dir, args.restored_name)
     os.makedirs(save_dir, exist_ok=True)
     
-
     # Load the model and restore the parameters
     model = models.ActionRecognition(gnn_type=args.gnn_type,
                                      temporal_type=args.temporal_type,
@@ -101,7 +84,7 @@ def main(args):
         #     break
 
         # make sure there is no cross-folder graph sequence
-        data_list = []  
+        data_list = []
 
         object_dir = opj(derived_dir, subject, task, take, "3d_objects")
         object_json_list = natsort.natsorted(glob.glob(opj(object_dir, "*.json")))
