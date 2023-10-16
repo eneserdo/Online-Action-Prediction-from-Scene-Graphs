@@ -518,11 +518,11 @@ class BimanualDataset(Dataset):
                     
                     if int(subject[-1])==self.test_subject:
                         torch.save(data_list, opj(test_dir, f'data_{test_sample_idx}.pt'))
-                        test_idx_sample_mapping[test_sample_idx] = (subject, task, take, frame-self.temporal_length, frame, "not_mirrored")
+                        test_idx_sample_mapping[test_sample_idx] = (subject, task, take, frame-self.temporal_length+1, frame, "not_mirrored")
                         test_sample_idx+=1
 
                         torch.save(data_list_mirrored, opj(test_dir, f'data_{test_sample_idx}.pt'))
-                        test_idx_sample_mapping[test_sample_idx] = (subject, task, take, frame-self.temporal_length, frame, "mirrored")
+                        test_idx_sample_mapping[test_sample_idx] = (subject, task, take, frame-self.temporal_length+1, frame, "mirrored")
                         test_sample_idx+=1
                     
                     elif int(take[-1])==self.validation_take:
