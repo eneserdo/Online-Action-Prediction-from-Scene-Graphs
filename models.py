@@ -328,9 +328,11 @@ class ActionRecognition(torch.nn.Module):
         if self.sparse_pred:
             out_s = out_seg_ends
         else:
-            # NOTE: Does a better method exist for below solution of mapping?
-            map_s_to_f = F.one_hot(indices_for_seg_f.to(torch.long)).to(torch.float32)  # (n*b*2, s~*b*2)
-            out_s = map_s_to_f @ out_seg_ends  # (n*b*2, f)
+            out_s = out_seg_ends[indices_for_seg_f.to(torch.long)] # (n*b*2, f)
+
+            # # NOTE: Does a better method exist for below solution of mapping?
+            # map_s_to_f = F.one_hot(indices_for_seg_f.to(torch.long)).to(torch.float32)  # (n*b*2, s~*b*2)
+            # out_s = map_s_to_f @ out_seg_ends  # (n*b*2, f)
 
         # TODO:
         # -> Do operation to merge right and left features (concatenation or attention)
