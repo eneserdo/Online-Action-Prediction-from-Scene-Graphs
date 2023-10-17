@@ -94,7 +94,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             # or
             # 2. from ground truth segments
 
-            # TODO: obtain 0,1 valued targets of whether action changes via algorithm here or in data porcessing phase -> FSD 20.09.2023
+            # TODO: obtain 0,1 valued targets of whether action changes via algorithm here or in data processing phase -> FSD 20.09.2023
             left_right_pred, segment_change_pred = model(
                 data, ground_truth_segments)  # left_right_pred = model(data) # segmentation task -> FSD 20.09.2023
 
@@ -109,7 +109,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             segmentation_loss = segmentation_criterion(segment_change_pred, ground_truth_segments)
             
             loss = label_loss * label_loss_weight
-            if args.perfect_seg:
+            if args.perfect_seg:    # FIXME: Logically this should happen when not knowing segmentation
                 loss += segmentation_loss
 
             if mode == "train":

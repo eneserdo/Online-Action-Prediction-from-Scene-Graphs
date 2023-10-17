@@ -235,13 +235,10 @@ class ActionRecognition(torch.nn.Module):
 
         elif self.temporal_type == "bi":
             both_out, _ = self.temporal_layer(both_sequencial_embeddings)
-            """
-            _, (both_hn, _) = self.temporal_layer(both_sequencial_embeddings)
-            both_hn = torch.cat([both_hn[0], both_hn[1]], dim=1)
-            """
+            """_, (both_hn, _) = self.temporal_layer(both_sequencial_embeddings)
+            both_hn = torch.cat([both_hn[0], both_hn[1]], dim=1)"""
         else:
             both_out, _ = self.temporal_layer(both_sequencial_embeddings)
-
             """_, (both_hn, _) = self.temporal_layer(both_sequencial_embeddings)
             # assert both_hn.shape[0]==1
             both_hn = both_hn.squeeze()"""
@@ -249,61 +246,18 @@ class ActionRecognition(torch.nn.Module):
         # Segmentation task - predict segment change (0,1)
         segment_change_pred, hard_segment_change_pred = self._segment_prediction(both_sequencial_embeddings, both_out)
 
-        #               For-loop version:
+        # Masking according to segment endpoints:
 
-        # mask
-        # TODO: Remove for-loop for optimization
-        # seg_batches_list = []
-        # for b in range(self.batch_size * 2):
-        #     if self.perfect_seg:
-        #         mask1 = segment_gt[:, b].clone().to(torch.bool)
-        #     else:
-        #         mask1 = hard_segment_change_pred[:, b].clone().to(torch.bool)
-        #     # [0,0,1,0,0,0,1,0,1] -> segments last frames 1
+        # if need be use .clone()
+        if self.perfect_seg:
+            segments = segment_gt
+        else:
+            segments = hard_segment_change_pred
 
-        #     segments1 = torch.concat([torch.zeros(size=(1,), device=mask1.device),
-        #                              torch.cumsum(mask1[:-1], dim=-1)], dim=0)
-        #     # [0,0,0,1,1,1,1,2,2] -> segments
-
-        #     # FIXME: Is it correct to consider last frame of seq. to be the last frame of its respective segment?
-        #     mask1[-1] = True
-
-        #     segment_last_frame_features1 = both_out[:, b, :][mask1]   # (s, f)
-        #     # [f2, f6, f8] -> features at last frames of respective segments
-
-        #     # TODO: Does a better method exist for below solution of mapping?
-        #     map_s_to_f1 = F.one_hot(segments1.to(torch.long)).to(torch.float32)  # (n, s)
-        #     batch_segment_wise_features1 = map_s_to_f1 @ segment_last_frame_features1  # (n, f)
-
-        #     seg_batches_list.append(batch_segment_wise_features1)
-        # out_s1 = torch.stack(seg_batches_list, dim=1)
-
-        # out_s1 = torch.flatten(torch.transpose(out_s1, 0, 1), start_dim=0, end_dim=1)
-
-        #               Non-loop version:
-
-        # mask
-        # TODO: Remove for-loop for optimization
-        # Possible solution:
-        #   Combine time and batch dimension
-        # both_out : (n, b*2, f) -> (n*b*2, f)
-        # segment_gt : (n, b*2) -> (n*b*2)
-        # 
-        # Merged form:
-
-        # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
-        # FIXME: Check the following (using for-loop code output as reference)
-        #   -> if flattening operation correct
-        #       - if not, try view or reshape methods
-        #   -> is masking operation correct
-        #   -> are cumsum indices correct
-        #   -> is mapping using one-hot encoding working properly
-        #   -> transpose them alll
-        # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
         both_out = torch.flatten(torch.transpose(both_out, 0, 1), start_dim=0, end_dim=1)
 
         # [0,0,1,0,0,0,1,0,1] -> segments last frames 1
-        mask = segment_gt.to(torch.bool)  # if need be use .clone()
+        mask = segments.to(torch.bool)  
         if not self.sparse_pred:
             segment_starts = torch.concat([torch.ones(size=(1, self.batch_size * 2), device=mask.device),
                                            mask[:-1]], dim=0).T
@@ -312,7 +266,6 @@ class ActionRecognition(torch.nn.Module):
 
             segment_starts[0] = 0.0
 
-            # TODO: DEBUG below to check if working correctly
             indices_for_seg_f = torch.cumsum(segment_starts, dim=-1)  # (n*b*2)
 
         # NOTE: Is it correct to consider last frame of seq. to be the last frame of its respective segment?
@@ -327,16 +280,10 @@ class ActionRecognition(torch.nn.Module):
         else:
             out_s = out_seg_ends[indices_for_seg_f.to(torch.long)] # (n*b*2, f)
 
-            # # NOTE: Does a better method exist for below solution of mapping?
-            # map_s_to_f = F.one_hot(indices_for_seg_f.to(torch.long)).to(torch.float32)  # (n*b*2, s~*b*2)
-            # out_s = map_s_to_f @ out_seg_ends  # (n*b*2, f)
-            out_s = out_seg_ends[indices_for_seg_f.to(torch.long)]
-
         # TODO:
         # -> Do operation to merge right and left features (concatenation or attention)
         #   so as to affect each others output predictions
         # -> Create two mlps that take same(?) input but predict for each respective hand action
-        # assert torch.allclose(out_s1, out_s), "Not equal buddies"
 
         # Label prediction task
         action_prediction = self.mlp(out_s)
@@ -345,6 +292,6 @@ class ActionRecognition(torch.nn.Module):
             # action_prediction shape -> (s~*b*2, a)
             return (action_prediction, mask), segment_change_pred
         else: 
-            # unflatten = Unflatten(dim=0, unflattened_size=segment_gt.shape)  # (n, b*2, a)
+            # unflatten = Unflatten(dim=0, unflattened_size=segments.shape)  # (n, b*2, a)
             # action_prediction = unflatten(action_prediction)
             return action_prediction, segment_change_pred
