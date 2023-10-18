@@ -73,6 +73,7 @@ class ActionRecognition(torch.nn.Module):
                  use_cls_token,
                  sparse_pred,
                  perfect_seg,
+                 merged_pred,
                  **kwargs):
         """ Accepts kwargs for non-general params of gnns """
         super().__init__()
@@ -85,6 +86,7 @@ class ActionRecognition(torch.nn.Module):
         self.use_cls_token = use_cls_token
         self.sparse_pred = sparse_pred
         self.perfect_seg = perfect_seg
+        self.merged_pred = merged_pred
 
         # Sets Graph Network
         if gnn_type == "NNConv":
@@ -144,7 +146,13 @@ class ActionRecognition(torch.nn.Module):
 
             lstm_hidden_size = effective_out_ch2
 
-        self.mlp = Sequential(Linear(lstm_hidden_size, num_action_classes)) # , Softmax(dim=-1) # No need for softmax because crossentropyloss already does that
+        if self.merged_pred:
+            # Can run in parallel :smile:
+            self.left_mlp = Linear(lstm_hidden_size*2, num_action_classes)
+            self.right_mlp = Linear(lstm_hidden_size*2, num_action_classes)
+        else:    
+            self.mlp = Sequential(Linear(lstm_hidden_size, num_action_classes))
+        
 
         self.segment_boundary_detector = Sequential(Linear(lstm_hidden_size + effective_out_ch2, 2))
 
@@ -155,6 +163,7 @@ class ActionRecognition(torch.nn.Module):
         left_hand_indicies = torch.zeros((self.batch_size), dtype=torch.long)
         right_hand_indicies = torch.zeros((self.batch_size), dtype=torch.long)
 
+        # TODO: Check if optimizable
         for i, l in enumerate(labels):
             if l == OBJECTS.index("LeftHand"):
                 left_hand_indicies[batch[i]] = i
@@ -172,6 +181,18 @@ class ActionRecognition(torch.nn.Module):
         s_hard = (segment_change_pred > 0.5).float()
         hard_segment_change = ((s_hard - segment_change_pred).detach() + segment_change_pred)
         return segment_change_pred, hard_segment_change
+    
+    def _merge_hands(self, hand_feat):
+        """
+            input:
+                                                    left hand    right hand 
+                hand features shape: (n*b*2, f) -> [s1, s2, ..., s1, s2, ...]
+            output:
+                hand features merged shape: (n*b, f*2)
+
+        """
+        return torch.cat(torch.tensor_split(hand_feat, 2, dim=0), dim=-1)
+
 
     def forward(self, dataBatchList: List[Batch], segment_gt):
 
@@ -181,8 +202,8 @@ class ActionRecognition(torch.nn.Module):
         for databatch in dataBatchList:  # processes each frame time-independently
             x, edge_attr, edge_index, batch = databatch.x, databatch.edge_attr, databatch.edge_index, databatch.batch
 
-            if self.edge_dropout:
-                edge_index, edge_mask = dropout_edge(edge_index, p=0.1)
+            if self.edge_dropout != 0.0:
+                edge_index, edge_mask = dropout_edge(edge_index, p=self.edge_dropout)
                 edge_attr = edge_attr[edge_mask]
 
             H = self.gnn(x, edge_index, edge_attr)
@@ -280,13 +301,18 @@ class ActionRecognition(torch.nn.Module):
         else:
             out_s = out_seg_ends[indices_for_seg_f.to(torch.long)] # (n*b*2, f)
 
+
+        # Label Prediction Task
+
         # TODO:
         # -> Do operation to merge right and left features (concatenation or attention)
         #   so as to affect each others output predictions
         # -> Create two mlps that take same(?) input but predict for each respective hand action
-
-        # Label prediction task
-        action_prediction = self.mlp(out_s)
+        if self.merged_pred:
+            merged_out_s = self._merge_hands(out_s)
+            action_prediction = torch.cat((self.left_mlp(merged_out_s), self.right_mlp(merged_out_s)),dim=0)
+        else:
+            action_prediction = self.mlp(out_s)
 
         if self.sparse_pred:
             # action_prediction shape -> (s~*b*2, a)

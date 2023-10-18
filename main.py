@@ -241,7 +241,8 @@ if __name__ == "__main__":
                                      dropout=args.dropout,
                                      use_cls_token=args.use_cls_token,
                                      sparse_pred=args.sparse_pred,
-                                     perfect_seg=args.perfect_seg).to(device=device)
+                                     perfect_seg=args.perfect_seg,
+                                     merged_pred=args.merged_pred).to(device=device)
 
     print(model)
     print("# of parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))
