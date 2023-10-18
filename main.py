@@ -265,7 +265,7 @@ if __name__ == "__main__":
     device = torch.device('cuda:'+str(args.gpu_id))
     # device = torch.device('cuda:'+str(args.gpu_id) if torch.cuda.is_available() else 'cpu')
     
-    wandb.init(project="online-action-prediction-from-scene-graphs", name=args.name, config=args.__dict__, 
+    wandb.init(project="online-action-prediction-from-scene-graphs", group="after-debug", name=args.name, config=args.__dict__, 
                mode="disabled" if args.disable_wandb else "online")
 
     # Use date info to save model weights 
