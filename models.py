@@ -284,9 +284,7 @@ class ActionRecognition(torch.nn.Module):
                                            mask[:-1]], dim=0).T
 
             segment_starts = torch.flatten(segment_starts, start_dim=0, end_dim=1)  # (n*b*2)
-
             segment_starts[0] = 0.0
-
             indices_for_seg_f = torch.cumsum(segment_starts, dim=-1)  # (n*b*2)
 
         # NOTE: Is it correct to consider last frame of seq. to be the last frame of its respective segment?
