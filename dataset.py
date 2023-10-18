@@ -70,7 +70,7 @@ else:
 
 
 
-def _get_actions_list(gt_action_json: os.PathLike, act_len: int) -> Tuple[int, int]:
+def _get_actions_list(gt_action_json: os.PathLike, act_len: int) -> np.ndarray:
     # Returns the action of left hand and right hand, respectively.
 
     with open(gt_action_json) as f:
@@ -103,8 +103,8 @@ def _get_actions_list(gt_action_json: os.PathLike, act_len: int) -> Tuple[int, i
     return actions_list
 
 
-# def _get_graph(self, relation_json, object_json, gt_action_json, frame) -> Data:
 def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, take) -> Tuple[Data, Data]:
+    raise DeprecationWarning("This function is deprecated. Use _get_graph_list instead")
     # returns edge index and edge features
     
     with open(relation_json) as f:
@@ -434,7 +434,10 @@ class BimanualDataset(Dataset):
         progressbar_manager=enlighten.get_manager()
         ticks=progressbar_manager.counter(total=540, desc="Progress:", unit="folder", color="blue")
         
-        test_idx_sample_mapping = {} # aslında list de olur ama ne olur ne olmaz
+        # aslında list de olur ama ne olur ne olmaz
+        test_idx_sample_mapping = {} # [for each sample] idx -> (subject, task, take, start_frame, end_frame, if_mirrored)
+        test_ground_truth = {} # [for each video] video_idx -> (ground_truth_L, ground_truth_R) 
+        video_idx=0
 
         # To double check
         train_sample_count = 0
@@ -469,6 +472,9 @@ class BimanualDataset(Dataset):
             else:
                 train_sample_count = train_sample_count + len(relation_json_list) - self.temporal_length + 1
 
+            if int(subject[-1])==self.test_subject:
+                test_ground_truth[video_idx] = (act_list[:, 0].tolist(), act_list[:, 1].tolist())
+                video_idx+=1
 
             for frame, (relation_json, object_json) in enumerate(zip(relation_json_list, object_json_list)):
                 
@@ -571,6 +577,9 @@ class BimanualDataset(Dataset):
         
         with open(opj(self.processed_dir, "test_idx_sample_mapping.json"), "w") as f:
             json.dump(test_idx_sample_mapping, f)
+
+        with open(opj(self.processed_dir, "test_ground_truth.json"), "w") as f:
+            json.dump(test_ground_truth, f)
         
         self.is_processed=True
 

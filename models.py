@@ -131,6 +131,7 @@ class ActionRecognition(torch.nn.Module):
             self.pos_encoder = PositionalEncoding(effective_out_ch2)
             
             if use_cls_token:
+                raise NotImplementedError("first fix self.batch_size thing. When bs for test and train is different, it will break")
                 self.cls_tokens = torch.nn.Parameter(torch.randn(1, 1, effective_out_ch2)).expand(self.batch_size, -1, -1)
             
             lstm_hidden_size=effective_out_ch2
@@ -142,8 +143,9 @@ class ActionRecognition(torch.nn.Module):
         
         labels=torch.argmax(x, dim=1)
 
-        left_hand_indicies=torch.zeros((self.batch_size), dtype=torch.long)
-        right_hand_indicies=torch.zeros((self.batch_size), dtype=torch.long)
+        batch_size = batch[-1]+1
+        left_hand_indicies=torch.zeros((batch_size), dtype=torch.long)
+        right_hand_indicies=torch.zeros((batch_size), dtype=torch.long)
 
 
         for i, l in enumerate(labels):
@@ -166,7 +168,7 @@ class ActionRecognition(torch.nn.Module):
             x, edge_attr, edge_index, batch  = databatch.x, databatch.edge_attr, databatch.edge_index, databatch.batch
             
             if self.edge_dropout:
-                edge_index, edge_mask = dropout_edge(edge_index, p=0.1)
+                edge_index, edge_mask = dropout_edge(edge_index, p=self.edge_dropout)
                 edge_attr = edge_attr[edge_mask]
 
    

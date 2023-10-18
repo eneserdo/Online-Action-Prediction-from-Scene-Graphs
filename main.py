@@ -6,6 +6,7 @@
 """
 
 import glob
+import json
 import os
 import random
 import time
@@ -25,12 +26,14 @@ from torch_geometric.data import Batch
 from typing import Tuple
 
 import matplotlib.pyplot as pyplot
+from metrics import f1_at_k_single_example
 
 import models
 import wandb
 from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits)
 from utils import (arg_parser, classification_scores, conf_mat_from_left_right,
                    get_minutes, get_weight_loss, plot_conf_mat, seed_worker, visualize_incorrect_preds)
+from visualization_utils import plot_segmentation
 
 
 SEED = 34
@@ -52,25 +55,82 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 pyplot.ioff()
 
 
+class F1_at_k:
+    # Very custom class for calculating f1@k
+    def __init__(self, num_classes, save_dir="tests"):
+        self.num_classes = num_classes
+        self.k_10 = []
+        self.k_25 = []
+        self.k_50 = []
+        self.f_regular = MulticlassF1Score(num_classes=num_classes, average="macro")
+        self.save_dir = opj(save_dir, args.name)
+        os.makedirs(self.save_dir, exist_ok=True)
+        self.class_id_to_label = {i: label for i, label in enumerate(ACTIONS)}
+        
+    def __call__(self, y_true, y_pred, segment_name):
+         
+        assert len(y_true) == 2 and y_pred.shape[0] == 4, "y_true and y_pred must be a list of 2 elements (left and right hand)"
+        
+        assert len(y_true[0]) == y_pred.shape[1], "y_true and y_pred must have same length"
+        
+        plot_save_dir = opj(save_dir, segment_name)
 
-def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: int):
+        for i, (y_t, y_p) in enumerate(zip([y_true[0], y_true[1], y_true[1], y_true[0]], y_pred)):
+            self.k_10.append(f1_at_k_single_example(y_t, y_p, num_classes=self.num_classes, overlap=0.1))
+            self.k_25.append(f1_at_k_single_example(y_t, y_p, num_classes=self.num_classes, overlap=0.25))
+            self.k_50.append(f1_at_k_single_example(y_t, y_p, num_classes=self.num_classes, overlap=0.5))
+
+            #TODO: save segmentation plots 
+            hand_name= "_L_" if i % 2 == 0 else "_R_"
+            mirror_name= "" if i < 2 else "M"
+            plot_segmentation(y_t, y_p, class_id_to_label=self.class_id_to_label, save_file=self.plot_save_dir + hand_name + mirror_name + ".png", bar_height=50)
+        
+            # TODO: Calculate regular f1 score
+            # f1_score(torch.tensor(y_pred_L), torch.tensor(y_true_L))
+
+    def compute(self):
+        return np.mean(self.k_10), np.mean(self.k_25), np.mean(self.k_50)
+    
+
+def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: int, calc_f1_at_k=False):
     global step
 
-    if mode in ["test", "val"]:
+    if mode  == "test":
+        model.eval()
+
+        if calc_f1_at_k:
+            # idx_sample_mapping: [for each sample] idx -> (subject, task, take, start_frame, end_frame, if_mirrored)
+            with open(opj(processed_dir, "test_idx_sample_mapping.json"), "r") as f:
+                test_idx_sample_mapping = json.load(f)
+            
+            # test_ground_truth: [for each video]  video_idx -> (ground_truth_L, ground_truth_R)
+            with open(opj(processed_dir, "test_ground_truth.json"), "r") as f:
+                test_ground_truth = json.load(f)
+
+
+            # Video lengthes cumulatively:
+            video_lengths = np.cumsum([len(act_arr_R) for _, act_arr_R in test_ground_truth.values()]).tolist()
+            f1_at_k = F1_at_k(num_classes=len(ACTIONS))
+
+        
+    elif mode == "val":
         model.eval()
     elif mode == "train":
         model.train()
+    else:
+        raise ValueError(f"mode must be one of [train, val, test] but got {mode}")
 
     len_actions = len(ACTIONS)
-    action_indices = [range(0, len_actions)]
-    # conf_mat_top = np.zeros((len_actions, len_actions), dtype=float)  # old conf_mat
-    # conf_mat_top_3 = np.zeros((len_actions, len_actions), dtype=float)
 
-    f1_calc_top1 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(device)
-    f1_calc_top3 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(device)  # top_k is intentionally 1
+    f1_calc_top1 = MulticlassF1Score(num_classes=len_actions, top_k=1, average="macro").to(device)
+    f1_calc_top3 = MulticlassF1Score(num_classes=len_actions, top_k=1, average="macro").to(device)  # top_k is intentionally 1
 
-    conf_mat_top1 = MulticlassConfusionMatrix(num_classes=len(ACTIONS), normalize="true").to(device)
-    conf_mat_top3 = MulticlassConfusionMatrix(num_classes=len(ACTIONS), normalize="true").to(device)
+    conf_mat_top1 = MulticlassConfusionMatrix(num_classes=len_actions, normalize="true").to(device)
+    conf_mat_top3 = MulticlassConfusionMatrix(num_classes=len_actions, normalize="true").to(device)
+
+    if mode == "test" and calc_f1_at_k:
+        prediction_video=np.zeros((4, video_lengths[0]))
+        test_video_idx=0
 
     with warnings.catch_warnings():
         warnings.filterwarnings('ignore', '.*There is a performance drop.*|.*NaN values found in confusion matrix.*', UserWarning)  # ignores warning about functorch
@@ -93,36 +153,59 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                 optimizer.step()
 
             # testden gelen
+            # TODO: capsulate this in a function
             pred_top_3 = torch.argsort(left_right_pred, dim=1, descending=True)[:, :3]
             pred_top_1 = pred_top_3[:, 0]
             ground_truth = ground_truth_left_right.argmax(dim=1)
             pred_top_3_final = torch.where(functorch.vmap(lambda t1, t2: torch.isin(t1, t2))(ground_truth, pred_top_3),
                                            ground_truth, pred_top_1)
-            # F1 @ k metric -> commonly k = 0.1, 0.25 and 0.5
-            # k = 0.1  # DEBUGGING - Fatih 05.04.2023
-            # pred_at_k = torch.where(torch.take_along_dim(left_right_pred, ground_truth) >= k,ground_truth, pred_top_1)
 
-            # conf_mat_top += conf_mat_from_left_right(ground_truth, pred_top_1, action_indices)
-            # conf_mat_top_3 += conf_mat_from_left_right(ground_truth, pred_top, action_indices)
+            
+            if mode == "test" and calc_f1_at_k:
+                # if end of video, apply_majority_voting, calculate f1@k
+                # prediction_video[0].append(pred_top_1.cpu().detach().tolist()[0])
+                # prediction_video[1].append(pred_top_1.cpu().detach().tolist()[1])
+                subj, tsk, tk, s_frame, end_f, if_mirrored = test_idx_sample_mapping[str(idxes.item())]
+                
+                ifm = (if_mirrored == "mirrored") * 2 
+                pred_list=pred_top_1.cpu().detach().tolist()
 
-            # old conf_mat
-            # conf_mat_top += confusion_matrix(ground_truth.cpu().detach().numpy(), pred_top_1.cpu().detach().numpy(), labels=action_indices)
-            # conf_mat_top_3 += confusion_matrix(ground_truth.cpu().detach().numpy(), pred_top_3_final.cpu().detach().numpy(), labels=action_indices)
+                prediction_video[0 + ifm][end_f]=pred_list[0]
+                prediction_video[1 + ifm][end_f]=pred_list[1]
+                
+                # For the first N element: prediction_video[0]: left, prediction_video[1]: right
+                # For the rest: prediction_video[0]: right, prediction_video[1]: left
+                # becuase first not-mirrored, then mirrored
+                if idxes.item() + 2*(args.temporal_length - 1) == 2*video_lengths[test_video_idx]:
+                    
+                    prediction_video[0][0:args.temporal_length] = prediction_video[0][args.temporal_length]
+                    prediction_video[1][0:args.temporal_length] = prediction_video[1][args.temporal_length]
+                    prediction_video[2][0:args.temporal_length] = prediction_video[2][args.temporal_length]
+                    prediction_video[3][0:args.temporal_length] = prediction_video[3][args.temporal_length]
+
+                    gt_video = test_ground_truth[str(test_video_idx)]
+
+                    # calculate f1@k
+                    f1_at_k(prediction_video, gt_video, segment_name=f"{subj}-{tsk}-{tk}")
+                    
+                    prediction_video = np.zeros((4, video_lengths[0]))
+                    test_video_idx += 1
 
             # torchmetric
             step_f1_top1 = f1_calc_top1(left_right_pred, ground_truth)
             step_f1_top3 = f1_calc_top3(pred_top_3_final, ground_truth)
 
-            step_conf_mat_top1 = conf_mat_top1(pred_top_1, ground_truth)
-            step_conf_mat_top3 = conf_mat_top3(pred_top_3_final, ground_truth)
+            conf_mat_top1(pred_top_1, ground_truth)
+            conf_mat_top3(pred_top_3_final, ground_truth)
 
+            # Log metrics
             if mode != "test":
                 wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()}, 'batch': step}, step=step)
 
-
             if mode == "test" and args.save_incorrects:
                 visualize_incorrect_preds(pred_top_1, ground_truth, idxes, num_of_samples=4, 
-                                          mapping_path="processed10/test_idx_sample_mapping.json")
+                                          mapping_path=opj(processed_dir, "test_idx_sample_mapping.json"))
+
             # if (step+1)%20==0:
             #     print("20 BATCH ÇALIŞIYOR SADECE")
             #     break
@@ -137,16 +220,13 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     if mode != "test":
         wandb.log({f"{mode}/epoch/": {'top1_F1': overall_f1_top1, 'top3_F1': overall_f1_top3}, 'epoch': epoch})
 
-    # cf1=wandb.Table(data=overall_conf_mat_top1.cpu().numpy(), columns=ACTIONS, rows=ACTIONS)
-    # cf3=wandb.Table(data=overall_conf_mat_top3.cpu().numpy(), columns=ACTIONS, rows=ACTIONS)
-    # wandb.log({f"{mode}_cf/":{"top1": cf1, "top3": cf3}}, step=step)
-
-    # scores = classification_scores(conf_mat_top)
-    # scores_top_3 = classification_scores(conf_mat_top_3)
-
-    # wandb.log({'top1/':{'F1':overall_f1_top1}, 'top3/':{'F1':overall_f1_top3}})
+    if mode == "test" and calc_f1_at_k:
+        # calculate f1@k
+        f1_at_10, f1_at_25, f1_at_50 = f1_at_k.compute() 
+        wandb.log({"test/f1_at_10": f1_at_10, "test/f1_at_25": f1_at_25, "test/f1_at_50": f1_at_50})
 
 
+    # TODO: also check conf_mat of train. Maybe it can't overfit
     if mode in ["test", "val"]:
         return overall_f1_top1, overall_f1_top3, overall_conf_mat_top1, overall_conf_mat_top3
     elif mode == "train":
@@ -156,14 +236,14 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 def test_for_all_saved_weights(model, test_loader):
     weight_list=sorted(glob.glob(opj(save_dir, "*.pt")))
     
-    best_top1 = 0    
+    best_top1 = 0
     results = []
     best_i = -1
     for i, w_name in enumerate(weight_list):
         print(f"TESTING {w_name}:")
         checkpoint = torch.load(w_name)
         model.load_state_dict(checkpoint["model_state_dict"])
-        scores_and_conf_mats = run_one_epoch(model, test_loader, 'test', epoch=-1)
+        scores_and_conf_mats = run_one_epoch(model, test_loader, 'test', epoch=-1, calc_f1_at_k=args.f1k)
         # f_top1_test, f_top3_test, conf_mat_top1_test, conf_mat_top3_test = scores_and_conf_mats
         
         print(f"\tTop1: {scores_and_conf_mats[0]}, Top3: {scores_and_conf_mats[1]}")
@@ -185,7 +265,7 @@ if __name__ == "__main__":
     device = torch.device('cuda:'+str(args.gpu_id))
     # device = torch.device('cuda:'+str(args.gpu_id) if torch.cuda.is_available() else 'cpu')
     
-    wandb.init(project="online-action-prediction-from-scene-graphs", name=args.name, config=args.__dict__,
+    wandb.init(project="online-action-prediction-from-scene-graphs", name=args.name, config=args.__dict__, 
                mode="disabled" if args.disable_wandb else "online")
 
     # Use date info to save model weights 
@@ -199,12 +279,18 @@ if __name__ == "__main__":
                                                                fix_fps=args.fix_fps,
                                                                fix_null=args.fix_null)
 
-    train_loader = DataLoader(train_set, args.batch_size, shuffle=True, num_workers=3, drop_last=True,
-                              worker_init_fn=seed_worker)
-    test_loader = DataLoader(test_set, args.batch_size, shuffle=True, num_workers=3, drop_last=True,
-                             worker_init_fn=seed_worker)
-    val_loader = DataLoader(val_set, args.batch_size, shuffle=True, num_workers=3, drop_last=True,
-                            worker_init_fn=seed_worker)
+    processed_dir = train_set.processed_dir
+
+    # TODO: remove drop_last=True, does worker_init_fn work really?
+    train_loader = DataLoader(train_set, args.batch_size, shuffle=True, num_workers=3, worker_init_fn=seed_worker)
+    
+    if args.f1k:
+        test_loader = DataLoader(test_set, 1, shuffle=False)
+    else:
+        test_loader = DataLoader(test_set, args.batch_size, shuffle=True, num_workers=3, worker_init_fn=seed_worker)
+    
+    val_loader = DataLoader(val_set, args.batch_size, shuffle=True, num_workers=3, worker_init_fn=seed_worker)
+
 
     model = models.ActionRecognition(gnn_type=args.gnn_type,
                                      temporal_type=args.temporal_type,
@@ -219,7 +305,7 @@ if __name__ == "__main__":
                                      use_bn=not args.no_bn,
                                      filter_it=args.filter_idle_hold,
                                      use_hand_pooling=not args.use_global_pooling,
-                                     edge_dropout=not args.edge_dropout,
+                                     edge_dropout=args.edge_dropout,
                                      dropout=args.dropout,
                                      use_cls_token=args.use_cls_token).to(device=device)
 
@@ -324,9 +410,5 @@ if __name__ == "__main__":
     plt.close()
     plt3.close()
 
-    # Old test
-    # test(model, test_loader)
-
     torch.cuda.empty_cache()
-
     wandb.finish()

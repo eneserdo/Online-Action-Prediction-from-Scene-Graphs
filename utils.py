@@ -76,6 +76,7 @@ def arg_parser():
 
     # Others
     ap.add_argument("--gpu_id", type=int, default=0, help="...")
+    ap.add_argument("--f1k", action="store_true", help="Calculate F1@k metrics")
 
 
     return ap.parse_args()
