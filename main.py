@@ -109,7 +109,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             segmentation_loss = segmentation_criterion(segment_change_pred, ground_truth_segments)
             
             loss = label_loss * label_loss_weight
-            if args.perfect_seg:    # FIXME: Logically this should happen when not knowing segmentation
+            if not args.perfect_seg:
                 loss += segmentation_loss
 
             if mode == "train":
@@ -237,7 +237,7 @@ if __name__ == "__main__":
                                      use_bn=not args.no_bn,
                                      filter_it=args.filter_idle_hold,
                                      use_hand_pooling=not args.use_global_pooling,
-                                     edge_dropout=not args.edge_dropout,
+                                     edge_dropout=args.edge_dropout,
                                      dropout=args.dropout,
                                      use_cls_token=args.use_cls_token,
                                      sparse_pred=args.sparse_pred,
