@@ -147,7 +147,7 @@ class ActionRecognition(torch.nn.Module):
             lstm_hidden_size = effective_out_ch2
 
         if self.merged_pred:
-            # Can run in parallel :smile:
+            # Can this run in parallel? :smile:
             self.left_mlp = Linear(lstm_hidden_size*2, num_action_classes)
             self.right_mlp = Linear(lstm_hidden_size*2, num_action_classes)
         else:    
