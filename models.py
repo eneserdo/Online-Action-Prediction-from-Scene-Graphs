@@ -155,6 +155,9 @@ class ActionRecognition(torch.nn.Module):
         
 
         self.segment_boundary_detector = Sequential(Linear(lstm_hidden_size + effective_out_ch2, 2))
+        self.hidden_buffer = []
+        self.both_hn = torch.zeros((1, self.batch_size, lstm_hidden_size))
+        self.both_cn = torch.zeros((1, self.batch_size, lstm_hidden_size))
 
     def _hands_pooling(self, x, embeddings, batch):
 
@@ -194,35 +197,38 @@ class ActionRecognition(torch.nn.Module):
         return torch.cat(torch.tensor_split(hand_feat, 2, dim=0), dim=-1)
 
 
-    def forward(self, dataBatchList: List[Batch], segment_gt):
+    def forward(self, dataBatchList: Batch, segment_gt):
 
-        left_embedding_list = []
-        right_embedding_list = []
+        # left_embedding_list = []
+        # right_embedding_list = []
 
-        for databatch in dataBatchList:  # processes each frame time-independently
-            x, edge_attr, edge_index, batch = databatch.x, databatch.edge_attr, databatch.edge_index, databatch.batch
+        # for databatch in dataBatchList:  # processes each frame time-independently
+        x, edge_attr, edge_index, batch = dataBatchList.x, dataBatchList.edge_attr, dataBatchList.edge_index, dataBatchList.batch
 
-            if self.edge_dropout != 0.0:
-                edge_index, edge_mask = dropout_edge(edge_index, p=self.edge_dropout)
-                edge_attr = edge_attr[edge_mask]
+        if self.edge_dropout != 0.0:
+            edge_index, edge_mask = dropout_edge(edge_index, p=self.edge_dropout)
+            edge_attr = edge_attr[edge_mask]
 
-            H = self.gnn(x, edge_index, edge_attr)
+        H = self.gnn(x, edge_index, edge_attr)
 
-            if self.use_hand_pooling:
-                left_embeddings, right_embeddings = self._hands_pooling(x, H, batch)
-            else:
-                # A bit inefficient implementation
-                graph_embedding = geometric_nn.pool.global_mean_pool(H, batch)
-                left_embeddings = graph_embedding
-                right_embeddings = graph_embedding
+        if self.use_hand_pooling:
+            left_embeddings, right_embeddings = self._hands_pooling(x, H, batch)
+        else:
+            # A bit inefficient implementation
+            graph_embedding = geometric_nn.pool.global_mean_pool(H, batch)
+            left_embeddings = graph_embedding
+            right_embeddings = graph_embedding
 
-            left_embedding_list.append(left_embeddings)
-            right_embedding_list.append(right_embeddings)
+        # left_embedding_list.append(left_embeddings)
+        # right_embedding_list.append(right_embeddings)
 
             # assert graph_embedding.shape[0]==self.batch_size and graph_embedding.shape[1]==self.conv_out
 
-        left_sequencial_embeddings = torch.stack(left_embedding_list)
-        right_sequencial_embeddings = torch.stack(right_embedding_list)
+        # left_sequencial_embeddings = torch.stack(left_embedding_list)
+        # right_sequencial_embeddings = torch.stack(right_embedding_list)
+        left_sequencial_embeddings = left_embeddings
+        right_sequencial_embeddings = right_embeddings
+        
 
         # Filtering imbalanced data
         if self.filter_it and self.training:
@@ -253,16 +259,18 @@ class ActionRecognition(torch.nn.Module):
             else:
                 both_out = both_hn.mean(dim=0)  # FIXME: It is dim=1 in the original code ?
 
-
         elif self.temporal_type == "bi":
             both_out, _ = self.temporal_layer(both_sequencial_embeddings)
             """_, (both_hn, _) = self.temporal_layer(both_sequencial_embeddings)
             both_hn = torch.cat([both_hn[0], both_hn[1]], dim=1)"""
         else:
-            both_out, _ = self.temporal_layer(both_sequencial_embeddings)
-            """_, (both_hn, _) = self.temporal_layer(both_sequencial_embeddings)
-            # assert both_hn.shape[0]==1
-            both_hn = both_hn.squeeze()"""
+            # both_out, _ = self.temporal_layer(both_sequencial_embeddings)
+            _, (self.both_hn, self.both_cn) = self.temporal_layer(both_sequencial_embeddings, self.both_hn, self.both_cn)
+            self.hidden_buffer.append(self.both_hn)
+            self.hidden_buffer.pop(0)
+            both_hn = both_hn.squeeze()
+
+        both_out = self.hidden_buffer #maybe stack
 
         # Segmentation task - predict segment change (0,1)
         segment_change_pred, hard_segment_change_pred = self._segment_prediction(both_sequencial_embeddings, both_out)

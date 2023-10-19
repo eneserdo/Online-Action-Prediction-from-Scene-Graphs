@@ -271,15 +271,10 @@ class BimanualDataset(Dataset):
                        split: str, 
                        test_subject: int, 
                        validation_take: int , 
-                       temporal_length: int, 
                        contact_only: bool, 
                        fix_fps: bool=False,
                        fix_null: bool=False):
         
-        if fix_fps:
-            assert temporal_length%2==0, "When fix fps enabled, temporal_length must be even"
-        
-        self.temporal_length = temporal_length
         self.is_processed = is_processed
         self.test_subject = test_subject
         self.validation_take = validation_take
@@ -299,7 +294,6 @@ class BimanualDataset(Dataset):
             self._load_config()
             assert self.config["test_subject"]==test_subject
             assert self.config["validation_take"]==validation_take
-            assert self.config["temporal_length"]==temporal_length
 
 
         super().__init__(root, transform, pre_transform, pre_filter)
@@ -436,11 +430,6 @@ class BimanualDataset(Dataset):
         
         test_idx_sample_mapping = {} # aslında list de olur ama ne olur ne olmaz
 
-        # To double check
-        train_sample_count = 0
-        val_sample_count = 0
-        test_sample_count = 0
-
         for subject, task, take in crawl_dataset():
             
             # Sometimes initial graphs are invalid, so imputation is not working. This is to fix that
@@ -460,14 +449,7 @@ class BimanualDataset(Dataset):
             act_list=_get_actions_list(gt_action_json, len(relation_json_list))
 
             assert len(relation_json_list) == len(object_json_list)
-
-            # To double check
-            if int(subject[-1])==self.test_subject:
-                test_sample_count = test_sample_count + len(relation_json_list) - self.temporal_length + 1
-            elif int(take[-1])==self.validation_take:
-                val_sample_count = val_sample_count + len(relation_json_list) - self.temporal_length + 1
-            else:
-                train_sample_count = train_sample_count + len(relation_json_list) - self.temporal_length + 1
+            action_len = len(relation_json_list)
 
 
             for frame, (relation_json, object_json) in enumerate(zip(relation_json_list, object_json_list)):
@@ -512,47 +494,44 @@ class BimanualDataset(Dataset):
                 if self.fix_fps and self.fps_info[subject+"-"+task+"-"+take] == 15:
                     data_list.append(graph)
                     data_list_mirrored.append(graph_mirrored)
-                    
-                # if the sequence is complete, saves it
-                if len(data_list) == self.temporal_length:
-                    
-                    if int(subject[-1])==self.test_subject:
-                        torch.save(data_list, opj(test_dir, f'data_{test_sample_idx}.pt'))
-                        test_idx_sample_mapping[test_sample_idx] = (subject, task, take, frame-self.temporal_length, frame, "not_mirrored")
-                        test_sample_idx+=1
 
-                        torch.save(data_list_mirrored, opj(test_dir, f'data_{test_sample_idx}.pt'))
-                        test_idx_sample_mapping[test_sample_idx] = (subject, task, take, frame-self.temporal_length, frame, "mirrored")
-                        test_sample_idx+=1
-                    
-                    elif int(take[-1])==self.validation_take:
-                        torch.save(data_list, opj(val_dir, f'data_{val_sample_idx}.pt'))
-                        val_sample_idx+=1
-                        
-                        torch.save(data_list_mirrored, opj(val_dir, f'data_{val_sample_idx}.pt'))
-                        val_sample_idx+=1
+            # End of frame loop
+                
+            # # if the sequence is complete, saves it
+            # if len(data_list) == self.temporal_length:
+                
+            if int(subject[-1])==self.test_subject:
+                torch.save(data_list, opj(test_dir, f'data_{test_sample_idx}.pt'))
+                test_idx_sample_mapping[test_sample_idx] = (subject, task, take, action_len, "not_mirrored")
+                test_sample_idx+=1
 
-                    else:
-                        torch.save(data_list, opj(train_dir, f'data_{train_sample_idx}.pt'))
-                        train_sample_idx+=1
+                torch.save(data_list_mirrored, opj(test_dir, f'data_{test_sample_idx}.pt'))
+                test_idx_sample_mapping[test_sample_idx] = (subject, task, take, action_len, "mirrored")
+                test_sample_idx+=1
+            
+            elif int(take[-1])==self.validation_take:
+                torch.save(data_list, opj(val_dir, f'data_{val_sample_idx}.pt'))
+                val_sample_idx+=1
+                
+                torch.save(data_list_mirrored, opj(val_dir, f'data_{val_sample_idx}.pt'))
+                val_sample_idx+=1
 
-                        torch.save(data_list_mirrored, opj(train_dir, f'data_{train_sample_idx}.pt'))
-                        train_sample_idx+=1
+            else:
+                torch.save(data_list, opj(train_dir, f'data_{train_sample_idx}.pt'))
+                train_sample_idx+=1
 
-                    self.distribution = self.distribution + data_list[0].y[0] + data_list[0].y[1]
-                    data_list[0].validate(raise_on_error=True)
-                    data_list_mirrored[0].validate(raise_on_error=True)
-                    data_list.pop(0)
-                    data_list_mirrored.pop(0)
+                torch.save(data_list_mirrored, opj(train_dir, f'data_{train_sample_idx}.pt'))
+                train_sample_idx+=1
+
+            data_list[0].validate(raise_on_error=True)
+            data_list_mirrored[0].validate(raise_on_error=True)
+            data_list.pop(0)
+            data_list_mirrored.pop(0)
 
             ticks.update()
-
+        # End of folder loop
 
         progressbar_manager.stop()
-        
-        assert train_sample_idx == train_sample_count*2, f"{train_sample_idx=} ,{train_sample_count*2=}"
-        assert val_sample_idx == val_sample_count*2, f"{val_sample_idx=} ,{val_sample_count*2=}"
-        assert test_sample_idx == test_sample_count*2, f"{test_sample_idx=} ,{test_sample_count*2=}"
 
         print(f"\n\n#######\n{TOTAL_FRAME_COUNT=}, {EMPTY_COUNT=}, {NO_EDGE_COUNT=}, {MISSING_HAND_COUNT=}, {NULL_COUNT=}")
         
@@ -575,14 +554,9 @@ class BimanualDataset(Dataset):
         self.is_processed=True
 
     def len(self):
-        # return len(self.processed_file_names)
         return self.split_len
 
     def get(self, idx):
-        # data = torch.load(opj(self.processed_dir, f'data_{idx}.pt'))
-        # f=glob.glob(opj(self.processed_dir, f'data*_{idx}.pt'))
-        # data = torch.load(f[0])
-
         data = torch.load(opj(self.processed_dir, self.split, f'data_{idx}.pt'))
         return idx, data
 
