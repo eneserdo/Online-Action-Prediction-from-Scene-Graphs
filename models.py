@@ -306,6 +306,7 @@ class ActionRecognition(torch.nn.Module):
         # -> Do operation to merge right and left features (concatenation or attention)
         #   so as to affect each others output predictions
         # -> Create two mlps that take same(?) input but predict for each respective hand action
+        # -> Implement merge before rnn
         if self.merged_pred:
             merged_out_s = self._merge_hands(out_s)
             action_prediction = torch.cat((self.left_mlp(merged_out_s), self.right_mlp(merged_out_s)),dim=0)
