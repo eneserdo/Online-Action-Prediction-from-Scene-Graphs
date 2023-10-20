@@ -83,10 +83,8 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
             data = [d.to(device) for d in data]
 
-            # ground_truth_left_right = torch.cat([data[-1].y[::2], data[-1].y[1::2]])
-            ground_truth_left_right = torch.stack([torch.cat([d.y[::2], d.y[1::2]]) for d in data],
-                                                  dim=0)  # FIXME: maybe
-            # there can be a more efficient way -> FSD 25.09.2023
+            ground_truth_left_right = torch.stack([torch.cat([d.y[::2], d.y[1::2]]) for d in data], dim=0)
+
             ground_truth_segments = create_ground_truth_segments(torch.argmax(ground_truth_left_right, dim=-1))
 
             # TODO: Make prediction for each segment using mask
@@ -217,11 +215,11 @@ if __name__ == "__main__":
                                                                fix_fps=args.fix_fps,
                                                                fix_null=args.fix_null)
 
-    train_loader = DataLoader(train_set, args.batch_size, shuffle=True, num_workers=3, drop_last=True,
+    train_loader = DataLoader(train_set, args.batch_size, num_workers=3, shuffle=True, drop_last=True,
                               worker_init_fn=seed_worker)
-    test_loader = DataLoader(test_set, args.batch_size, shuffle=True, num_workers=3, drop_last=True,
+    test_loader = DataLoader(test_set, args.batch_size, num_workers=3, shuffle=True, drop_last=True,
                              worker_init_fn=seed_worker)
-    val_loader = DataLoader(val_set, args.batch_size, shuffle=True, num_workers=3, drop_last=True,
+    val_loader = DataLoader(val_set, args.batch_size, num_workers=3, shuffle=True, drop_last=True,
                             worker_init_fn=seed_worker)
 
     model = models.ActionRecognition(gnn_type=args.gnn_type,

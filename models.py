@@ -122,6 +122,9 @@ class ActionRecognition(torch.nn.Module):
                                                [(self.conv1, "x, edge_index, edge_attr -> x"), self.act1,
                                                 (self.conv2, "x, edge_index, edge_attr -> x"), self.act2])
 
+        if self.merged_pred == "early":
+            effective_out_ch2 *= 2
+
         if temporal_type in ["lstm", "bi"]:
             num_rnn_layers = 1  # Lets make it constant
             is_bidirectional = ("bi" == temporal_type)
@@ -146,15 +149,17 @@ class ActionRecognition(torch.nn.Module):
 
             lstm_hidden_size = effective_out_ch2
 
-        if self.merged_pred:
+        if self.merged_pred == "late":
             # Can this run in parallel? :smile:
             self.left_mlp = Linear(lstm_hidden_size*2, num_action_classes)
             self.right_mlp = Linear(lstm_hidden_size*2, num_action_classes)
+        
+        elif self.merged_pred == "early":
+            self.segment_boundary_detector_L = Sequential(Linear(lstm_hidden_size + effective_out_ch2, 2))
+            self.segment_boundary_detector_R = Sequential(Linear(lstm_hidden_size + effective_out_ch2, 2))
         else:    
             self.mlp = Sequential(Linear(lstm_hidden_size, num_action_classes))
-        
-
-        self.segment_boundary_detector = Sequential(Linear(lstm_hidden_size + effective_out_ch2, 2))
+            self.segment_boundary_detector = Sequential(Linear(lstm_hidden_size + effective_out_ch2, 2))
 
     def _hands_pooling(self, x, embeddings, batch):
 
@@ -175,9 +180,9 @@ class ActionRecognition(torch.nn.Module):
         # return embeddings[graph_hand_indicies]
         return embeddings[left_hand_indicies], embeddings[right_hand_indicies]
 
-    def _segment_prediction(self, gnn_output, rnn_output):
+    def _segment_prediction(self, gnn_output, rnn_output, detector):
         hn_se = torch.concat([rnn_output, gnn_output], dim=-1)
-        segment_change_pred = (F.gumbel_softmax(self.segment_boundary_detector(hn_se), dim=-1)[:, :, :1]).squeeze()
+        segment_change_pred = (F.gumbel_softmax(detector(hn_se), dim=-1)[:, :, :1]).squeeze()
         s_hard = (segment_change_pred > 0.5).float()
         hard_segment_change = ((s_hard - segment_change_pred).detach() + segment_change_pred)
         return segment_change_pred, hard_segment_change
@@ -193,6 +198,33 @@ class ActionRecognition(torch.nn.Module):
         """
         return torch.cat(torch.tensor_split(hand_feat, 2, dim=0), dim=-1)
 
+    def _apply_segment_mask(self, both_out, segments):
+
+        both_out = torch.flatten(torch.transpose(both_out, 0, 1), start_dim=0, end_dim=1)
+
+        # [0,0,1,0,0,0,1,0,1] -> segments last frames 1
+        mask = segments.to(torch.bool)
+        if not self.sparse_pred:
+            segment_starts = torch.concat([torch.ones(size=(1, self.batch_size * 2), device=mask.device),
+                                           mask[:-1]], dim=0).T
+
+            segment_starts = torch.flatten(segment_starts, start_dim=0, end_dim=1)  # (n*b*2)
+            segment_starts[0] = 0.0
+            indices_for_seg_f = torch.cumsum(segment_starts, dim=-1)  # (n*b*2)
+
+        # NOTE: Is it correct to consider last frame of seq. to be the last frame of its respective segment?
+        mask[-1] = True
+        mask = torch.flatten(mask.T, start_dim=0, end_dim=1)  # (n*b*2)
+
+        # [f2, f6, f8] -> features at last frames of respective segments
+        out_seg_ends = both_out[mask]  # (s~*b*2,f)
+
+        if self.sparse_pred:
+            out_s = out_seg_ends
+        else:
+            out_s = out_seg_ends[indices_for_seg_f.to(torch.long)] # (n*b*2, f) 
+        
+        return out_s, mask
 
     def forward(self, dataBatchList: List[Batch], segment_gt):
 
@@ -238,7 +270,11 @@ class ActionRecognition(torch.nn.Module):
             right_sequencial_embeddings = align_embeddings_to_right(right_sequencial_embeddings, right_filter)
             left_sequencial_embeddings = align_embeddings_to_right(left_sequencial_embeddings, left_filter)
 
-        both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=1)
+        if self.merged_pred == "early":
+            both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=-1)
+        else:
+            both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=1)
+
 
         if self.temporal_type == "tr":
             if self.use_cls_token:
@@ -265,8 +301,13 @@ class ActionRecognition(torch.nn.Module):
             both_hn = both_hn.squeeze()"""
 
         # Segmentation task - predict segment change (0,1)
-        segment_change_pred, hard_segment_change_pred = self._segment_prediction(both_sequencial_embeddings, both_out)
-
+        if self.merged_pred == "early":
+            segment_change_pred_L, hard_segment_change_pred_L = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector_L)
+            segment_change_pred_R, hard_segment_change_pred_R = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector_R)
+            segment_change_pred = torch.cat((segment_change_pred_L, segment_change_pred_R), dim=1)
+            hard_segment_change_pred = torch.cat((hard_segment_change_pred_L, hard_segment_change_pred_R), dim=1)
+        else:
+            segment_change_pred, hard_segment_change_pred = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector)
         # Masking according to segment endpoints:
 
         # if need be use .clone()
@@ -275,41 +316,18 @@ class ActionRecognition(torch.nn.Module):
         else:
             segments = hard_segment_change_pred
 
-        both_out = torch.flatten(torch.transpose(both_out, 0, 1), start_dim=0, end_dim=1)
-
-        # [0,0,1,0,0,0,1,0,1] -> segments last frames 1
-        mask = segments.to(torch.bool)  
-        if not self.sparse_pred:
-            segment_starts = torch.concat([torch.ones(size=(1, self.batch_size * 2), device=mask.device),
-                                           mask[:-1]], dim=0).T
-
-            segment_starts = torch.flatten(segment_starts, start_dim=0, end_dim=1)  # (n*b*2)
-            segment_starts[0] = 0.0
-            indices_for_seg_f = torch.cumsum(segment_starts, dim=-1)  # (n*b*2)
-
-        # NOTE: Is it correct to consider last frame of seq. to be the last frame of its respective segment?
-        mask[-1] = True
-        mask = torch.flatten(mask.T, start_dim=0, end_dim=1)  # (n*b*2)
-
-        # [f2, f6, f8] -> features at last frames of respective segments
-        out_seg_ends = both_out[mask]  # (s~*b*2,f)
-
-        if self.sparse_pred:
-            out_s = out_seg_ends
-        else:
-            out_s = out_seg_ends[indices_for_seg_f.to(torch.long)] # (n*b*2, f)
+        out_s, mask = self._apply_segment_mask(both_out, segments)
 
 
         # Label Prediction Task
-
         # TODO:
         # -> Do operation to merge right and left features (concatenation or attention)
         #   so as to affect each others output predictions
-        # -> Create two mlps that take same(?) input but predict for each respective hand action
-        # -> Implement merge before rnn
-        if self.merged_pred:
+        if self.merged_pred == "late":
             merged_out_s = self._merge_hands(out_s)
             action_prediction = torch.cat((self.left_mlp(merged_out_s), self.right_mlp(merged_out_s)),dim=0)
+        elif self.merged_pred == "early":
+            action_prediction = torch.cat((self.left_mlp(out_s), self.right_mlp(out_s)),dim=0)
         else:
             action_prediction = self.mlp(out_s)
 
