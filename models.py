@@ -162,24 +162,7 @@ class ActionRecognition(torch.nn.Module):
             self.segment_boundary_detector = Sequential(Linear(lstm_hidden_size + effective_out_ch2, 2))
 
     def _hands_pooling(self, x, embeddings, batch):
-
         labels = torch.argmax(x, dim=1)
-
-        # OLD:
-        # left_hand_indicies = torch.zeros((self.batch_size), dtype=torch.long)
-        # right_hand_indicies = torch.zeros((self.batch_size), dtype=torch.long)
-
-        # for i, l in enumerate(labels):
-        #     if l == OBJECTS.index("LeftHand"):
-        #         left_hand_indicies[batch[i]] = i
-
-        #     elif l == OBJECTS.index("RightHand"):
-        #         right_hand_indicies[batch[i]] = i
-
-        # # left, right: [batch_size, len(embedding)]
-        # # return embeddings[graph_hand_indicies]
-        # return embeddings[left_hand_indicies], embeddings[right_hand_indicies]
-
         return embeddings[labels == OBJECTS.index("LeftHand")], embeddings[labels == OBJECTS.index("RightHand")]
 
     def _segment_prediction(self, gnn_output, rnn_output, detector):
