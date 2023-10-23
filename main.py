@@ -59,11 +59,6 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     elif mode == "train":
         model.train()
 
-    len_actions = len(ACTIONS)
-    action_indices = [range(0, len_actions)]
-    # conf_mat_top = np.zeros((len_actions, len_actions), dtype=float)  # old conf_mat
-    # conf_mat_top_3 = np.zeros((len_actions, len_actions), dtype=float)
-
     f1_calc_top1 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(device)
     f1_calc_top3 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(
         device)  # top_k is intentionally 1
@@ -139,7 +134,6 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             #     print("20 BATCH ÇALIŞIYOR SADECE")
             #     break
         
-
         overall_f1_top1 = f1_calc_top1.compute()
         overall_f1_top3 = f1_calc_top3.compute()
 
@@ -325,6 +319,7 @@ if __name__ == "__main__":
                         "scheduler_state_dict": scheduler.state_dict()},
                        opj(save_dir, f"model_epoch{epoch:0>4}.pt"))
 
+        # VALIDATION
         # save confusion matrices
         plt = plot_conf_mat(conf_mat_top1_val.cpu(), f"conf_mat_top1_e{epoch:0>4}", do_return_plot=True)
         wandb.log({'val/confusion_matrix/': {'top1': wandb.Image(plt)}})
