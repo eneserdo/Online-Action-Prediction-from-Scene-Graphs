@@ -153,7 +153,6 @@ class ActionRecognition(torch.nn.Module):
             # Can this run in parallel? :smile:
             self.left_mlp = Linear(lstm_hidden_size*2, num_action_classes)
             self.right_mlp = Linear(lstm_hidden_size*2, num_action_classes)
-        
         elif self.merged_pred == "early":
             self.segment_boundary_detector_L = Sequential(Linear(lstm_hidden_size + effective_out_ch2, 2))
             self.segment_boundary_detector_R = Sequential(Linear(lstm_hidden_size + effective_out_ch2, 2))
@@ -163,7 +162,28 @@ class ActionRecognition(torch.nn.Module):
 
     def _hands_pooling(self, x, embeddings, batch):
         labels = torch.argmax(x, dim=1)
-        return embeddings[labels == OBJECTS.index("LeftHand")], embeddings[labels == OBJECTS.index("RightHand")]
+
+        left_hand_indicies = torch.zeros((self.batch_size), dtype=torch.long)
+        right_hand_indicies = torch.zeros((self.batch_size), dtype=torch.long)
+
+        # TODO: Check if optimizable
+        for i, l in enumerate(labels):
+            if l == OBJECTS.index("LeftHand"):
+                # assert left_hand_indicies[batch[i]] ==-1
+                left_hand_indicies[batch[i]] = i
+
+            elif l == OBJECTS.index("RightHand"):
+                # assert right_hand_indicies[batch[i]] ==-1
+                right_hand_indicies[batch[i]] = i
+
+        # left, right: [batch_size, len(embedding)]
+        # return embeddings[graph_hand_indicies]
+        l_emb, r_emb = embeddings[left_hand_indicies], embeddings[right_hand_indicies]
+
+        # FIXME: Below code is much more optimal, use when data redundancy is fixed.
+        # l_emb, r_emb = embeddings[labels == OBJECTS.index("LeftHand")], embeddings[labels == OBJECTS.index("RightHand")]
+
+        return l_emb, r_emb
 
     def _segment_prediction(self, gnn_output, rnn_output, detector):
         hn_se = torch.concat([rnn_output, gnn_output], dim=-1)
