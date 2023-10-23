@@ -165,20 +165,22 @@ class ActionRecognition(torch.nn.Module):
 
         labels = torch.argmax(x, dim=1)
 
-        left_hand_indicies = torch.zeros((self.batch_size), dtype=torch.long)
-        right_hand_indicies = torch.zeros((self.batch_size), dtype=torch.long)
+        # OLD:
+        # left_hand_indicies = torch.zeros((self.batch_size), dtype=torch.long)
+        # right_hand_indicies = torch.zeros((self.batch_size), dtype=torch.long)
 
-        # TODO: Check if optimizable
-        for i, l in enumerate(labels):
-            if l == OBJECTS.index("LeftHand"):
-                left_hand_indicies[batch[i]] = i
+        # for i, l in enumerate(labels):
+        #     if l == OBJECTS.index("LeftHand"):
+        #         left_hand_indicies[batch[i]] = i
 
-            elif l == OBJECTS.index("RightHand"):
-                right_hand_indicies[batch[i]] = i
+        #     elif l == OBJECTS.index("RightHand"):
+        #         right_hand_indicies[batch[i]] = i
 
-        # left, right: [batch_size, len(embedding)]
-        # return embeddings[graph_hand_indicies]
-        return embeddings[left_hand_indicies], embeddings[right_hand_indicies]
+        # # left, right: [batch_size, len(embedding)]
+        # # return embeddings[graph_hand_indicies]
+        # return embeddings[left_hand_indicies], embeddings[right_hand_indicies]
+
+        return embeddings[labels == OBJECTS.index("LeftHand")], embeddings[labels == OBJECTS.index("RightHand")]
 
     def _segment_prediction(self, gnn_output, rnn_output, detector):
         hn_se = torch.concat([rnn_output, gnn_output], dim=-1)
