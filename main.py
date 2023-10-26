@@ -100,16 +100,13 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             loss = label_loss * label_loss_weight
 
             if args.seg_loss == "sDTW":
-                # FIXME: input shapes should be (b,n,l) not (n*b,l) 
-                unflatten = torch.nn.Unflatten(dim=0, unflattened_size=segment_change_pred.shape)  # (n, b*2, a)
-                action_prediction = unflatten(action_prediction)
-                segmentation_loss = segmentation_criterion(segment_change_pred, ground_truth_segments).mean()
+                # NOTE: for label dtw input shapes should be (b,n,l) not (n*b,l) 
+                t_shape = segment_change_pred.T.shape + (1,)
+                segmentation_loss = segmentation_criterion(segment_change_pred.view(t_shape), ground_truth_segments.view(t_shape)).mean()
             else:
                 segmentation_loss = segmentation_criterion(segment_change_pred, ground_truth_segments)
             
-            
             if not args.perfect_seg:
-                
                 loss += segmentation_loss
 
             if mode == "train":

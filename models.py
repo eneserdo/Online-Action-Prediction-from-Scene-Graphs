@@ -150,8 +150,9 @@ class ActionRecognition(torch.nn.Module):
             lstm_hidden_size = effective_out_ch2
 
         def build_mlp(in_feat,out_feat, hid_feat=None):
-            hid_feat = (in_feat+out_feat)//2 if hid_feat == None else hid_feat
-            return Sequential(Linear(in_feat, hid_feat), SELU(), Linear(hid_feat, out_feat))
+            # hid_feat = (in_feat+out_feat)//2 if hid_feat == None else hid_feat
+            # return Sequential(Linear(in_feat, hid_feat), SELU(), Linear(hid_feat, out_feat))
+            return Linear(in_feat,out_feat)
 
         if self.merged_pred == "late":
             # Can this run in parallel? :smile:
