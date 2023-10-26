@@ -43,13 +43,16 @@ def arg_parser():
     ap.add_argument("-nh", "--num_heads", type=int, default=2, help="...")
     ap.add_argument("--saving_freq", type=int, default=5, help="...")
     ap.add_argument("-nbn", "--no_bn", action="store_true", help="...")
-    ap.add_argument("--use_global_pooling", action="store_true", help="...")
+    ap.add_argument("--use_global_pooling", action="store_true", help="...")    # :(
     ap.add_argument("--edge_dropout", type=float, default=0.0, help="...")
     ap.add_argument("--dropout", type=float, default=0.0, help="...")
     ap.add_argument("--use_cls_token", action="store_true", help="Use class token in transformer")
+    ap.add_argument("--merged_pred", type=str, default=None, choices=["early", "late", None], help="Merge hands predictions")
+    # Segmentation task
+    ap.add_argument("--sdtw_gamma", type=float, default=1.0, help="Gamma parameter for soft-DTW")
+    ap.add_argument("--seg_loss", type=str, default="BCELoss", choices=["sDTW", "BCELoss"], help="Loss function for segmentation task")
     ap.add_argument("--sparse_pred", action="store_true", help="Predict only frames at ends of segments")   # :( 
     ap.add_argument("--perfect_seg", action="store_true", help="Use ground truth segment ending info")
-    ap.add_argument("--merged_pred", type=str, default=None, choices=["early", "late", None], help="Merge hands predictions") # TODO: Make this string once att etc. used
  
     # Optimizer
     ap.add_argument("-o", "--optimizer_type", type=str, required=True,
@@ -61,7 +64,7 @@ def arg_parser():
     ap.add_argument("--scheduler_step_size", type=int, default=10, help="...")
     ap.add_argument("--scheduler_gamma", type=float, default=0.5, help="...")
     ap.add_argument("--weighted_loss", type=str, default="none", choices=["none", "inv", "sqrt_inv" "effective"],
-                    help="Use class frequencies as weight for loss function")
+                    help="Use class frequencies as weight for loss function")       # :(
     ap.add_argument("--label_loss_weight", type=float, default=1.0,
                     help="Weight upon action label prediction task loss")
 

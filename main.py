@@ -16,21 +16,20 @@ import warnings
 import functorch
 import numpy as np
 import torch
-from sklearn.metrics import confusion_matrix
+
 from torch_geometric.loader import DataLoader
 from torchmetrics.classification import (MulticlassConfusionMatrix,
                                          MulticlassF1Score)
-
-from torch_geometric.data import Batch
-from typing import Tuple
 
 import matplotlib.pyplot as pyplot
 
 import models
 import wandb
 from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits)
-from utils import (arg_parser, classification_scores, conf_mat_from_left_right,
-                   get_minutes, plot_conf_mat, seed_worker, visualize_incorrect_preds, create_ground_truth_segments)
+from utils import (arg_parser, get_minutes, plot_conf_mat, seed_worker, 
+                   visualize_incorrect_preds, create_ground_truth_segments)
+
+from tslearn.metrics import SoftDTWLossPyTorch
 
 SEED = 34
 random.seed(SEED)
@@ -95,14 +94,22 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             ground_truth_left_right = torch.flatten(torch.transpose(ground_truth_left_right,0,1), start_dim=0, end_dim=1)
             if args.sparse_pred:
                 left_right_pred, mask = left_right_pred
-                # TODO: Check if working correctly
                 ground_truth_left_right = ground_truth_left_right[mask]
 
             label_loss = label_criterion(left_right_pred, ground_truth_left_right)
-            segmentation_loss = segmentation_criterion(segment_change_pred, ground_truth_segments)
-            
             loss = label_loss * label_loss_weight
+
+            if args.seg_loss == "sDTW":
+                # FIXME: input shapes should be (b,n,l) not (n*b,l) 
+                unflatten = torch.nn.Unflatten(dim=0, unflattened_size=segment_change_pred.shape)  # (n, b*2, a)
+                action_prediction = unflatten(action_prediction)
+                segmentation_loss = segmentation_criterion(segment_change_pred, ground_truth_segments).mean()
+            else:
+                segmentation_loss = segmentation_criterion(segment_change_pred, ground_truth_segments)
+            
+            
             if not args.perfect_seg:
+                
                 loss += segmentation_loss
 
             if mode == "train":
@@ -121,7 +128,8 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
             conf_mat_top1(pred_top_1, ground_truth)
             conf_mat_top3(pred_top_3_final, ground_truth)
-            
+            # TODO: Log confusion matrices of starting, middle and ending frames predictions.
+            # This is so as to understand action segmentation affect.
 
             if mode != "test":
                 wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item(), "Label Loss": label_loss.item(), "Segmentation Loss": segmentation_loss.item()},
@@ -283,7 +291,11 @@ if __name__ == "__main__":
 
     # TODO: multiple loss -> FSD 22.09.2023
     label_criterion = torch.nn.CrossEntropyLoss(weight=loss_weights).to(device=device)
-    segmentation_criterion = torch.nn.BCELoss(weight=loss_weights).to(device=device)
+    if args.seg_loss == "BCELoss":
+        segmentation_criterion = torch.nn.BCELoss(weight=loss_weights).to(device=device)
+    elif args.seg_loss == "sDTW":
+        # TODO: try different distance measures... cross-entropy??
+        segmentation_criterion = SoftDTWLossPyTorch(gamma=args.sdtw_gamma)
 
     save_dir = f"saved_{args.name}"
     if not os.path.isdir(save_dir):

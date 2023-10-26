@@ -1,6 +1,6 @@
 from typing import List
 import torch
-from torch.nn import Sequential, Dropout, Linear, ReLU, SELU, LSTM, Softmax, Unflatten, TransformerEncoder, \
+from torch.nn import Sequential, Dropout, Linear, ReLU, SELU, LSTM, TransformerEncoder, \
     TransformerEncoderLayer, Module, functional as F
 import torch_geometric.nn as geometric_nn
 from torch_geometric.data import Data, Batch
@@ -149,16 +149,24 @@ class ActionRecognition(torch.nn.Module):
 
             lstm_hidden_size = effective_out_ch2
 
+        def build_mlp(in_feat,out_feat, hid_feat=None):
+            hid_feat = (in_feat+out_feat)//2 if hid_feat == None else hid_feat
+            return Sequential(Linear(in_feat, hid_feat), SELU(), Linear(hid_feat, out_feat))
+
         if self.merged_pred == "late":
             # Can this run in parallel? :smile:
-            self.left_mlp = Linear(lstm_hidden_size*2, num_action_classes)
-            self.right_mlp = Linear(lstm_hidden_size*2, num_action_classes)
+            self.left_mlp = build_mlp(lstm_hidden_size*2, num_action_classes)
+            self.right_mlp = build_mlp(lstm_hidden_size*2, num_action_classes)
+            self.segment_boundary_detector = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
         elif self.merged_pred == "early":
-            self.segment_boundary_detector_L = Sequential(Linear(lstm_hidden_size + effective_out_ch2, 2))
-            self.segment_boundary_detector_R = Sequential(Linear(lstm_hidden_size + effective_out_ch2, 2))
+            self.segment_boundary_detector_L = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
+            self.segment_boundary_detector_R = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
+            self.left_mlp = build_mlp(lstm_hidden_size, num_action_classes)
+            self.right_mlp = build_mlp(lstm_hidden_size, num_action_classes)
+            # self.mlp = build_mlp(lstm_hidden_size, num_action_classes)
         else:    
-            self.mlp = Sequential(Linear(lstm_hidden_size, num_action_classes))
-            self.segment_boundary_detector = Sequential(Linear(lstm_hidden_size + effective_out_ch2, 2))
+            self.mlp = build_mlp(lstm_hidden_size, num_action_classes)
+            self.segment_boundary_detector = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
 
     def _hands_pooling(self, x, embeddings, batch):
         labels = torch.argmax(x, dim=1)
@@ -306,11 +314,16 @@ class ActionRecognition(torch.nn.Module):
             both_hn = both_hn.squeeze()"""
 
         # Segmentation task - predict segment change (0,1)
+        # TODO:
+        #   -> reset (zero, random,...) h_n-1 at every segment start for an RNN only focused to action sequence unaffected by previous happenings
         if self.merged_pred == "early":
             segment_change_pred_L, hard_segment_change_pred_L = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector_L)
             segment_change_pred_R, hard_segment_change_pred_R = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector_R)
+            
             segment_change_pred = torch.cat((segment_change_pred_L, segment_change_pred_R), dim=1)
             hard_segment_change_pred = torch.cat((hard_segment_change_pred_L, hard_segment_change_pred_R), dim=1)
+            # NOTE: could merging have been done better here?
+            both_out = torch.cat((both_out, both_out), dim=1)   # shape -> (n,b*2,f)
         else:
             segment_change_pred, hard_segment_change_pred = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector)
         # Masking according to segment endpoints:
@@ -323,16 +336,19 @@ class ActionRecognition(torch.nn.Module):
 
         out_s, mask = self._apply_segment_mask(both_out, segments)
 
-
         # Label Prediction Task
         # TODO:
+        # => Increase linear layers to actually call it a mlp
         # -> Do operation to merge right and left features (concatenation or attention)
         #   so as to affect each others output predictions
         if self.merged_pred == "late":
             merged_out_s = self._merge_hands(out_s)
             action_prediction = torch.cat((self.left_mlp(merged_out_s), self.right_mlp(merged_out_s)),dim=0)
         elif self.merged_pred == "early":
-            action_prediction = torch.cat((self.left_mlp(out_s), self.right_mlp(out_s)),dim=0)
+            l_out_s, r_out_s = torch.tensor_split(out_s, 2, dim=0)
+            action_prediction = torch.cat((self.left_mlp(l_out_s), self.right_mlp(r_out_s)),dim=0)
+            # OR 
+            #action_prediction = self.mlp(out_s)
         else:
             action_prediction = self.mlp(out_s)
 
