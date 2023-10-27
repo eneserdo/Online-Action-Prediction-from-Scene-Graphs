@@ -265,7 +265,7 @@ if __name__ == "__main__":
     device = torch.device('cuda:'+str(args.gpu_id))
     # device = torch.device('cuda:'+str(args.gpu_id) if torch.cuda.is_available() else 'cpu')
     
-    wandb.init(project="online-action-prediction-from-scene-graphs", group="after-debug", name=args.name, config=args.__dict__, 
+    wandb.init(project="rt-action-segmentation-from-scene-graphs", group="after-debug", name=args.name, config=args.__dict__, 
                mode="disabled" if args.disable_wandb else "online")
 
     # Use date info to save model weights 
@@ -307,7 +307,8 @@ if __name__ == "__main__":
                                      use_hand_pooling=not args.use_global_pooling,
                                      edge_dropout=args.edge_dropout,
                                      dropout=args.dropout,
-                                     use_cls_token=args.use_cls_token).to(device=device)
+                                     use_cls_token=args.use_cls_token,
+                                     merged_pred=args.merged_pred).to(device=device)
 
 
 

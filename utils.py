@@ -50,6 +50,7 @@ def arg_parser():
     ap.add_argument("--edge_dropout", type=float, default=0.0, help="...")
     ap.add_argument("--dropout", type=float, default=0.0, help="...")
     ap.add_argument("--use_cls_token", action="store_true", help="Use class token in transformer")
+    ap.add_argument("--merged_pred", type=str, default=None, choices=["early", "late", None], help="Merge hands predictions")
 
     # Optimizer
     ap.add_argument("-o", "--optimizer_type", type=str, required=True,

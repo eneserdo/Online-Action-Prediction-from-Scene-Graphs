@@ -104,7 +104,6 @@ def _get_actions_list(gt_action_json: os.PathLike, act_len: int) -> np.ndarray:
 
 
 def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, take) -> Tuple[Data, Data]:
-    raise DeprecationWarning("This function is deprecated. Use _get_graph_list instead")
     # returns edge index and edge features
     
     with open(relation_json) as f:

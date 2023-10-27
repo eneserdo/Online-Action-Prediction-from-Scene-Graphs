@@ -68,7 +68,8 @@ class ActionRecognition(torch.nn.Module):
                        use_hand_pooling, 
                        edge_dropout,
                        dropout,
-                       use_cls_token, 
+                       use_cls_token,
+                       merged_pred, 
                        **kwargs):
         """ Accepts kwargs for non-general params of gnns """
         super().__init__()
@@ -79,7 +80,8 @@ class ActionRecognition(torch.nn.Module):
         self.edge_dropout=edge_dropout
         self.temporal_type=temporal_type
         self.use_cls_token=use_cls_token
-
+        self.merged_pred = merged_pred
+        
         # Sets Graph Network
         if gnn_type == "NNConv":
             nn1 = Sequential(Linear(num_edge_feat, in_channels*hidden_channels), ReLU())
@@ -114,6 +116,9 @@ class ActionRecognition(torch.nn.Module):
                                               (self.conv2, "x, edge_index, edge_attr -> x"), self.act2])
 
 
+        if self.merged_pred == "early":
+            effective_out_ch2 *= 2
+
         if temporal_type in ["lstm", "bi"]:
             num_rnn_layers = 1 # Lets make it constant
             is_bidirectional = ("bi" == temporal_type)
@@ -136,8 +141,21 @@ class ActionRecognition(torch.nn.Module):
             
             lstm_hidden_size=effective_out_ch2
 
+        def build_mlp(in_feat,out_feat, hid_feat=None):
+            # hid_feat = (in_feat+out_feat)//2 if hid_feat == None else hid_feat
+            # return Sequential(Linear(in_feat, hid_feat), SELU(), Linear(hid_feat, out_feat))
+            return Linear(in_feat,out_feat)
 
-        self.mlp=Sequential(Linear(lstm_hidden_size, num_action_classes))
+        if self.merged_pred == "late":
+            # Can this run in parallel? :smile:
+            self.left_mlp = build_mlp(lstm_hidden_size*2, num_action_classes)
+            self.right_mlp = build_mlp(lstm_hidden_size*2, num_action_classes)
+        elif self.merged_pred == "early":
+            self.left_mlp = build_mlp(lstm_hidden_size, num_action_classes)
+            self.right_mlp = build_mlp(lstm_hidden_size, num_action_classes)
+        else:    
+            self.mlp = build_mlp(lstm_hidden_size, num_action_classes)
+
 
     def _hands_pooling(self, x, embeddings, batch):
         
