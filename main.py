@@ -101,6 +101,11 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
             if args.seg_loss == "sDTW":
                 # NOTE: for label dtw input shapes should be (b,n,l) not (n*b,l) 
+                # TODO: 
+                # - ablated study (only seg)
+                # - gamma val tuned (0.001 etc.)
+                # - bceloss distance
+                # - ...
                 t_shape = segment_change_pred.T.shape + (1,)
                 segmentation_loss = segmentation_criterion(segment_change_pred.view(t_shape), ground_truth_segments.view(t_shape)).mean()
             else:
@@ -200,7 +205,7 @@ if __name__ == "__main__":
     # assert args.gpu_id < torch.cuda.device_count(), f"gpu_id:{args.gpu_id} not found. Total gpu count: {torch.cuda.device_count()}"
     device = torch.device('cuda:' + str(args.gpu_id) if torch.cuda.is_available() else 'cpu')
 
-    wandb.init(project="online-action-prediction-from-scene-graphs", name=args.name, config=args.__dict__,
+    wandb.init(project="rt-action-segmentation-from-scene-graphs", name=args.name, config=args.__dict__,
                mode="disabled" if args.disable_wandb else "online")
 
     # Use date info to save model weights 

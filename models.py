@@ -340,6 +340,7 @@ class ActionRecognition(torch.nn.Module):
         # Label Prediction Task
         # TODO:
         # => Increase linear layers to actually call it a mlp
+        #   -> now do experiments with it (merge, different models etc.)
         # -> Do operation to merge right and left features (concatenation or attention)
         #   so as to affect each others output predictions
         if self.merged_pred == "late":
