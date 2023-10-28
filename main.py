@@ -153,9 +153,9 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     if mode != "test":
         wandb.log({f"{mode}/epoch/": {'top1_F1': overall_f1_top1, 'top3_F1': overall_f1_top3}, 'epoch': epoch})
 
-    cf1 = wandb.Table(data=overall_conf_mat_top1.cpu().numpy(), columns=ACTIONS, rows=ACTIONS)
-    cf3 = wandb.Table(data=overall_conf_mat_top3.cpu().numpy(), columns=ACTIONS, rows=ACTIONS)
-    wandb.log({f"{mode}_cf/": {"top1": cf1, "top3": cf3}}, step=step)
+    # cf1 = wandb.Table(data=overall_conf_mat_top1.cpu().numpy(), columns=ACTIONS, rows=ACTIONS)
+    # cf3 = wandb.Table(data=overall_conf_mat_top3.cpu().numpy(), columns=ACTIONS, rows=ACTIONS)
+    # wandb.log({f"{mode}_cf/": {"top1": cf1, "top3": cf3}}, step=step)
 
     # scores = classification_scores(conf_mat_top)
     # scores_top_3 = classification_scores(conf_mat_top_3)
