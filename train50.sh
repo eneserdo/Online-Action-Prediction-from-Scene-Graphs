@@ -112,13 +112,31 @@
 # python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_50_Perf_bs128 -tl 50 -bs 128 --perfect_seg --gpu_id 1
 # sleep 5
 
-python prepare_dataset.py -tl 1
+# python prepare_dataset.py -tl 1
 
-python main.py -g TransformerConv -o Adam -lr 0.0001 -me 20 --scheduler_step_size 5 --scheduler_gamma 0.75 --name TC_tl1 -tl 1
+# python main.py -g TransformerConv -o Adam -lr 0.0001 -me 20 --scheduler_step_size 5 --scheduler_gamma 0.75 --name TC_tl1 -tl 1
+# sleep 5
+
+# python prepare_dataset.py -tl 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0001 -me 20 --scheduler_step_size 5 --scheduler_gamma 0.75 --name TC_tl5 -tl 5
+# sleep 5
+
+
+python main.py -g GATConv -o Adam -lr 0.0001 -me 20 --scheduler_step_size 5 --scheduler_gamma 0.75 --name G_S1 -hc 18 -nh 5 -oc 36 -hs 224
 sleep 5
 
-python prepare_dataset.py -tl 5
-
-python main.py -g TransformerConv -o Adam -lr 0.0001 -me 20 --scheduler_step_size 5 --scheduler_gamma 0.75 --name TC_tl5 -tl 5
+python main.py -g GATv2Conv -o Adam -lr 0.0001 -me 20 --scheduler_step_size 5 --scheduler_gamma 0.75 --name G2_S1 -hc 16 -nh 4 -oc 32 -hs 224
 sleep 5
 
+python main.py -g GATConv -o Adam -lr 0.0001 -me 20 --scheduler_step_size 5 --scheduler_gamma 0.75 --name G_S2 -hc 24 -nh 5 -oc 40 -hs 224
+sleep 5
+
+python main.py -g GATv2Conv -o Adam -lr 0.0001 -me 20 --scheduler_step_size 5 --scheduler_gamma 0.75 --name G2_S2 -hc 22 -nh 4 -oc 36 -hs 224
+sleep 5
+
+python main.py -g GATConv -o Adam -lr 0.0001 -me 20 --scheduler_step_size 5 --scheduler_gamma 0.75 --name G_S3 -hc 24 -nh 6 -oc 40 -hs 224
+sleep 5
+
+python main.py -g GATv2Conv -o Adam -lr 0.0001 -me 20 --scheduler_step_size 5 --scheduler_gamma 0.75 --name G2_S3 -hc 21 -nh 5 -oc 34 -hs 224
+sleep 5
