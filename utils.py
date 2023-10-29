@@ -13,9 +13,14 @@ import numpy as np
 import seaborn as sns
 import torch
 from sklearn.metrics import confusion_matrix
+from torchmetrics.classification import MulticlassF1Score
+from scipy.optimize import linear_sum_assignment
 
 from dataset import ACTIONS
+from scipy import sparse
+from collections import Counter
 
+from metrics import f1_at_k_single_example
 plt.ioff()
 
 
@@ -417,3 +422,138 @@ def visualize_incorrect_preds(preds, labels, idxes, mapping_path, graph_dataset_
                 f.write("\n")
 
                 prev_relations = curr_relations
+
+def calculate_boundaries(arr):
+    """ Sparse array to dense boundaries """
+
+    id_changes = np.where(arr ==1)[0]
+    boundaries = np.zeros((len(id_changes), 2), dtype=np.int)
+
+    boundaries[1:, 0] = id_changes[:-1]+1
+    boundaries[:, 1] = id_changes
+
+    return boundaries
+
+
+def calc_cost_matrix_single(gt_seg, pred_seg):
+    """ Calculates cost matrix using hungarian algorithm for single example """
+    # old:
+    # gt_seg_pseudo_label=np.cumsum(gt_seg)
+    # pred_seg_pseudo_label=np.cumsum(pred_seg)
+
+    # stacked=np.stack((gt_seg_pseudo_label, pred_seg_pseudo_label), axis=1)
+    # stacked = stacked.tolist()
+    # stacked= [tuple(s) for s in stacked]
+    # cntr=Counter(stacked)
+    # m=sparse.csc_matrix((list(cntr.values()), list(cntr.keys())))
+    # return m.toarray()
+    # new: 
+    # TODO add assert for gt_seg and pred_seg shapes 
+    ground_truth_boundaries = calculate_boundaries(gt_seg)
+    predicted_boundaries = calculate_boundaries(pred_seg)
+    
+    cost_matrix = np.zeros((len(ground_truth_boundaries), len(predicted_boundaries)))
+
+    for i, (gt_start, gt_end) in enumerate(ground_truth_boundaries):
+        for j, (p_start, p_end) in enumerate(predicted_boundaries):
+            if gt_end < p_start:
+                break
+            elif p_end < gt_start:
+                continue
+            elif gt_start <= p_start and p_end <= gt_end:
+                cost_matrix[i, j] = p_end - p_start + 1
+            elif p_start <= gt_start and gt_end <= p_end:
+                cost_matrix[i, j] = gt_end - gt_start + 1
+            else:
+                arg1 = p_end - gt_start + 1
+                arg2 = gt_end - p_start + 1
+                cost_matrix[i, j] = min(max(arg1, 0), max(arg2, 0)) 
+    
+    return cost_matrix, ground_truth_boundaries, predicted_boundaries
+    
+
+def assign_seg_labels_single(cost_matrix, gt_seg_labels, gt_boundaries, pred_boundaries):
+    """ Assigns ground truth segment labels to predicted unknown segments for single example """
+
+    row_ind, col_ind = linear_sum_assignment(cost_matrix, maximize=True)
+
+    pred_seg_labels = np.zeros_like(gt_seg_labels)
+
+    for i, j in zip(row_ind, col_ind):
+        label_loc, _ = gt_boundaries[i]
+        label = gt_seg_labels[label_loc]
+        start, end = pred_boundaries[j]
+        pred_seg_labels[start:end] = label
+
+    return pred_seg_labels
+
+
+def assign_seg_labels(gt_seg_labels, gt_seg, pred_seg):
+    """ Assigns ground truth segment labels to predicted unknown segments """
+    # gt_seg_labels: [T, B, C]
+    # gt_seg: [T, B] (ones and zeros, ones indicate segment endings)
+    # pred_seg: [T, B] (ones and zeros, ones indicate segment endings)
+
+    # calculate cost matrix
+    gt_seg_labels = gt_seg_labels.argmax(axis=2)
+    pred_seg = pred_seg > 0.5
+    
+    # FIXME: this is a hack to make sure that the last frame is always a segment ending
+    gt_seg[-1, :] = 1
+    pred_seg[-1, :] = 1
+    
+    batch_size=gt_seg.shape[1]
+    pred_seg_labels = np.zeros_like(gt_seg_labels)
+
+    for b_id in range(batch_size):
+        gt_seg_labels_b = gt_seg_labels[:, b_id]
+        gt_seg_b = gt_seg[:, b_id]
+        pred_seg_b = pred_seg[:, b_id]
+
+        # calculate cost matrix
+        cost_matrix, gt_boundaries, pred_boundaries = calc_cost_matrix_single(gt_seg_b, pred_seg_b)
+
+        # apply hungarian algorithm
+        # assign labels to unknown segments
+        pred_seg_labels_b = assign_seg_labels_single(cost_matrix, gt_seg_labels_b, gt_boundaries, pred_boundaries)
+        pred_seg_labels[:, b_id] = pred_seg_labels_b
+
+    return pred_seg_labels
+
+
+class F1_at_k:
+    # Very custom class for calculating f1@k
+    def __init__(self, num_classes, save_dir=None):
+        self.num_classes = num_classes
+        self.k_10 = []
+        self.k_25 = []
+        self.k_50 = []
+        self.save_dir = save_dir
+        # self.f_regular = MulticlassF1Score(num_classes=num_classes, average="macro")
+        if self.save_dir is not None:   
+            raise NotImplementedError("saving f1@k plots is not implemented yet")
+            os.makedirs(self.save_dir, exist_ok=True)
+    
+        # self.class_id_to_label = {i: label for i, label in enumerate(ACTIONS)}
+        
+    def __call__(self, y_true, y_pred, segment_name = None):
+         
+        assert y_true.shape == y_pred.shape, "y_true and y_pred must have same shape"
+                
+        # plot_save_dir = opj(save_dir, segment_name)
+
+        for y_t, y_p in zip(y_true, y_pred):
+            self.k_10.append(f1_at_k_single_example(y_t, y_p, num_classes=self.num_classes, overlap=0.1))
+            self.k_25.append(f1_at_k_single_example(y_t, y_p, num_classes=self.num_classes, overlap=0.25))
+            self.k_50.append(f1_at_k_single_example(y_t, y_p, num_classes=self.num_classes, overlap=0.5))
+
+            #TODO: save segmentation plots 
+            # hand_name= "_L_" if i % 2 == 0 else "_R_"
+            # mirror_name= "" if i < 2 else "M"
+            # plot_segmentation(y_t, y_p, class_id_to_label=self.class_id_to_label, save_file=self.plot_save_dir + hand_name + mirror_name + ".png", bar_height=50)
+        
+            # TODO: Calculate regular f1 score
+            # f1_score(torch.tensor(y_pred_L), torch.tensor(y_true_L))
+
+    def compute(self):
+        return np.mean(self.k_10), np.mean(self.k_25), np.mean(self.k_50)

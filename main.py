@@ -26,8 +26,8 @@ import matplotlib.pyplot as pyplot
 import models
 import wandb
 from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits)
-from utils import (arg_parser, get_minutes, plot_conf_mat, seed_worker, 
-                   visualize_incorrect_preds, create_ground_truth_segments)
+from utils import (F1_at_k, arg_parser, get_minutes, plot_conf_mat, seed_worker, 
+                   visualize_incorrect_preds, create_ground_truth_segments, assign_seg_labels)
 
 from tslearn.metrics import SoftDTWLossPyTorch
 
@@ -62,6 +62,8 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     f1_calc_top3 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(
         device)  # top_k is intentionally 1
 
+    f1_at_k = F1_at_k(num_classes=len(ACTIONS))
+
     conf_mat_top1 = MulticlassConfusionMatrix(num_classes=len(ACTIONS), normalize="true").to(device)
     conf_mat_top3 = MulticlassConfusionMatrix(num_classes=len(ACTIONS), normalize="true").to(device)
 
@@ -77,9 +79,9 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
             data = [d.to(device) for d in data]
 
-            ground_truth_left_right = torch.stack([torch.cat([d.y[::2], d.y[1::2]]) for d in data], dim=0)
+            ground_truth_left_right_ = torch.stack([torch.cat([d.y[::2], d.y[1::2]]) for d in data], dim=0)
 
-            ground_truth_segments = create_ground_truth_segments(torch.argmax(ground_truth_left_right, dim=-1))
+            ground_truth_segments = create_ground_truth_segments(torch.argmax(ground_truth_left_right_, dim=-1))
 
             # TODO: Make prediction for each segment using mask
             # 1. from predicted segments
@@ -91,7 +93,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                 data, ground_truth_segments)  # left_right_pred = model(data) # segmentation task -> FSD 20.09.2023
 
 
-            ground_truth_left_right = torch.flatten(torch.transpose(ground_truth_left_right,0,1), start_dim=0, end_dim=1)
+            ground_truth_left_right = torch.flatten(torch.transpose(ground_truth_left_right_, 0, 1), start_dim=0, end_dim=1)
             if args.sparse_pred:
                 left_right_pred, mask = left_right_pred
                 ground_truth_left_right = ground_truth_left_right[mask]
@@ -118,6 +120,17 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                 loss.backward()
                 optimizer.step()
 
+            time1 = time.perf_counter()
+            pred_seg_labels=assign_seg_labels(ground_truth_left_right_.cpu().numpy(), ground_truth_segments.cpu().numpy(), segment_change_pred.cpu().detach().numpy())
+            print("assign_seg_labels time:", time.perf_counter()-time1)
+
+
+            time1 = time.perf_counter()
+            f1_at_k(ground_truth_left_right_.cpu().numpy().argmax(axis=2), pred_seg_labels)
+            print("f1_at_k time:", time.perf_counter()-time1)
+            
+
+            # # Calculate metrics
             # testden gelen
             pred_top_3 = torch.argsort(left_right_pred, dim=-1, descending=True)[:, :3]
             pred_top_1 = pred_top_3[:,0]
@@ -160,7 +173,10 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     # scores = classification_scores(conf_mat_top)
     # scores_top_3 = classification_scores(conf_mat_top_3)
 
+    f1_at_10, f1_at_25, f1_at_50  = f1_at_k.compute()
+
     wandb.log({'top1/': {'F1': overall_f1_top1}, 'top3/': {'F1': overall_f1_top3}})
+    wandb.log({'f1@k/': {'k10': f1_at_10, 'k25': f1_at_25, 'k50': f1_at_50}})
 
     """dummy_i = 0
     if mode == "test":
