@@ -120,14 +120,11 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                 loss.backward()
                 optimizer.step()
 
-            time1 = time.perf_counter()
+            # This takes 0.006 seconds
             pred_seg_labels=assign_seg_labels(ground_truth_left_right_.cpu().numpy(), ground_truth_segments.cpu().numpy(), segment_change_pred.cpu().detach().numpy())
-            print("assign_seg_labels time:", time.perf_counter()-time1)
-
-
-            time1 = time.perf_counter()
+            
+            # This takes 0.11 seconds
             f1_at_k(ground_truth_left_right_.cpu().numpy().argmax(axis=2), pred_seg_labels)
-            print("f1_at_k time:", time.perf_counter()-time1)
             
 
             # # Calculate metrics
@@ -148,7 +145,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
             if mode != "test":
                 wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item(), "Label Loss": label_loss.item(), "Segmentation Loss": segmentation_loss.item()},
-                           'batch': step}, step=step)
+                           'batch': step})
 
             if mode == "test" and args.save_incorrects:
                 visualize_incorrect_preds(pred_top_1, ground_truth, idxes, num_of_samples=4, 
@@ -174,41 +171,44 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     # scores_top_3 = classification_scores(conf_mat_top_3)
 
     f1_at_10, f1_at_25, f1_at_50  = f1_at_k.compute()
+    wandb.log({f"{mode}/epoch/": {'f1@10': f1_at_10, 'f1@25': f1_at_25, 'f1@50': f1_at_50}, 'epoch': epoch})
 
-    wandb.log({'top1/': {'F1': overall_f1_top1}, 'top3/': {'F1': overall_f1_top3}})
-    wandb.log({'f1@k/': {'k10': f1_at_10, 'k25': f1_at_25, 'k50': f1_at_50}})
+    # FIXME: Aşşağıda ki satır neden var
+    # wandb.log({'top1/': {'F1': overall_f1_top1}, 'top3/': {'F1': overall_f1_top3}})
 
-    """dummy_i = 0
-    if mode == "test":
-        dummy_i += 1
-        visualize_incorrect_preds(pred_top_1, ground_truth, idxes, 
-                                  mapping_path="processed10/test_idx_sample_mapping.json")"""
+    # To unify and simplify return statement
+    return_dict = {"f1_top1": overall_f1_top1.item(), 
+                   "f1_top3": overall_f1_top3.item(), 
+                   "cm_top1": overall_conf_mat_top1.cpu(), 
+                   "cm_top3": overall_conf_mat_top3.cpu(),
+                   "f1_at_10": f1_at_10,
+                   "f1_at_25": f1_at_25,
+                   "f1_at_50": f1_at_50}
 
-    if mode in ["test", "val"]:
-        return overall_f1_top1, overall_f1_top3, overall_conf_mat_top1, overall_conf_mat_top3
-    elif mode == "train":
-        return overall_f1_top1, overall_f1_top3
+    return return_dict
 
 
-def test_for_all_saved_weights(model, test_loader):
+def test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of="f1_top1"):
+    
+    comparison_metric=choose_best_in_terms_of
+    
     weight_list=sorted(glob.glob(opj(save_dir, "*.pt")))
     
-    best_top1 = 0    
+    best_metric = 0    
     results = []
     best_i = -1
     for i, w_name in enumerate(weight_list):
         print(f"TESTING {w_name}:")
         checkpoint = torch.load(w_name)
         model.load_state_dict(checkpoint["model_state_dict"])
-        scores_and_conf_mats = run_one_epoch(model, test_loader, 'test', epoch=-1)
-        # f_top1_test, f_top3_test, conf_mat_top1_test, conf_mat_top3_test = scores_and_conf_mats
+        returned_dict = run_one_epoch(model, test_loader, 'test', epoch=-1)
         
-        print(f"\tTop1: {scores_and_conf_mats[0]}, Top3: {scores_and_conf_mats[1]}")
-        
-        results.append(scores_and_conf_mats)
-        
-        if best_top1 < scores_and_conf_mats[0]:
-            best_top1 = scores_and_conf_mats[0]
+
+        print(f'### [F1] TEST: top1: {test_metrics["f1_top1"]}, top3: {test_metrics["f1_top3"]}, f1@10: {test_metrics["f1_at_10"]}, f1@25: {test_metrics["f1_at_25"]}, f1@50: {test_metrics["f1_at_50"]}')
+
+        results.append(returned_dict)        
+        if best_metric < returned_dict[comparison_metric]:
+            best_metric = returned_dict[comparison_metric]
             best_i = i
 
     return results[best_i]
@@ -319,9 +319,6 @@ if __name__ == "__main__":
     if not os.path.isdir(save_dir):
         os.mkdir(save_dir)
 
-    # conf_mat_dir=f"conf_mat_{args.name}"
-    # if not os.path.isdir(conf_mat_dir):
-    #     os.mkdir(conf_mat_dir)
 
     # Load saved models if required
     if args.restore is not None:
@@ -332,6 +329,7 @@ if __name__ == "__main__":
         scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
         print("model and optimizer parameters are restored successfully!")
 
+    # STARTS TRAINING AND VALIDATION
     step = 0
     print("Starts training...")
     start = 1 if args.restore is None else args.restore
@@ -339,9 +337,11 @@ if __name__ == "__main__":
     for epoch in range(start, start + args.max_epochs):
         start = time.perf_counter()
 
-        f_top1_train, f_top3_train = run_one_epoch(model, train_loader, 'train', epoch)
+        # f_top1_train, f_top3_train = run_one_epoch(model, train_loader, 'train', epoch)
+        train_metrics = run_one_epoch(model, train_loader, 'train', epoch)
 
-        f_top1_val, f_top3_val, conf_mat_top1_val, conf_mat_top3_val = run_one_epoch(model, val_loader, 'val', epoch)
+        val_metrics = run_one_epoch(model, val_loader, 'val', epoch)
+
 
         # Save model
         if epoch % args.saving_freq == 0:
@@ -351,9 +351,9 @@ if __name__ == "__main__":
 
         # VALIDATION
         # save confusion matrices
-        plt = plot_conf_mat(conf_mat_top1_val.cpu(), f"conf_mat_top1_e{epoch:0>4}", do_return_plot=True)
+        plt = plot_conf_mat(val_metrics["cm_top1"], f"conf_mat_top1_e{epoch:0>4}", do_return_plot=True)
         wandb.log({'val/confusion_matrix/': {'top1': wandb.Image(plt)}})
-        plt3 = plot_conf_mat(conf_mat_top3_val.cpu(), f"conf_mat_top3_e{epoch:0>4}", do_return_plot=True)
+        plt3 = plot_conf_mat(val_metrics["cm_top3"], f"conf_mat_top3_e{epoch:0>4}", do_return_plot=True)
         wandb.log({'val/confusion_matrix/': {'top3': wandb.Image(plt3)}})
         plt.close()
         plt3.close()
@@ -361,30 +361,29 @@ if __name__ == "__main__":
         scheduler.step()
         stop = time.perf_counter()
         print(f'### {epoch:03d}: Time {get_minutes(stop - start)}'
-              f'm ### [F1] Train: top1: {round(f_top1_train.item(), 4)},'
-              f' top3: {round(f_top3_train.item(), 4)} '
-              f'### Val: top1: {round(f_top1_val.item(), 4)}, top3: {round(f_top3_val.item(), 4)}')
+              f'm ### [F1] Train: top1: {round(train_metrics["f1_top1"], 4)},'
+              f' top3: {round(train_metrics["f1_top3"], 4)} '
+              f'### Val: top1: {round(val_metrics["f1_top1"], 4)}, top3: {round(val_metrics["f1_top3"], 4)}
+              f'### [F1@k] Train: k10: {round(train_metrics["f1_at_10"], 4)}, k25: {round(train_metrics["f1_at_25"], 4)}, k50: {round(train_metrics["f1_at_50"], 4)}')
+              f'### Val: k10: {round(val_metrics["f1_at_10"], 4)}, k25: {round(val_metrics["f1_at_25"], 4)}, k50: {round(val_metrics["f1_at_50"], 4)}')
 
     # TEST
     print("Starts test...")
     # f_top1_test, f_top3_test, conf_mat_top1_test, conf_mat_top3_test = run_one_epoch(model, test_loader, 'test', epoch=-1)
-    f_top1_test, f_top3_test, conf_mat_top1_test, conf_mat_top3_test = test_for_all_saved_weights(model, test_loader)
+    # f_top1_test, f_top3_test, conf_mat_top1_test, conf_mat_top3_test = test_for_all_saved_weights(model, test_loader)
+    test_metrics = test_for_all_saved_weights(model, test_loader)
 
-    plt = plot_conf_mat(conf_mat_top1_test.cpu(), f"TEST_conf_mat_top1_e{epoch:0>4}", do_return_plot=True)
+
+    plt = plot_conf_mat(test_metrics["cm_top1"], f"TEST_conf_mat_top1_e{epoch:0>4}", do_return_plot=True)
     wandb.log({'test/confusion_matrix/': {'top1': wandb.Image(plt)}})
-    plt3 = plot_conf_mat(conf_mat_top3_test.cpu(), f"TEST_conf_mat_top3_e{epoch:0>4}", do_return_plot=True)
+    plt3 = plot_conf_mat(test_metrics["cm_top3"], f"TEST_conf_mat_top3_e{epoch:0>4}", do_return_plot=True)
     wandb.log({'test/confusion_matrix/': {'top3': wandb.Image(plt3)}})
+    
 
-    print(f'### [F1] TEST: top1: {round(f_top1_test.item(), 4)}, top3: {round(f_top3_test.item(), 4)}')
-    # TODO: Log as barplot
-    wandb.log({"test_top1": round(f_top1_test.item(), 4), "test_top3": round(f_top3_test.item(), 4)})
+    print(f'### [F1] TEST: top1: {round(test_metrics["f1_top1"], 4)}, top3: {round(test_metrics["f1_top3"], 4)}, f1@10: {round(test_metrics["f1_at_10"], 4)}, f1@25: {round(test_metrics["f1_at_25"], 4)}, f1@50: {round(test_metrics["f1_at_50"], 4)}')
+    wandb.log({"test_top1": round(test_metrics["f1_top1"], 4), "test_top3": round(test_metrics["f1_top3"], 4), "f1_at_10": round(test_metrics["f1_at_10"], 4), "f1_at_25": round(test_metrics["f1_at_25"], 4), "f1_at_50": round(test_metrics["f1_at_50"], 4)})
 
     plt.close()
     plt3.close()
-
-    # Old test
-    # test(model, test_loader)
-
     torch.cuda.empty_cache()
-
     wandb.finish()

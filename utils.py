@@ -427,7 +427,7 @@ def calculate_boundaries(arr):
     """ Sparse array to dense boundaries """
 
     id_changes = np.where(arr ==1)[0]
-    boundaries = np.zeros((len(id_changes), 2), dtype=np.int)
+    boundaries = np.zeros((len(id_changes), 2), dtype=np.int32)
 
     boundaries[1:, 0] = id_changes[:-1]+1
     boundaries[:, 1] = id_changes
