@@ -557,3 +557,41 @@ class F1_at_k:
 
     def compute(self):
         return np.mean(self.k_10), np.mean(self.k_25), np.mean(self.k_50)
+
+
+def majority_voting(arr, total_len, buffer_len, vote_weights=None):
+    # majority voting for overlapping windows for single sample
+    # arr: [T,]
+
+    result = np.zeros((total_len), dtype=np.int32)
+    confidences = np.zeros((total_len))
+    shift = buffer_len - 1
+
+    # First element:
+    result[0], confidences[0] = arr[0], 1
+    
+    for i in range(1, total_len):
+        if i < buffer_len - 1: # First buffer_len-1 frames
+            j = i
+            repeat = i
+        elif buffer_len - 1 <= i < total_len - buffer_len + 1: # Middle frames
+            j = (i - shift) * buffer_len + shift
+            repeat = buffer_len
+        elif total_len - buffer_len + 1 <= i: # Last buffer_len-1 frames
+            j = (i - shift) * buffer_len + shift
+            repeat = total_len - i
+        
+        sub_arr = arr[j : j + repeat * (buffer_len - 1) + 1 : buffer_len - 1]
+
+        # Count votes
+        values, counts = np.unique(sub_arr, return_counts=True)
+        if vote_weights is not None:
+            raise NotImplementedError("This is not easy to implement. Use vote_weights=None")
+        else:
+            ind = np.argmax(counts)
+            elected = values[ind]
+
+        result[i], confidences[i] = elected, counts[ind] / buffer_len
+
+
+    return result, confidences

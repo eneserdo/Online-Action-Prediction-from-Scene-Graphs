@@ -276,10 +276,16 @@ class BimanualDataset(Dataset):
                        fix_fps: bool=False,
                        fix_null: bool=False):
         
-        if fix_fps:
-            assert temporal_length%2==0, "When fix fps enabled, temporal_length must be even"
+        # To process the whole video
+        if temporal_length == -1:
+            self.process_whole_video=True
+            self.processed_folder_name = 'processed_whole'
+        else:
+            self.temporal_length = temporal_length
+            self.processed_folder_name = 'processed'+str(self.temporal_length)
+            if fix_fps:
+                assert temporal_length%2==0, "When fix fps enabled, temporal_length must be even"
         
-        self.temporal_length = temporal_length
         self.is_processed = is_processed
         self.test_subject = test_subject
         self.validation_take = validation_take
@@ -306,7 +312,7 @@ class BimanualDataset(Dataset):
 
     @property
     def processed_dir(self) -> str:
-        return opj(self.root, 'processed'+str(self.temporal_length))
+        return opj(self.root, self.processed_folder_name)
 
     @property
     def raw_file_names(self):
@@ -404,6 +410,9 @@ class BimanualDataset(Dataset):
         
         self.split_len=self.config[self.split]
         self.distribution = self.config["distribution"]
+
+    def _get_longest_video_len(self) -> int:
+        ...
 
     def process(self):
         global TOTAL_FRAME_COUNT

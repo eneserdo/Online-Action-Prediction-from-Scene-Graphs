@@ -121,10 +121,16 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                 optimizer.step()
 
             # This takes 0.006 seconds
-            pred_seg_labels=assign_seg_labels(ground_truth_left_right_.cpu().numpy(), ground_truth_segments.cpu().numpy(), segment_change_pred.cpu().detach().numpy())
+            if label_loss_weight == 0:
+                # It means that we do not have any label, so we need to assign labels to the segments 
+                left_right_pred=assign_seg_labels(ground_truth_left_right_.cpu().numpy(), ground_truth_segments.cpu().numpy(), segment_change_pred.cpu().detach().numpy())
+            else:
+                # we need to reshape left_right_pred
+                # TODO: sanity check: assert left_right_pred = assign_seg_labels(...)
+                raise NotImplementedError("This part is not implemented yet")
             
             # This takes 0.11 seconds
-            f1_at_k(ground_truth_left_right_.cpu().numpy().argmax(axis=2), pred_seg_labels)
+            f1_at_k(ground_truth_left_right_.cpu().numpy().argmax(axis=2), left_right_pred)
             
 
             # # Calculate metrics
@@ -363,8 +369,8 @@ if __name__ == "__main__":
         print(f'### {epoch:03d}: Time {get_minutes(stop - start)}'
               f'm ### [F1] Train: top1: {round(train_metrics["f1_top1"], 4)},'
               f' top3: {round(train_metrics["f1_top3"], 4)} '
-              f'### Val: top1: {round(val_metrics["f1_top1"], 4)}, top3: {round(val_metrics["f1_top3"], 4)}
-              f'### [F1@k] Train: k10: {round(train_metrics["f1_at_10"], 4)}, k25: {round(train_metrics["f1_at_25"], 4)}, k50: {round(train_metrics["f1_at_50"], 4)}')
+              f'### Val: top1: {round(val_metrics["f1_top1"], 4)}, top3: {round(val_metrics["f1_top3"], 4)}'
+              f'### [F1@k] Train: k10: {round(train_metrics["f1_at_10"], 4)}, k25: {round(train_metrics["f1_at_25"], 4)}, k50: {round(train_metrics["f1_at_50"], 4)}'
               f'### Val: k10: {round(val_metrics["f1_at_10"], 4)}, k25: {round(val_metrics["f1_at_25"], 4)}, k50: {round(val_metrics["f1_at_50"], 4)}')
 
     # TEST
