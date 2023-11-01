@@ -6,7 +6,9 @@
 """
 
 import glob
+import json
 import os
+import pickle
 import random
 import time
 from datetime import datetime
@@ -26,7 +28,7 @@ import matplotlib.pyplot as pyplot
 import models
 import wandb
 from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits)
-from utils import (F1_at_k, arg_parser, get_minutes, plot_conf_mat, seed_worker, 
+from utils import (F1_at_k, arg_parser, calc_f1_at_k_at_once, combine_predictions, get_minutes, plot_conf_mat, seed_worker, 
                    visualize_incorrect_preds, create_ground_truth_segments, assign_seg_labels)
 
 from tslearn.metrics import SoftDTWLossPyTorch
@@ -59,13 +61,16 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
         model.train()
 
     f1_calc_top1 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(device)
-    f1_calc_top3 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(
-        device)  # top_k is intentionally 1
+    f1_calc_top3 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(device)  # top_k is intentionally 1
 
     f1_at_k = F1_at_k(num_classes=len(ACTIONS))
 
     conf_mat_top1 = MulticlassConfusionMatrix(num_classes=len(ACTIONS), normalize="true").to(device)
     conf_mat_top3 = MulticlassConfusionMatrix(num_classes=len(ACTIONS), normalize="true").to(device)
+
+    # A dictionary that contains all predictions for all videos
+    all_predictions_combined = {vid + mirrored: np.zeros((act.shape[0] - args.temporal_length + 1) * args.temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for mirrored in ["_", "M"]}
+
 
     with warnings.catch_warnings():
         warnings.filterwarnings('ignore', '.*There is a performance drop.*|.*NaN values found in confusion matrix.*',
@@ -79,9 +84,9 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
             data = [d.to(device) for d in data]
 
-            ground_truth_left_right_ = torch.stack([torch.cat([d.y[::2], d.y[1::2]]) for d in data], dim=0)
+            gt_reordered = torch.stack([torch.cat([d.y[::2], d.y[1::2]]) for d in data], dim=0)
 
-            ground_truth_segments = create_ground_truth_segments(torch.argmax(ground_truth_left_right_, dim=-1))
+            ground_truth_segments = create_ground_truth_segments(torch.argmax(gt_reordered, dim=-1))
 
             # TODO: Make prediction for each segment using mask
             # 1. from predicted segments
@@ -89,16 +94,17 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             # 2. from ground truth segments
 
             # TODO: obtain 0,1 valued targets of whether action changes via algorithm here or in data processing phase -> FSD 20.09.2023
-            left_right_pred, segment_change_pred = model(
-                data, ground_truth_segments)  # left_right_pred = model(data) # segmentation task -> FSD 20.09.2023
+            # pred_flattened = model(data) # segmentation task -> FSD 20.09.2023
+            pred_flattened, segment_change_pred = model(data, ground_truth_segments)  
 
 
-            ground_truth_left_right = torch.flatten(torch.transpose(ground_truth_left_right_, 0, 1), start_dim=0, end_dim=1)
+            gt_flattened = torch.flatten(torch.transpose(gt_reordered, 0, 1), start_dim=0, end_dim=1)
+            
             if args.sparse_pred:
-                left_right_pred, mask = left_right_pred
-                ground_truth_left_right = ground_truth_left_right[mask]
+                pred_flattened, mask = pred_flattened
+                gt_flattened = gt_flattened[mask]
 
-            label_loss = label_criterion(left_right_pred, ground_truth_left_right)
+            label_loss = label_criterion(pred_flattened, gt_flattened)
             loss = label_loss * label_loss_weight
 
             if args.seg_loss == "sDTW":
@@ -120,28 +126,35 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                 loss.backward()
                 optimizer.step()
 
+            pred = pred_flattened.cpu().detach()
+            pred = torch.transpose(pred.unflatten(0, (512, 10)), 0,1).argmax(dim=-1)
+            # # # Match predicted segments with ground truth segment labels 
             # This takes 0.006 seconds
-            if label_loss_weight == 0:
-                # It means that we do not have any label, so we need to assign labels to the segments 
-                left_right_pred=assign_seg_labels(ground_truth_left_right_.cpu().numpy(), ground_truth_segments.cpu().numpy(), segment_change_pred.cpu().detach().numpy())
-            else:
-                # we need to reshape left_right_pred
-                # TODO: sanity check: assert left_right_pred = assign_seg_labels(...)
-                raise NotImplementedError("This part is not implemented yet")
+            # if label_loss_weight == 0:
+            #     # It means that we do not have any label, so we need to assign labels to the segments 
+            #     pred_flattened = assign_seg_labels(ground_truth_left_right_.cpu().numpy(), ground_truth_segments.cpu().numpy(), segment_change_pred.cpu().detach().numpy())
+            # else:
+            #     # we need to reshape pred_flattened
+            #     # TODO: sanity check: assert pred_flattened = assign_seg_labels(...)
+            #     raise NotImplementedError("This part is not implemented yet")
             
+            idxes_reordered = torch.cat([idxes, idxes])
+            combine_predictions(all_predictions_combined, idxes_reordered.numpy(), pred, dataset_mapping[mode]["sample"])
+
             # This takes 0.11 seconds
-            f1_at_k(ground_truth_left_right_.cpu().numpy().argmax(axis=2), left_right_pred)
+            # f1_at_k(ground_truth_left_right_.cpu().numpy().argmax(axis=2), pred_flattened)
             
+
 
             # # Calculate metrics
             # testden gelen
-            pred_top_3 = torch.argsort(left_right_pred, dim=-1, descending=True)[:, :3]
+            pred_top_3 = torch.argsort(pred_flattened, dim=-1, descending=True)[:, :3]
             pred_top_1 = pred_top_3[:,0]
-            ground_truth = ground_truth_left_right.argmax(dim=-1)
+            ground_truth = gt_flattened.argmax(dim=-1)
             pred_top_3_final = torch.where(functorch.vmap(lambda t1, t2: torch.isin(t1, t2))(ground_truth, pred_top_3),
                                         ground_truth, pred_top_1)
             # torchmetric
-            step_f1_top1 = f1_calc_top1(left_right_pred, ground_truth) # NOTE: Lookup if input can have more than 2 channels
+            step_f1_top1 = f1_calc_top1(pred_flattened, ground_truth) # NOTE: Lookup if input can have more than 2 channels
             step_f1_top3 = f1_calc_top3(pred_top_3_final, ground_truth)
 
             conf_mat_top1(pred_top_1, ground_truth)
@@ -155,7 +168,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
             if mode == "test" and args.save_incorrects:
                 visualize_incorrect_preds(pred_top_1, ground_truth, idxes, num_of_samples=4, 
-                                          mapping_path="processed10/test_idx_sample_mapping.json")
+                                          test_idx_sample_mapping=dataset_mapping["test"]["sample"])
             # if (step+1)%20==0:
             #     print("20 BATCH ÇALIŞIYOR SADECE")
             #     break
@@ -169,18 +182,19 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     if mode != "test":
         wandb.log({f"{mode}/epoch/": {'top1_F1': overall_f1_top1, 'top3_F1': overall_f1_top3}, 'epoch': epoch})
 
-    # cf1 = wandb.Table(data=overall_conf_mat_top1.cpu().numpy(), columns=ACTIONS, rows=ACTIONS)
-    # cf3 = wandb.Table(data=overall_conf_mat_top3.cpu().numpy(), columns=ACTIONS, rows=ACTIONS)
-    # wandb.log({f"{mode}_cf/": {"top1": cf1, "top3": cf3}}, step=step)
+    
+    # # Using all_arr and ground_truth, calculate f1@k
+    # divide all arr into videos using idx-video len matcihng
+    # Load ground truth from file
+    # calculate f1@k for each video
+    # calculate mean of f1@k for all videos
 
-    # scores = classification_scores(conf_mat_top)
-    # scores_top_3 = classification_scores(conf_mat_top_3)
 
-    f1_at_10, f1_at_25, f1_at_50  = f1_at_k.compute()
+    # f1_at_10, f1_at_25, f1_at_50  = f1_at_k.compute()
+    f1_at_10, f1_at_25, f1_at_50 = calc_f1_at_k_at_once(all_predictions_combined, dataset_mapping[mode]["vid"], num_classes=len(ACTIONS))
+
     wandb.log({f"{mode}/epoch/": {'f1@10': f1_at_10, 'f1@25': f1_at_25, 'f1@50': f1_at_50}, 'epoch': epoch})
 
-    # FIXME: Aşşağıda ki satır neden var
-    # wandb.log({'top1/': {'F1': overall_f1_top1}, 'top3/': {'F1': overall_f1_top3}})
 
     # To unify and simplify return statement
     return_dict = {"f1_top1": overall_f1_top1.item(), 
@@ -334,6 +348,10 @@ if __name__ == "__main__":
         model.load_state_dict(checkpoint["model_state_dict"])
         scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
         print("model and optimizer parameters are restored successfully!")
+
+    # Load mapping
+    with open(opj(train_set.processed_dir, "dataset_mapping.pickle"), "rb") as f:
+        dataset_mapping = pickle.load(f)
 
     # STARTS TRAINING AND VALIDATION
     step = 0

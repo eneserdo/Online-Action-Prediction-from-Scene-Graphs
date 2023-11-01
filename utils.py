@@ -375,7 +375,7 @@ def get_relations(base_dir, subject, task, take, i):
     return readable_relations
 
 
-def visualize_incorrect_preds(preds, labels, idxes, mapping_path, graph_dataset_dir="raw",
+def visualize_incorrect_preds(preds, labels, idxes, test_idx_sample_mapping, graph_dataset_dir="raw",
                               rgb_dataset_dir="/home/stannis/enes/bimanual/bimacs_rgbd_data"):
     assert os.path.exists(rgb_dataset_dir), "RGB dataset directory does not exist"
     assert os.path.exists(graph_dataset_dir), "Graph dataset directory does not exist"
@@ -385,9 +385,6 @@ def visualize_incorrect_preds(preds, labels, idxes, mapping_path, graph_dataset_
     # print("Removing existing", save_dir_name)
     # shutil.rmtree(save_dir_name)
     os.makedirs(save_dir_name, exist_ok=True)
-
-    with open(mapping_path, "r") as f:
-        test_idx_sample_mapping = json.load(f)
 
     incorrect_mask = preds != labels
     preds, labels, idxes = preds[incorrect_mask], labels[incorrect_mask], idxes[incorrect_mask]
@@ -563,6 +560,14 @@ def majority_voting(arr, total_len, buffer_len, vote_weights=None):
     # majority voting for overlapping windows for single sample
     # arr: [T,]
 
+    # Example:
+    # arr = np.array([[1, 2, 3], 
+    #                    [2, 3, 4], 
+    #                       [3, 4, 5], 
+    #                          [4, 5, 6]])
+    # [1...6] <= majority_voting(arr)
+
+
     result = np.zeros((total_len), dtype=np.int32)
     confidences = np.zeros((total_len))
     shift = buffer_len - 1
@@ -595,3 +600,32 @@ def majority_voting(arr, total_len, buffer_len, vote_weights=None):
 
 
     return result, confidences
+
+
+def combine_predictions(all_arr, idx, sub_arr, mapping):
+    # TODO: This function should be optimized, either with cython or with parallelization
+
+    for j in range(len(idx)):
+        p = sub_arr[:, j]
+        i = idx[j]
+
+        subject, task, take, start_frame, end_frame, is_mirrored = mapping[i]
+        # This is wrong
+        all_arr[f"{subject}{task}{take}{is_mirrored}"][start_frame:end_frame] = p
+    
+    return all_arr
+
+def calc_f1_at_k_at_once(all_arr, mapping, num_classes, temporal_length):
+    f1_at_k= F1_at_k(num_classes=num_classes)
+
+    for i, (subject, task, take, is_mirrored) in enumerate(mapping):
+
+        y_pred_all = all_arr[f"{subject}{task}{take}{is_mirrored}"]
+        # video_len = mapping[]
+
+        # y_pred, conf = majority_voting(y_pred_all, total_len=, buffer_len=temporal_length)
+
+        y_true = mapping[f"{subject}{task}{take}{is_mirrored}"]
+        f1_at_k(y_true, y_pred, segment_name=f"{subject}{task}{take}{is_mirrored}")
+    
+    return f1_at_k.compute()

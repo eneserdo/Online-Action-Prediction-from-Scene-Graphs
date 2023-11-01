@@ -21,6 +21,7 @@ import numpy as np
 import torch
 from torch_geometric.data import Data, Dataset, download_url, extract_zip
 from torch_geometric.loader import DataLoader
+import pickle
 
 
 # Global variables
@@ -70,7 +71,7 @@ else:
 
 
 
-def _get_actions_list(gt_action_json: os.PathLike, act_len: int) -> Tuple[int, int]:
+def _get_actions_list(gt_action_json: os.PathLike, act_len: int) -> np.ndarray:
     # Returns the action of left hand and right hand, respectively.
 
     with open(gt_action_json) as f:
@@ -443,7 +444,11 @@ class BimanualDataset(Dataset):
         progressbar_manager=enlighten.get_manager()
         ticks=progressbar_manager.counter(total=540, desc="Progress:", unit="folder", color="blue")
         
-        test_idx_sample_mapping = {} # aslında list de olur ama ne olur ne olmaz
+        # To reconstruct the video from the processed data
+        dataset_mapping = {"test":{"sample":{}, "vid":{}}, 
+                              "val": {"sample":{}, "vid":{}},
+                              "train": {"sample":{}, "vid":{}}}
+
 
         # To double check
         train_sample_count = 0
@@ -451,7 +456,8 @@ class BimanualDataset(Dataset):
         test_sample_count = 0
 
         for subject, task, take in crawl_dataset():
-            
+
+            subject_int, task_int, take_int = int(subject[-1]), int(task[5]), int(take[-1])
             # Sometimes initial graphs are invalid, so imputation is not working. This is to fix that
             prepend_count=0
 
@@ -470,14 +476,20 @@ class BimanualDataset(Dataset):
 
             assert len(relation_json_list) == len(object_json_list)
 
-            # To double check
-            if int(subject[-1])==self.test_subject:
+            # To double check, also fills dataset_mapping
+            if subject_int == self.test_subject:
                 test_sample_count = test_sample_count + len(relation_json_list) - self.temporal_length + 1
-            elif int(take[-1])==self.validation_take:
+                dataset_mapping["test"]["vid"][str(subject_int)+str(task_int)+str(take_int)] = act_list
+
+            elif take_int == self.validation_take:
                 val_sample_count = val_sample_count + len(relation_json_list) - self.temporal_length + 1
+                dataset_mapping["val"]["vid"][str(subject_int)+str(task_int)+str(take_int)] = act_list
+            
             else:
                 train_sample_count = train_sample_count + len(relation_json_list) - self.temporal_length + 1
+                dataset_mapping["train"]["vid"][str(subject_int)+str(task_int)+str(take_int)] = act_list
 
+            
 
             for frame, (relation_json, object_json) in enumerate(zip(relation_json_list, object_json_list)):
                 
@@ -525,27 +537,31 @@ class BimanualDataset(Dataset):
                 # if the sequence is complete, saves it
                 if len(data_list) == self.temporal_length:
                     
-                    if int(subject[-1])==self.test_subject:
+                    if subject_int==self.test_subject:
                         torch.save(data_list, opj(test_dir, f'data_{test_sample_idx}.pt'))
-                        test_idx_sample_mapping[test_sample_idx] = (subject, task, take, frame-self.temporal_length, frame, "not_mirrored")
+                        dataset_mapping["test"]["sample"][test_sample_idx] = (subject_int, task_int, take_int, frame-self.temporal_length + 1, frame + 1, "_")
                         test_sample_idx+=1
 
                         torch.save(data_list_mirrored, opj(test_dir, f'data_{test_sample_idx}.pt'))
-                        test_idx_sample_mapping[test_sample_idx] = (subject, task, take, frame-self.temporal_length, frame, "mirrored")
+                        dataset_mapping["test"]["sample"][test_sample_idx] = (subject_int, task_int, take_int, frame-self.temporal_length + 1, frame + 1, "M")
                         test_sample_idx+=1
                     
                     elif int(take[-1])==self.validation_take:
                         torch.save(data_list, opj(val_dir, f'data_{val_sample_idx}.pt'))
+                        dataset_mapping["val"]["sample"][val_sample_idx] = (subject_int, task_int, take_int, frame-self.temporal_length + 1, frame + 1, "_")
                         val_sample_idx+=1
                         
                         torch.save(data_list_mirrored, opj(val_dir, f'data_{val_sample_idx}.pt'))
+                        dataset_mapping["val"]["sample"][val_sample_idx] = (subject_int, task_int, take_int, frame-self.temporal_length + 1, frame + 1, "M")
                         val_sample_idx+=1
 
                     else:
                         torch.save(data_list, opj(train_dir, f'data_{train_sample_idx}.pt'))
+                        dataset_mapping["train"]["sample"][train_sample_idx] = (subject_int, task_int, take_int, frame-self.temporal_length + 1, frame + 1, "_")
                         train_sample_idx+=1
 
                         torch.save(data_list_mirrored, opj(train_dir, f'data_{train_sample_idx}.pt'))
+                        dataset_mapping["train"]["sample"][train_sample_idx] = (subject_int, task_int, take_int, frame-self.temporal_length + 1, frame + 1, "M")
                         train_sample_idx+=1
 
                     self.distribution = self.distribution + data_list[0].y[0] + data_list[0].y[1]
@@ -578,9 +594,10 @@ class BimanualDataset(Dataset):
         
         self._save_config(self.config)
         
-        with open(opj(self.processed_dir, "test_idx_sample_mapping.json"), "w") as f:
-            json.dump(test_idx_sample_mapping, f)
-        
+        with open(opj(self.processed_dir, "dataset_mapping.pickle"), "wb") as f:
+            # json.dump(dataset_mapping, f)
+            pickle.dump(dataset_mapping, f)
+            
         self.is_processed=True
 
     def len(self):
