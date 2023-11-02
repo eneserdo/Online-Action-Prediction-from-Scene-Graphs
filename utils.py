@@ -490,6 +490,7 @@ def assign_seg_labels(gt_seg_labels, gt_seg, pred_seg):
     # gt_seg_labels: [T, B, C]
     # gt_seg: [T, B] (ones and zeros, ones indicate segment endings)
     # pred_seg: [T, B] (ones and zeros, ones indicate segment endings)
+    assert gt_seg_labels.shape[:2] == gt_seg.shape == pred_seg.shape, "Shapes must be equal"
 
     # calculate cost matrix
     gt_seg_labels = gt_seg_labels.argmax(axis=2)
@@ -520,12 +521,16 @@ def assign_seg_labels(gt_seg_labels, gt_seg, pred_seg):
 
 class F1_at_k:
     # Very custom class for calculating f1@k
-    def __init__(self, num_classes, save_dir=None):
+    def __init__(self, num_classes, save_dir=None, batch_mode=False):
         self.num_classes = num_classes
         self.k_10 = []
         self.k_25 = []
         self.k_50 = []
         self.save_dir = save_dir
+        
+        # To prevent bugs 
+        self.batch_mode = batch_mode
+        
         # self.f_regular = MulticlassF1Score(num_classes=num_classes, average="macro")
         if self.save_dir is not None:   
             raise NotImplementedError("saving f1@k plots is not implemented yet")
@@ -539,14 +544,16 @@ class F1_at_k:
                 
         # plot_save_dir = opj(save_dir, segment_name)
 
-        if len(y_true.shape) == 1:
-            y_true = y_true.reshape(1, -1)
-            y_pred = y_pred.reshape(1, -1)
+        if self.batch_mode:
+            for y_t, y_p in zip(y_true, y_pred):
+                self.k_10.append(f1_at_k_single_example(y_t, y_p, num_classes=self.num_classes, overlap=0.1))
+                self.k_25.append(f1_at_k_single_example(y_t, y_p, num_classes=self.num_classes, overlap=0.25))
+                self.k_50.append(f1_at_k_single_example(y_t, y_p, num_classes=self.num_classes, overlap=0.5))
 
-        for y_t, y_p in zip(y_true, y_pred):
-            self.k_10.append(f1_at_k_single_example(y_t, y_p, num_classes=self.num_classes, overlap=0.1))
-            self.k_25.append(f1_at_k_single_example(y_t, y_p, num_classes=self.num_classes, overlap=0.25))
-            self.k_50.append(f1_at_k_single_example(y_t, y_p, num_classes=self.num_classes, overlap=0.5))
+        else:
+            self.k_10.append(f1_at_k_single_example(y_true, y_pred, num_classes=self.num_classes, overlap=0.1))
+            self.k_25.append(f1_at_k_single_example(y_true, y_pred, num_classes=self.num_classes, overlap=0.25))
+            self.k_50.append(f1_at_k_single_example(y_true, y_pred, num_classes=self.num_classes, overlap=0.5))
 
             #TODO: save segmentation plots 
             # hand_name= "_L_" if i % 2 == 0 else "_R_"
@@ -645,7 +652,7 @@ def calc_f1_at_k_at_once(all_arr, mapping, num_classes, temporal_length):
         y_pred_MR_all = all_arr[f"{video_id}MR"]
 
         for y_pred_ in [y_pred__L_all, y_pred__R_all, y_pred_ML_all, y_pred_MR_all]:
-            assert -1 in y_pred_, "Not filled appropriately. There should be -1 in y_pred"
+            assert -1 not in y_pred_, "Not filled appropriately. There should be -1 in y_pred"
 
         y_pred__L, conf_L = majority_voting(y_pred__L_all, total_len=y_true_L.shape[0], buffer_len=temporal_length)
         y_pred__R, conf_R = majority_voting(y_pred__R_all, total_len=y_true_R.shape[0], buffer_len=temporal_length)

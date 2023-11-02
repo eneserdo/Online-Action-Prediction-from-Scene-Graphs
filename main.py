@@ -85,7 +85,10 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
             data = [d.to(device) for d in data]
 
+            
             gt_reordered = torch.stack([torch.cat([d.y[::2], d.y[1::2]]) for d in data], dim=0)
+
+            batch_size = gt_reordered.shape[1] // 2
 
             ground_truth_segments = create_ground_truth_segments(torch.argmax(gt_reordered, dim=-1))
 
@@ -127,21 +130,22 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                 loss.backward()
                 optimizer.step()
 
+
             pred = pred_flattened.cpu().detach()
-            pred = torch.transpose(pred.unflatten(0, (512, 10)), 0,1).argmax(dim=-1)
+            pred = torch.transpose(pred.unflatten(0, (batch_size*2, args.temporal_length)), 0, 1).argmax(dim=-1)
 
             # # # Match predicted segments with ground truth segment labels 
             # This takes 0.006 seconds
             # if label_loss_weight == 0:
             #     # It means that we do not have any label, so we need to assign labels to the segments 
-            #     pred_flattened = assign_seg_labels(ground_truth_left_right_.cpu().numpy(), ground_truth_segments.cpu().numpy(), segment_change_pred.cpu().detach().numpy())
+            #     pred_flattened = assign_seg_labels(gt_reordered.cpu().numpy(), ground_truth_segments.cpu().numpy(), segment_change_pred.cpu().detach().numpy())
             # else:
             #     # we need to reshape pred_flattened
             #     # TODO: sanity check: assert pred_flattened = assign_seg_labels(...)
-            #     raise NotImplementedError("This part is not implemented yet")
-            
+            #     pred_dummy = assign_seg_labels(gt_reordered.cpu().numpy(), ground_truth_segments.cpu().numpy(), segment_change_pred.cpu().detach().numpy())
+            #     # print("diff between original pred and matched pred: ", np.sum(pred.numpy() != pred_dummy) / (pred_flattened.shape[0]*pred_flattened.shape[1]))
 
-            # This takes 0.0024 seconds            
+            # This takes 0.0024 seconds
             combine_predictions(all_predictions_combined, idxes.numpy(), pred, dataset_mapping[mode]["sample"])
             
             # This takes 0.11 seconds
@@ -185,7 +189,6 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
         wandb.log({f"{mode}/epoch/": {'top1_F1': overall_f1_top1, 'top3_F1': overall_f1_top3}, 'epoch': epoch})
 
     
-
     # f1_at_10, f1_at_25, f1_at_50  = f1_at_k.compute()
     
     # it takes 0.659 seconds
@@ -253,12 +256,11 @@ if __name__ == "__main__":
                                                                fix_fps=args.fix_fps,
                                                                fix_null=args.fix_null)
 
-    train_loader = DataLoader(train_set, args.batch_size, num_workers=3, shuffle=True, drop_last=True,
-                              worker_init_fn=seed_worker)
-    test_loader = DataLoader(test_set, args.batch_size, num_workers=3, shuffle=True, drop_last=True,
-                             worker_init_fn=seed_worker)
-    val_loader = DataLoader(val_set, args.batch_size, num_workers=3, shuffle=True, drop_last=True,
-                            worker_init_fn=seed_worker)
+    train_loader = DataLoader(train_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker)
+    
+    test_loader = DataLoader(test_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker)
+
+    val_loader = DataLoader(val_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker)
 
     model = models.ActionRecognition(gnn_type=args.gnn_type,
                                      temporal_type=args.temporal_type,
@@ -266,7 +268,6 @@ if __name__ == "__main__":
                                      in_channels=len(OBJECTS),
                                      hidden_channels=args.hidden_channels,
                                      out_channels=args.out_channels,
-                                     batch_size=args.batch_size,
                                      num_action_classes=len(ACTIONS),
                                      lstm_hidden_size=args.lstm_hidden_size,
                                      heads=args.num_heads,

@@ -62,7 +62,6 @@ class ActionRecognition(torch.nn.Module):
                  hidden_channels,
                  out_channels,
                  num_edge_feat,
-                 batch_size,
                  num_action_classes,
                  lstm_hidden_size,
                  use_bn,
@@ -78,7 +77,6 @@ class ActionRecognition(torch.nn.Module):
         """ Accepts kwargs for non-general params of gnns """
         super().__init__()
 
-        self.batch_size = batch_size
         self.filter_it = filter_it
         self.use_hand_pooling = use_hand_pooling
         self.edge_dropout = edge_dropout
@@ -144,6 +142,7 @@ class ActionRecognition(torch.nn.Module):
             self.pos_encoder = PositionalEncoding(effective_out_ch2)
 
             if use_cls_token:
+                raise NotImplementedError("cant implement bc of batch size is not constant and unknown at init time by design")
                 self.cls_tokens = torch.nn.Parameter(torch.randn(1, 1, effective_out_ch2)).expand(self.batch_size, -1,
                                                                                                   -1)
 
@@ -172,8 +171,9 @@ class ActionRecognition(torch.nn.Module):
     def _hands_pooling(self, x, embeddings, batch):
         labels = torch.argmax(x, dim=1)
 
-        left_hand_indicies = torch.zeros((self.batch_size), dtype=torch.long)
-        right_hand_indicies = torch.zeros((self.batch_size), dtype=torch.long)
+        batch_size = batch[-1]+1
+        left_hand_indicies = torch.zeros((batch_size), dtype=torch.long)
+        right_hand_indicies = torch.zeros((batch_size), dtype=torch.long)
 
         # TODO: Check if optimizable
         for i, l in enumerate(labels):
@@ -213,13 +213,14 @@ class ActionRecognition(torch.nn.Module):
         return torch.cat(torch.tensor_split(hand_feat, 2, dim=0), dim=-1)
 
     def _apply_segment_mask(self, both_out, segments):
-
+        
+        batch_size = segments.shape[1] // 2
         both_out = torch.flatten(torch.transpose(both_out, 0, 1), start_dim=0, end_dim=1)
 
         # [0,0,1,0,0,0,1,0,1] -> segments last frames 1
         mask = segments.to(torch.bool)
         if not self.sparse_pred:
-            segment_starts = torch.concat([torch.ones(size=(1, self.batch_size * 2), device=mask.device),
+            segment_starts = torch.concat([torch.ones(size=(1, batch_size * 2), device=mask.device),
                                            mask[:-1]], dim=0).T
 
             segment_starts = torch.flatten(segment_starts, start_dim=0, end_dim=1)  # (n*b*2)
