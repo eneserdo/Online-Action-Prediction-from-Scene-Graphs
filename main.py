@@ -131,19 +131,22 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                 optimizer.step()
 
 
-            pred = pred_flattened.cpu().detach()
-            pred = torch.transpose(pred.unflatten(0, (batch_size*2, args.temporal_length)), 0, 1).argmax(dim=-1)
-
             # # # Match predicted segments with ground truth segment labels 
             # This takes 0.006 seconds
-            # if label_loss_weight == 0:
-            #     # It means that we do not have any label, so we need to assign labels to the segments 
-            #     pred_flattened = assign_seg_labels(gt_reordered.cpu().numpy(), ground_truth_segments.cpu().numpy(), segment_change_pred.cpu().detach().numpy())
-            # else:
-            #     # we need to reshape pred_flattened
-            #     # TODO: sanity check: assert pred_flattened = assign_seg_labels(...)
-            #     pred_dummy = assign_seg_labels(gt_reordered.cpu().numpy(), ground_truth_segments.cpu().numpy(), segment_change_pred.cpu().detach().numpy())
-            #     # print("diff between original pred and matched pred: ", np.sum(pred.numpy() != pred_dummy) / (pred_flattened.shape[0]*pred_flattened.shape[1]))
+            if label_loss_weight == 0:
+                # It means that we do not have any label, so we need to assign labels to the segments 
+                pred = assign_seg_labels(gt_reordered.cpu(), ground_truth_segments.cpu(), segment_change_pred.cpu().detach())
+                pred_flattened_ = torch.flatten(torch.transpose(pred, 0, 1), start_dim=0, end_dim=1)
+                pred_flattened = torch.nn.functional.one_hot(pred_flattened_.long(), num_classes=len(ACTIONS)).float()
+                pred_flattened = pred_flattened.to(device)
+            else:
+                # we need to reshatorch
+                # TODO: sanity check: assert pred_flattened = assign_seg_labels(...)
+                # pred_dummy = assign_seg_labels(gt_reordered.cpu(), ground_truth_segments.cpu(), segment_change_pred.cpu().detach())
+                # print("diff between original pred and matched pred: ", np.sum(pred.numpy() != pred_dummy) / (pred_flattened.shape[0]*pred_flattened.shape[1]))
+                
+                pred_ = pred_flattened.cpu().detach()
+                pred = torch.transpose(pred_.unflatten(0, (batch_size*2, args.temporal_length)), 0, 1).argmax(dim=-1)
 
             # This takes 0.0024 seconds
             combine_predictions(all_predictions_combined, idxes.numpy(), pred, dataset_mapping[mode]["sample"])

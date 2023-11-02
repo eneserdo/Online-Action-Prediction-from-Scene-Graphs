@@ -423,8 +423,8 @@ def visualize_incorrect_preds(preds, labels, idxes, test_idx_sample_mapping, gra
 def calculate_boundaries(arr):
     """ Sparse array to dense boundaries """
 
-    id_changes = np.where(arr ==1)[0]
-    boundaries = np.zeros((len(id_changes), 2), dtype=np.int32)
+    id_changes = torch.where(arr ==1)[0]
+    boundaries = torch.zeros((len(id_changes), 2), dtype=torch.int32)
 
     boundaries[1:, 0] = id_changes[:-1]+1
     boundaries[:, 1] = id_changes
@@ -449,7 +449,7 @@ def calc_cost_matrix_single(gt_seg, pred_seg):
     ground_truth_boundaries = calculate_boundaries(gt_seg)
     predicted_boundaries = calculate_boundaries(pred_seg)
     
-    cost_matrix = np.zeros((len(ground_truth_boundaries), len(predicted_boundaries)))
+    cost_matrix = torch.zeros((len(ground_truth_boundaries), len(predicted_boundaries)))
 
     for i, (gt_start, gt_end) in enumerate(ground_truth_boundaries):
         for j, (p_start, p_end) in enumerate(predicted_boundaries):
@@ -474,7 +474,7 @@ def assign_seg_labels_single(cost_matrix, gt_seg_labels, gt_boundaries, pred_bou
 
     row_ind, col_ind = linear_sum_assignment(cost_matrix, maximize=True)
 
-    pred_seg_labels = np.zeros_like(gt_seg_labels)
+    pred_seg_labels = torch.zeros_like(gt_seg_labels)
 
     for i, j in zip(row_ind, col_ind):
         label_loc, _ = gt_boundaries[i]
@@ -501,7 +501,7 @@ def assign_seg_labels(gt_seg_labels, gt_seg, pred_seg):
     pred_seg[-1, :] = 1
     
     batch_size=gt_seg.shape[1]
-    pred_seg_labels = np.zeros_like(gt_seg_labels)
+    pred_seg_labels = torch.zeros_like(gt_seg_labels)
 
     for b_id in range(batch_size):
         gt_seg_labels_b = gt_seg_labels[:, b_id]
