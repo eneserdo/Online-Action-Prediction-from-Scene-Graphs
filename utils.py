@@ -539,6 +539,10 @@ class F1_at_k:
                 
         # plot_save_dir = opj(save_dir, segment_name)
 
+        if len(y_true.shape) == 1:
+            y_true = y_true.reshape(1, -1)
+            y_pred = y_pred.reshape(1, -1)
+
         for y_t, y_p in zip(y_true, y_pred):
             self.k_10.append(f1_at_k_single_example(y_t, y_p, num_classes=self.num_classes, overlap=0.1))
             self.k_25.append(f1_at_k_single_example(y_t, y_p, num_classes=self.num_classes, overlap=0.25))
@@ -557,6 +561,7 @@ class F1_at_k:
 
 
 def majority_voting(arr, total_len, buffer_len, vote_weights=None):
+    # TODO: add asserts
     # majority voting for overlapping windows for single sample
     # arr: [T,]
 
@@ -604,28 +609,54 @@ def majority_voting(arr, total_len, buffer_len, vote_weights=None):
 
 def combine_predictions(all_arr, idx, sub_arr, mapping):
     # TODO: This function should be optimized, either with cython or with parallelization
+    # first half of sub_arr is for left hand, second half is for right hand
+    
+    batch_size = sub_arr.shape[1]
+    assert 2*len(idx) == batch_size, f"2*idx and sub_arr must have same shape: {2*len(idx)} != {batch_size}"
 
-    for j in range(len(idx)):
-        p = sub_arr[:, j]
-        i = idx[j]
+    left_arr , right_arr = sub_arr[:, :batch_size//2], sub_arr[:, batch_size//2:]
 
-        subject, task, take, start_frame, end_frame, is_mirrored = mapping[i]
-        # This is wrong
-        all_arr[f"{subject}{task}{take}{is_mirrored}"][start_frame:end_frame] = p
+    for half_arr, hand in zip([left_arr, right_arr], ["L", "R"]):
+        for j in range(len(idx)):
+            p = half_arr[:, j]
+            i = idx[j]
+
+            subject, task, take, start_frame, end_frame, is_mirrored = mapping[i]
+
+            # end frame exclusive i.e. [start_frame, end_frame)
+            temp_len = end_frame-start_frame
+
+            all_arr[f"{subject}{task}{take}{is_mirrored}{hand}"][temp_len * start_frame : temp_len * (1+start_frame)] = p
     
     return all_arr
 
 def calc_f1_at_k_at_once(all_arr, mapping, num_classes, temporal_length):
-    f1_at_k= F1_at_k(num_classes=num_classes)
+    # In mapping there is no mirrored data, since it is redundant
 
-    for i, (subject, task, take, is_mirrored) in enumerate(mapping):
+    f1_at_k = F1_at_k(num_classes=num_classes)
 
-        y_pred_all = all_arr[f"{subject}{task}{take}{is_mirrored}"]
-        # video_len = mapping[]
+    for video_id, y_true_LR in mapping.items():
 
-        # y_pred, conf = majority_voting(y_pred_all, total_len=, buffer_len=temporal_length)
+        y_true_L, y_true_R = y_true_LR[:, 0], y_true_LR[:, 1]  
+        
+        y_pred__L_all = all_arr[f"{video_id}_L"]
+        y_pred__R_all = all_arr[f"{video_id}_R"]
+        y_pred_ML_all = all_arr[f"{video_id}ML"]
+        y_pred_MR_all = all_arr[f"{video_id}MR"]
 
-        y_true = mapping[f"{subject}{task}{take}{is_mirrored}"]
-        f1_at_k(y_true, y_pred, segment_name=f"{subject}{task}{take}{is_mirrored}")
+        for y_pred_ in [y_pred__L_all, y_pred__R_all, y_pred_ML_all, y_pred_MR_all]:
+            assert -1 in y_pred_, "Not filled appropriately. There should be -1 in y_pred"
+
+        y_pred__L, conf_L = majority_voting(y_pred__L_all, total_len=y_true_L.shape[0], buffer_len=temporal_length)
+        y_pred__R, conf_R = majority_voting(y_pred__R_all, total_len=y_true_R.shape[0], buffer_len=temporal_length)
+        y_pred_ML, conf_ML = majority_voting(y_pred_ML_all, total_len=y_true_L.shape[0], buffer_len=temporal_length)
+        y_pred_MR, conf_MR = majority_voting(y_pred_MR_all, total_len=y_true_R.shape[0], buffer_len=temporal_length)
+        
+        f1_at_k(y_true_L, y_pred__L, segment_name=video_id+"_L")
+        f1_at_k(y_true_R, y_pred__R, segment_name=video_id+"_R")
+        
+        # Mirrored data
+        f1_at_k(y_true_R, y_pred_ML, segment_name=video_id+"ML")
+        f1_at_k(y_true_L, y_pred_MR, segment_name=video_id+"MR")
     
     return f1_at_k.compute()

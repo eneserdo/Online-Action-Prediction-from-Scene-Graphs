@@ -63,18 +63,19 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     f1_calc_top1 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(device)
     f1_calc_top3 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(device)  # top_k is intentionally 1
 
-    f1_at_k = F1_at_k(num_classes=len(ACTIONS))
+    # f1_at_k = F1_at_k(num_classes=len(ACTIONS))
 
     conf_mat_top1 = MulticlassConfusionMatrix(num_classes=len(ACTIONS), normalize="true").to(device)
     conf_mat_top3 = MulticlassConfusionMatrix(num_classes=len(ACTIONS), normalize="true").to(device)
 
-    # A dictionary that contains all predictions for all videos
-    all_predictions_combined = {vid + mirrored: np.zeros((act.shape[0] - args.temporal_length + 1) * args.temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for mirrored in ["_", "M"]}
+    # A dictionary that will store the all predictions for all videos. This will be used to calculate f1@k
+    # Used -1 as a placeholder value to check if all predictions are filled
+    all_predictions_combined = {vid + m_and_hand_status: - np.ones((act.shape[0] - args.temporal_length + 1) * args.temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
 
 
+    # To ignore warnings about functorch and nan values in confusion matrix
     with warnings.catch_warnings():
-        warnings.filterwarnings('ignore', '.*There is a performance drop.*|.*NaN values found in confusion matrix.*',
-                                UserWarning)  # ignores warning about functorch
+        warnings.filterwarnings('ignore', '.*There is a performance drop.*|.*NaN values found in confusion matrix.*', UserWarning)
 
         for idxes, data in loader:
             step += 1
@@ -96,7 +97,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             # TODO: obtain 0,1 valued targets of whether action changes via algorithm here or in data processing phase -> FSD 20.09.2023
             # pred_flattened = model(data) # segmentation task -> FSD 20.09.2023
             pred_flattened, segment_change_pred = model(data, ground_truth_segments)  
-
+            # pred_flattened shape: TODO: 
 
             gt_flattened = torch.flatten(torch.transpose(gt_reordered, 0, 1), start_dim=0, end_dim=1)
             
@@ -128,6 +129,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
             pred = pred_flattened.cpu().detach()
             pred = torch.transpose(pred.unflatten(0, (512, 10)), 0,1).argmax(dim=-1)
+
             # # # Match predicted segments with ground truth segment labels 
             # This takes 0.006 seconds
             # if label_loss_weight == 0:
@@ -138,13 +140,13 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             #     # TODO: sanity check: assert pred_flattened = assign_seg_labels(...)
             #     raise NotImplementedError("This part is not implemented yet")
             
-            idxes_reordered = torch.cat([idxes, idxes])
-            combine_predictions(all_predictions_combined, idxes_reordered.numpy(), pred, dataset_mapping[mode]["sample"])
 
+            # This takes 0.0024 seconds            
+            combine_predictions(all_predictions_combined, idxes.numpy(), pred, dataset_mapping[mode]["sample"])
+            
             # This takes 0.11 seconds
             # f1_at_k(ground_truth_left_right_.cpu().numpy().argmax(axis=2), pred_flattened)
             
-
 
             # # Calculate metrics
             # testden gelen
@@ -183,16 +185,12 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
         wandb.log({f"{mode}/epoch/": {'top1_F1': overall_f1_top1, 'top3_F1': overall_f1_top3}, 'epoch': epoch})
 
     
-    # # Using all_arr and ground_truth, calculate f1@k
-    # divide all arr into videos using idx-video len matcihng
-    # Load ground truth from file
-    # calculate f1@k for each video
-    # calculate mean of f1@k for all videos
-
 
     # f1_at_10, f1_at_25, f1_at_50  = f1_at_k.compute()
-    f1_at_10, f1_at_25, f1_at_50 = calc_f1_at_k_at_once(all_predictions_combined, dataset_mapping[mode]["vid"], num_classes=len(ACTIONS))
-
+    
+    # it takes 0.659 seconds
+    f1_at_10, f1_at_25, f1_at_50 = calc_f1_at_k_at_once(all_predictions_combined, dataset_mapping[mode]["vid"], num_classes=len(ACTIONS), temporal_length=args.temporal_length) 
+    
     wandb.log({f"{mode}/epoch/": {'f1@10': f1_at_10, 'f1@25': f1_at_25, 'f1@50': f1_at_50}, 'epoch': epoch})
 
 
@@ -349,10 +347,13 @@ if __name__ == "__main__":
         scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
         print("model and optimizer parameters are restored successfully!")
 
-    # Load mapping
+    
+    # dataset_mapping contains mapping for each sample to its location in the videos. 
+    # Also, a mapping from video to ground truth action labels
     with open(opj(train_set.processed_dir, "dataset_mapping.pickle"), "rb") as f:
         dataset_mapping = pickle.load(f)
-
+        
+    
     # STARTS TRAINING AND VALIDATION
     step = 0
     print("Starts training...")
@@ -361,7 +362,6 @@ if __name__ == "__main__":
     for epoch in range(start, start + args.max_epochs):
         start = time.perf_counter()
 
-        # f_top1_train, f_top3_train = run_one_epoch(model, train_loader, 'train', epoch)
         train_metrics = run_one_epoch(model, train_loader, 'train', epoch)
 
         val_metrics = run_one_epoch(model, val_loader, 'val', epoch)
