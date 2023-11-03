@@ -21,6 +21,7 @@ from scipy import sparse
 from collections import Counter
 
 from metrics import f1_at_k_single_example
+from visualization_utils import plot_segmentation, plot_segmentation_v2
 plt.ioff()
 
 
@@ -214,6 +215,7 @@ def plot_conf_mat(mat, name, do_save=False, do_return_plot=False):
 
 
 def create_ground_truth_segments(label_series):
+    # FIXME: Last segment is not included
     change_occurring = torch.concat([label_series[1:] - label_series[:-1], torch.zeros(size=(1, label_series.shape[-1]), device=label_series.device)], dim=0)
     return torch.where(change_occurring != 0, 1.0, 0.0) # Should this be of shape [N, B, 2] instead of [N, B*2]
 
@@ -521,27 +523,23 @@ def assign_seg_labels(gt_seg_labels, gt_seg, pred_seg):
 
 class F1_at_k:
     # Very custom class for calculating f1@k
-    def __init__(self, num_classes, save_dir=None, batch_mode=False):
+    def __init__(self, num_classes, batch_mode=False):
         self.num_classes = num_classes
         self.k_10 = []
         self.k_25 = []
         self.k_50 = []
-        self.save_dir = save_dir
         
-        # To prevent bugs 
+        # To prevent bugs
         self.batch_mode = batch_mode
         
         # self.f_regular = MulticlassF1Score(num_classes=num_classes, average="macro")
-        if self.save_dir is not None:   
-            raise NotImplementedError("saving f1@k plots is not implemented yet")
-            os.makedirs(self.save_dir, exist_ok=True)
     
         # self.class_id_to_label = {i: label for i, label in enumerate(ACTIONS)}
         
     def __call__(self, y_true, y_pred, segment_name = None):
          
         assert y_true.shape == y_pred.shape, "y_true and y_pred must have same shape"
-                
+        
         # plot_save_dir = opj(save_dir, segment_name)
 
         if self.batch_mode:
@@ -555,12 +553,8 @@ class F1_at_k:
             self.k_25.append(f1_at_k_single_example(y_true, y_pred, num_classes=self.num_classes, overlap=0.25))
             self.k_50.append(f1_at_k_single_example(y_true, y_pred, num_classes=self.num_classes, overlap=0.5))
 
-            #TODO: save segmentation plots 
-            # hand_name= "_L_" if i % 2 == 0 else "_R_"
-            # mirror_name= "" if i < 2 else "M"
-            # plot_segmentation(y_t, y_p, class_id_to_label=self.class_id_to_label, save_file=self.plot_save_dir + hand_name + mirror_name + ".png", bar_height=50)
-        
-            # TODO: Calculate regular f1 score
+            # TODO: Calculate regular f1 score to double check, 
+            # and also it makes the metric calculation more compact
             # f1_score(torch.tensor(y_pred_L), torch.tensor(y_true_L))
 
     def compute(self):
@@ -637,10 +631,19 @@ def combine_predictions(all_arr, idx, sub_arr, mapping):
     
     return all_arr
 
-def calc_f1_at_k_at_once(all_arr, mapping, num_classes, temporal_length):
+def create_seg_np(label_series):
+    # FIXME: Last segment is not included
+    change_occurring = np.concatenate([label_series[1:] - label_series[:-1], np.zeros((1))])
+    return np.where(change_occurring != 0, 1.0, 0.0) # Should this be of shape [N, B, 2] instead of [N, B*2]
+
+
+
+def calc_f1_at_k_at_once(all_arr, mapping, num_classes, temporal_length, save_dir=None):
     # In mapping there is no mirrored data, since it is redundant
 
     f1_at_k = F1_at_k(num_classes=num_classes)
+    if save_dir is not None:
+        os.makedirs(save_dir, exist_ok=True) # TODO: remove exist_ok=True
 
     for video_id, y_true_LR in mapping.items():
 
@@ -659,11 +662,19 @@ def calc_f1_at_k_at_once(all_arr, mapping, num_classes, temporal_length):
         y_pred_ML, conf_ML = majority_voting(y_pred_ML_all, total_len=y_true_L.shape[0], buffer_len=temporal_length)
         y_pred_MR, conf_MR = majority_voting(y_pred_MR_all, total_len=y_true_R.shape[0], buffer_len=temporal_length)
         
+        
+        
         f1_at_k(y_true_L, y_pred__L, segment_name=video_id+"_L")
         f1_at_k(y_true_R, y_pred__R, segment_name=video_id+"_R")
         
         # Mirrored data
         f1_at_k(y_true_R, y_pred_ML, segment_name=video_id+"ML")
         f1_at_k(y_true_L, y_pred_MR, segment_name=video_id+"MR")
-    
+        
+        
+        # Visualization
+        if save_dir is not None:
+            plot_segmentation_v2(y_true_L, y_pred__L, conf_L, y_pred_MR, conf_MR, save_file=opj(save_dir, video_id+"_L" + ".png"), title=video_id+"_L")
+            plot_segmentation_v2(y_true_R, y_pred__R, conf_R, y_pred_ML, conf_ML, save_file=opj(save_dir, video_id+"_R" + ".png"), title=video_id+"_R")
+
     return f1_at_k.compute()

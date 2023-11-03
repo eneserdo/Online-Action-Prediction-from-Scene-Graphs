@@ -189,7 +189,14 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
         
     # it takes 0.659 seconds
-    f1_at_10, f1_at_25, f1_at_50 = calc_f1_at_k_at_once(all_predictions_combined, dataset_mapping[mode]["vid"], num_classes=len(ACTIONS), temporal_length=args.temporal_length) 
+    
+    seg_save_dir = opj(save_dir, f"test_results_{epoch}") if mode == "test" else None
+    
+    f1_at_10, f1_at_25, f1_at_50 = calc_f1_at_k_at_once(all_predictions_combined, 
+                                                        dataset_mapping[mode]["vid"], 
+                                                        num_classes=len(ACTIONS), 
+                                                        temporal_length=args.temporal_length,
+                                                        save_dir=seg_save_dir)
     
     wandb.log({f"{mode}/epoch/": {'f1@10': f1_at_10, 'f1@25': f1_at_25, 'f1@50': f1_at_50}, 'epoch': epoch})
 
@@ -219,7 +226,7 @@ def test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of="f1_t
         print(f"TESTING {w_name}:")
         checkpoint = torch.load(w_name)
         model.load_state_dict(checkpoint["model_state_dict"])
-        returned_dict = run_one_epoch(model, test_loader, 'test', epoch=-1)
+        returned_dict = run_one_epoch(model, test_loader, 'test', epoch=int((w_name[-7:-3])))
         
 
         print(f'### [F1] TEST: top1: {returned_dict["f1_top1"]}, top3: {returned_dict["f1_top3"]}, f1@10: {returned_dict["f1_at_10"]}, f1@25: {returned_dict["f1_at_25"]}, f1@50: {returned_dict["f1_at_50"]}')
