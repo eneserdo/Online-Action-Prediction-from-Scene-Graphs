@@ -63,8 +63,6 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     f1_calc_top1 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(device)
     f1_calc_top3 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(device)  # top_k is intentionally 1
 
-    # f1_at_k = F1_at_k(num_classes=len(ACTIONS))
-
     conf_mat_top1 = MulticlassConfusionMatrix(num_classes=len(ACTIONS), normalize="true").to(device)
     conf_mat_top3 = MulticlassConfusionMatrix(num_classes=len(ACTIONS), normalize="true").to(device)
 
@@ -151,8 +149,6 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             # This takes 0.0024 seconds
             combine_predictions(all_predictions_combined, idxes.numpy(), pred, dataset_mapping[mode]["sample"])
             
-            # This takes 0.11 seconds
-            # f1_at_k(ground_truth_left_right_.cpu().numpy().argmax(axis=2), pred_flattened)
             
 
             # # Calculate metrics
@@ -191,9 +187,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     if mode != "test":
         wandb.log({f"{mode}/epoch/": {'top1_F1': overall_f1_top1, 'top3_F1': overall_f1_top3}, 'epoch': epoch})
 
-    
-    # f1_at_10, f1_at_25, f1_at_50  = f1_at_k.compute()
-    
+        
     # it takes 0.659 seconds
     f1_at_10, f1_at_25, f1_at_50 = calc_f1_at_k_at_once(all_predictions_combined, dataset_mapping[mode]["vid"], num_classes=len(ACTIONS), temporal_length=args.temporal_length) 
     
@@ -228,7 +222,7 @@ def test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of="f1_t
         returned_dict = run_one_epoch(model, test_loader, 'test', epoch=-1)
         
 
-        print(f'### [F1] TEST: top1: {test_metrics["f1_top1"]}, top3: {test_metrics["f1_top3"]}, f1@10: {test_metrics["f1_at_10"]}, f1@25: {test_metrics["f1_at_25"]}, f1@50: {test_metrics["f1_at_50"]}')
+        print(f'### [F1] TEST: top1: {returned_dict["f1_top1"]}, top3: {returned_dict["f1_top3"]}, f1@10: {returned_dict["f1_at_10"]}, f1@25: {returned_dict["f1_at_25"]}, f1@50: {returned_dict["f1_at_50"]}')
 
         results.append(returned_dict)        
         if best_metric < returned_dict[comparison_metric]:

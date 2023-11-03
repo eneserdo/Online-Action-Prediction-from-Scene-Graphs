@@ -106,23 +106,26 @@
 # python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_30_Seg_bs128 -tl 30 -bs 128 --label_loss_weight 0
 # sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_10 -tl 10 
+python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_10_BI_ML -tl 10 --temporal_type bi --merged_pred late
 sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_10_Perf -tl 10 --perfect_seg
+python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_10_BI_ML_Perf -tl 10 --perfect_seg --temporal_type bi --merged_pred late
 sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_10_Seg -tl 10 --label_loss_weight 0
+python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_10_BI_ML_Seg -tl 10 --label_loss_weight 0 --temporal_type bi --merged_pred late
+sleep 5
+
+python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_10_BI_ML_Seg_sDTW -tl 10 --label_loss_weight 0 --temporal_type bi --merged_pred late --seg_loss sDTW
 sleep 5
 
 
-python prepare_dataset.py -tl 50 --fix_null
+# python prepare_dataset.py -tl 50 --fix_null
 
-python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_50 -tl 50
-sleep 5
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_50 -tl 50
+# sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_50_Perf -tl 50 --perfect_seg
-sleep 5
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_50_Perf -tl 50 --perfect_seg
+# sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_50_Seg -tl 50 --label_loss_weight 0
-sleep 5
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_50_Seg -tl 50 --label_loss_weight 0
+# sleep 5
