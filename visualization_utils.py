@@ -114,19 +114,20 @@ def plot_segmentation_v2(y_true, y_pred, conf, y_pred_M, conf_M, save_file, titl
 
     # Plot the ground truth
     axs[0].set_title(f'Ground Truth: {title}')
-    axs[0].imshow(y_true, cmap=plt.get_cmap('tab20'), vmin=0, vmax=20)
+    axs[0].imshow(y_true, cmap=plt.get_cmap('tab20'), vmin=0, vmax=20, aspect='auto')
     
     axs[1].set_title('Pred')
-    axs[1].imshow(y_pred, cmap=plt.get_cmap('tab20'), vmin=0, vmax=20)
+    axs[1].imshow(y_pred, cmap=plt.get_cmap('tab20'), vmin=0, vmax=20, aspect='auto')
     
     axs[2].set_title('Confidence')
     axs[2].plot(conf, color='black', linewidth=0.7)
     
     axs[3].set_title('Pred (M)')
-    axs[3].imshow(y_pred_M, cmap=plt.get_cmap('tab20'), vmin=0, vmax=20)
+    axs[3].imshow(y_pred_M, cmap=plt.get_cmap('tab20'), vmin=0, vmax=20, aspect='auto')
     
     axs[4].set_title('Confidence')
     axs[4].plot(conf_M, color='black', linewidth=0.7)
+    
     
     fig.tight_layout()
     fig.savefig(save_file)

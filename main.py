@@ -28,7 +28,7 @@ import matplotlib.pyplot as pyplot
 import models
 import wandb
 from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits)
-from utils import (F1_at_k, arg_parser, calc_f1_at_k_at_once, combine_predictions, get_minutes, plot_conf_mat, seed_worker, 
+from utils import (F1_at_k, arg_parser, calc_metrics_at_once, combine_predictions, get_minutes, metrics_to_str, plot_conf_mat, seed_worker, 
                    visualize_incorrect_preds, create_ground_truth_segments, assign_seg_labels)
 
 from tslearn.metrics import SoftDTWLossPyTorch
@@ -184,6 +184,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
         overall_conf_mat_top1 = conf_mat_top1.compute()
         overall_conf_mat_top3 = conf_mat_top3.compute()
 
+    # TODO: Fix all wandb logs to be consistent with each other. use same dict
     if mode != "test":
         wandb.log({f"{mode}/epoch/": {'top1_F1': overall_f1_top1, 'top3_F1': overall_f1_top3}, 'epoch': epoch})
 
@@ -192,13 +193,13 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     
     seg_save_dir = opj(save_dir, f"test_results_{epoch}") if mode == "test" else None
     
-    f1_at_10, f1_at_25, f1_at_50 = calc_f1_at_k_at_once(all_predictions_combined, 
+    f1_at_10, f1_at_25, f1_at_50, f1_top1_once = calc_metrics_at_once(all_predictions_combined, 
                                                         dataset_mapping[mode]["vid"], 
                                                         num_classes=len(ACTIONS), 
                                                         temporal_length=args.temporal_length,
                                                         save_dir=seg_save_dir)
     
-    wandb.log({f"{mode}/epoch/": {'f1@10': f1_at_10, 'f1@25': f1_at_25, 'f1@50': f1_at_50}, 'epoch': epoch})
+    wandb.log({f"{mode}/epoch/": {'f1@10': f1_at_10, 'f1@25': f1_at_25, 'f1@50': f1_at_50, "f1_top1_once": f1_top1_once}, 'epoch': epoch})
 
 
     # To unify and simplify return statement
@@ -206,9 +207,10 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                    "f1_top3": overall_f1_top3.item(), 
                    "cm_top1": overall_conf_mat_top1.cpu(), 
                    "cm_top3": overall_conf_mat_top3.cpu(),
-                   "f1_at_10": f1_at_10,
-                   "f1_at_25": f1_at_25,
-                   "f1_at_50": f1_at_50}
+                   "f1@10": f1_at_10,
+                   "f1@25": f1_at_25,
+                   "f1@50": f1_at_50,
+                   "f1_top1_once": f1_top1_once}
 
     return return_dict
 
@@ -228,8 +230,7 @@ def test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of="f1_t
         model.load_state_dict(checkpoint["model_state_dict"])
         returned_dict = run_one_epoch(model, test_loader, 'test', epoch=int((w_name[-7:-3])))
         
-
-        print(f'### [F1] TEST: top1: {returned_dict["f1_top1"]}, top3: {returned_dict["f1_top3"]}, f1@10: {returned_dict["f1_at_10"]}, f1@25: {returned_dict["f1_at_25"]}, f1@50: {returned_dict["f1_at_50"]}')
+        print(f'### [F1] TEST: ', metrics_to_str(returned_dict))
 
         results.append(returned_dict)        
         if best_metric < returned_dict[comparison_metric]:
@@ -347,9 +348,9 @@ if __name__ == "__main__":
     if args.restore is not None:
         assert args.restored_name is not None, "restored_name must be provided if restore is not None"
         checkpoint = torch.load(opj(f"saved_{args.restored_name}", f"model_epoch{args.restore:0>4}.pt"))
-        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        # optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         model.load_state_dict(checkpoint["model_state_dict"])
-        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+        # scheduler.load_state_dict(checkpoint["scheduler_state_dict"]) # FIXME: It overrides the scheduler. Is it desired?
         print("model and optimizer parameters are restored successfully!")
 
     
@@ -389,12 +390,15 @@ if __name__ == "__main__":
 
         scheduler.step()
         stop = time.perf_counter()
-        print(f'### {epoch:03d}: Time {get_minutes(stop - start)}'
-              f'm ### [F1] Train: top1: {round(train_metrics["f1_top1"], 4)},'
-              f' top3: {round(train_metrics["f1_top3"], 4)} '
-              f'### Val: top1: {round(val_metrics["f1_top1"], 4)}, top3: {round(val_metrics["f1_top3"], 4)}'
-              f'### [F1@k] Train: k10: {round(train_metrics["f1_at_10"], 4)}, k25: {round(train_metrics["f1_at_25"], 4)}, k50: {round(train_metrics["f1_at_50"], 4)}'
-              f'### Val: k10: {round(val_metrics["f1_at_10"], 4)}, k25: {round(val_metrics["f1_at_25"], 4)}, k50: {round(val_metrics["f1_at_50"], 4)}')
+        # print(f'### {epoch:03d}: Time {get_minutes(stop - start)}'
+        #       f'm ### [F1] Train: top1: {round(train_metrics["f1_top1"], 4)},'
+        #       f' top3: {round(train_metrics["f1_top3"], 4)} '
+        #       f' top1_once: {round(train_metrics["f1_top1_once"], 4)} '
+        #       f'### Val: top1: {round(val_metrics["f1_top1"], 4)}, top3: {round(val_metrics["f1_top3"], 4)} '
+        #       f'### [F1@k] Train: k10: {round(train_metrics["f1_at_10"], 4)}, k25: {round(train_metrics["f1_at_25"], 4)}, k50: {round(train_metrics["f1_at_50"], 4)} '
+        #       f'### Val: k10: {round(val_metrics["f1_at_10"], 4)}, k25: {round(val_metrics["f1_at_25"], 4)}, k50: {round(val_metrics["f1_at_50"], 4)}')
+
+        print(f'### {epoch:03d}: Time {get_minutes(stop - start)} m ### Train: ', metrics_to_str(train_metrics), ' ### Val: ', metrics_to_str(val_metrics))
 
     # TEST
     print("Starts test...")
@@ -409,8 +413,8 @@ if __name__ == "__main__":
     wandb.log({'test/confusion_matrix/': {'top3': wandb.Image(plt3)}})
     
 
-    print(f'### [F1] TEST: top1: {round(test_metrics["f1_top1"], 4)}, top3: {round(test_metrics["f1_top3"], 4)}, f1@10: {round(test_metrics["f1_at_10"], 4)}, f1@25: {round(test_metrics["f1_at_25"], 4)}, f1@50: {round(test_metrics["f1_at_50"], 4)}')
-    wandb.log({"test_top1": round(test_metrics["f1_top1"], 4), "test_top3": round(test_metrics["f1_top3"], 4), "f1_at_10": round(test_metrics["f1_at_10"], 4), "f1_at_25": round(test_metrics["f1_at_25"], 4), "f1_at_50": round(test_metrics["f1_at_50"], 4)})
+    print(f'### [F1] TEST: ', metrics_to_str(test_metrics))
+    wandb.log({"test_top1": round(test_metrics["f1_top1"], 4), "test_top3": round(test_metrics["f1_top3"], 4), "f1_top1_once": round(test_metrics["f1_top1_once"], 4), "f1_at_10": round(test_metrics["f1_at_10"], 4), "f1_at_25": round(test_metrics["f1_at_25"], 4), "f1_at_50": round(test_metrics["f1_at_50"], 4)})
 
     plt.close()
     plt3.close()

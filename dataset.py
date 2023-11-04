@@ -410,7 +410,7 @@ class BimanualDataset(Dataset):
             self.config = json.load(f)
         
         self.split_len=self.config[self.split]
-        self.distribution = self.config["distribution"]
+        self.distribution = torch.tensor(self.config["distribution"])
 
     def _get_longest_video_len(self) -> int:
         ...

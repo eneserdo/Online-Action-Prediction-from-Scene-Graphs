@@ -531,17 +531,12 @@ class F1_at_k:
         
         # To prevent bugs
         self.batch_mode = batch_mode
-        
-        # self.f_regular = MulticlassF1Score(num_classes=num_classes, average="macro")
-    
-        # self.class_id_to_label = {i: label for i, label in enumerate(ACTIONS)}
+
         
     def __call__(self, y_true, y_pred, segment_name = None):
          
         assert y_true.shape == y_pred.shape, "y_true and y_pred must have same shape"
         
-        # plot_save_dir = opj(save_dir, segment_name)
-
         if self.batch_mode:
             for y_t, y_p in zip(y_true, y_pred):
                 self.k_10.append(f1_at_k_single_example(y_t, y_p, num_classes=self.num_classes, overlap=0.1))
@@ -552,10 +547,6 @@ class F1_at_k:
             self.k_10.append(f1_at_k_single_example(y_true, y_pred, num_classes=self.num_classes, overlap=0.1))
             self.k_25.append(f1_at_k_single_example(y_true, y_pred, num_classes=self.num_classes, overlap=0.25))
             self.k_50.append(f1_at_k_single_example(y_true, y_pred, num_classes=self.num_classes, overlap=0.5))
-
-            # TODO: Calculate regular f1 score to double check, 
-            # and also it makes the metric calculation more compact
-            # f1_score(torch.tensor(y_pred_L), torch.tensor(y_true_L))
 
     def compute(self):
         return np.mean(self.k_10), np.mean(self.k_25), np.mean(self.k_50)
@@ -631,17 +622,19 @@ def combine_predictions(all_arr, idx, sub_arr, mapping):
     
     return all_arr
 
-def create_seg_np(label_series):
-    # FIXME: Last segment is not included
-    change_occurring = np.concatenate([label_series[1:] - label_series[:-1], np.zeros((1))])
-    return np.where(change_occurring != 0, 1.0, 0.0) # Should this be of shape [N, B, 2] instead of [N, B*2]
+# def create_seg_np(label_series):
+#     # FIXME: Last segment is not included
+#     change_occurring = np.concatenate([label_series[1:] - label_series[:-1], np.zeros((1))])
+#     return np.where(change_occurring != 0, 1.0, 0.0) # Should this be of shape [N, B, 2] instead of [N, B*2]
 
 
 
-def calc_f1_at_k_at_once(all_arr, mapping, num_classes, temporal_length, save_dir=None):
+def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, save_dir=None):
     # In mapping there is no mirrored data, since it is redundant
 
     f1_at_k = F1_at_k(num_classes=num_classes)
+    f1_classic = MulticlassF1Score(num_classes=num_classes, average='macro')
+    
     if save_dir is not None:
         os.makedirs(save_dir, exist_ok=True) # TODO: remove exist_ok=True
 
@@ -664,12 +657,20 @@ def calc_f1_at_k_at_once(all_arr, mapping, num_classes, temporal_length, save_di
         
         
         
-        f1_at_k(y_true_L, y_pred__L, segment_name=video_id+"_L")
-        f1_at_k(y_true_R, y_pred__R, segment_name=video_id+"_R")
+        # Notice that the convention is (y_true, y_pred)
+        f1_at_k(y_true_L, y_pred__L)
+        f1_at_k(y_true_R, y_pred__R)
         
         # Mirrored data
-        f1_at_k(y_true_R, y_pred_ML, segment_name=video_id+"ML")
-        f1_at_k(y_true_L, y_pred_MR, segment_name=video_id+"MR")
+        f1_at_k(y_true_R, y_pred_ML)
+        f1_at_k(y_true_L, y_pred_MR)
+        
+        
+        # Notice that the convention is (y_pred, y_true)
+        f1_classic(torch.tensor(y_pred__L), torch.tensor(y_true_L))
+        f1_classic(torch.tensor(y_pred__R), torch.tensor(y_true_R))
+        f1_classic(torch.tensor(y_pred_ML), torch.tensor(y_true_R))
+        f1_classic(torch.tensor(y_pred_MR), torch.tensor(y_true_L))
         
         
         # Visualization
@@ -677,4 +678,9 @@ def calc_f1_at_k_at_once(all_arr, mapping, num_classes, temporal_length, save_di
             plot_segmentation_v2(y_true_L, y_pred__L, conf_L, y_pred_MR, conf_MR, save_file=opj(save_dir, video_id+"_L" + ".png"), title=video_id+"_L")
             plot_segmentation_v2(y_true_R, y_pred__R, conf_R, y_pred_ML, conf_ML, save_file=opj(save_dir, video_id+"_R" + ".png"), title=video_id+"_R")
 
-    return f1_at_k.compute()
+    return *f1_at_k.compute(), f1_classic.compute().item()
+
+
+def metrics_to_str(metrics):
+    return " ".join([f"{k}: {v:.4f}" for k, v in metrics.items() if "cm" not in k])
+    

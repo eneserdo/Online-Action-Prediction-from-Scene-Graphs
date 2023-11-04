@@ -115,7 +115,7 @@ sleep 5
 python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_10_BI_ML_Seg -tl 10 --label_loss_weight 0 --temporal_type bi --merged_pred late
 sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_10_BI_ML_Seg_sDTW -tl 10 --label_loss_weight 0 --temporal_type bi --merged_pred late --seg_loss sDTW
+python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_10_BI_ML_Seg_sDTW_g01 -tl 10 --label_loss_weight 0 --temporal_type bi --merged_pred late --seg_loss sDTW --sdtw_gamma 0.1
 sleep 5
 
 
