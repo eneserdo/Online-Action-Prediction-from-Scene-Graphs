@@ -175,7 +175,7 @@ class ActionRecognition(torch.nn.Module):
         left_hand_indicies = torch.zeros((batch_size), dtype=torch.long)
         right_hand_indicies = torch.zeros((batch_size), dtype=torch.long)
 
-        # TODO: Check if optimizable
+        # FIXME: 3 hands don't exist irl
         for i, l in enumerate(labels):
             if l == OBJECTS.index("LeftHand"):
                 # assert left_hand_indicies[batch[i]] ==-1
@@ -189,12 +189,13 @@ class ActionRecognition(torch.nn.Module):
         # return embeddings[graph_hand_indicies]
         l_emb, r_emb = embeddings[left_hand_indicies], embeddings[right_hand_indicies]
 
-        # FIXME: Below code is much more optimal, use when data redundancy is fixed.
+        # Below code is much more optimal, use when data redundancy is fixed.
         # l_emb, r_emb = embeddings[labels == OBJECTS.index("LeftHand")], embeddings[labels == OBJECTS.index("RightHand")]
 
         return l_emb, r_emb
 
     def _segment_prediction(self, gnn_output, rnn_output, detector):
+        # TODO: (?) Combine frame features (concatenate??) so that segment predicted together
         hn_se = torch.concat([rnn_output, gnn_output], dim=-1)
         segment_change_pred = (F.gumbel_softmax(detector(hn_se), dim=-1)[:, :, :1]).squeeze()
         s_hard = (segment_change_pred > 0.5).float()
@@ -241,7 +242,7 @@ class ActionRecognition(torch.nn.Module):
         
         return out_s, mask
 
-    def forward(self, dataBatchList: List[Batch], segment_gt):
+    def forward(self, dataBatchList: List[Batch], segment_gt=None):
 
         left_embedding_list = []
         right_embedding_list = []
@@ -316,7 +317,8 @@ class ActionRecognition(torch.nn.Module):
             both_hn = both_hn.squeeze()"""
 
         # Segmentation task - predict segment change (0,1)
-        # TODO:
+        # NOTE:
+        # 2 RNNs
         #   -> reset (zero, random,...) h_n-1 at every segment start for an RNN only focused to action sequence unaffected by previous happenings
         if self.merged_pred == "early":
             segment_change_pred_L, hard_segment_change_pred_L = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector_L)

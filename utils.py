@@ -215,7 +215,6 @@ def plot_conf_mat(mat, name, do_save=False, do_return_plot=False):
 
 
 def create_ground_truth_segments(label_series):
-    # FIXME: Last segment is not included
     change_occurring = torch.concat([label_series[1:] - label_series[:-1], torch.zeros(size=(1, label_series.shape[-1]), device=label_series.device)], dim=0)
     return torch.where(change_occurring != 0, 1.0, 0.0) # Should this be of shape [N, B, 2] instead of [N, B*2]
 
@@ -600,7 +599,6 @@ def majority_voting(arr, total_len, buffer_len, vote_weights=None):
 
 
 def combine_predictions(all_arr, idx, sub_arr, mapping):
-    # TODO: This function should be optimized, either with cython or with parallelization
     # first half of sub_arr is for left hand, second half is for right hand
     
     batch_size = sub_arr.shape[1]
@@ -622,13 +620,6 @@ def combine_predictions(all_arr, idx, sub_arr, mapping):
     
     return all_arr
 
-# def create_seg_np(label_series):
-#     # FIXME: Last segment is not included
-#     change_occurring = np.concatenate([label_series[1:] - label_series[:-1], np.zeros((1))])
-#     return np.where(change_occurring != 0, 1.0, 0.0) # Should this be of shape [N, B, 2] instead of [N, B*2]
-
-
-
 def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, save_dir=None):
     # In mapping there is no mirrored data, since it is redundant
 
@@ -636,7 +627,7 @@ def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, save_di
     f1_classic = MulticlassF1Score(num_classes=num_classes, average='macro')
     
     if save_dir is not None:
-        os.makedirs(save_dir, exist_ok=True) # TODO: remove exist_ok=True
+        os.makedirs(save_dir)
 
     for video_id, y_true_LR in mapping.items():
 

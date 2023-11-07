@@ -1,9 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-    TODO:
-    - Hyperparameter search
-    - log final test results as bar-plot
-"""
 
 import glob
 import json
@@ -90,15 +85,10 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
             ground_truth_segments = create_ground_truth_segments(torch.argmax(gt_reordered, dim=-1))
 
-            # TODO: Make prediction for each segment using mask
-            # 1. from predicted segments
-            # or
-            # 2. from ground truth segments
-
-            # TODO: obtain 0,1 valued targets of whether action changes via algorithm here or in data processing phase -> FSD 20.09.2023
-            # pred_flattened = model(data) # segmentation task -> FSD 20.09.2023
-            pred_flattened, segment_change_pred = model(data, ground_truth_segments)  
-            # pred_flattened shape: TODO: 
+            if args.perfect_seg:
+                pred_flattened, segment_change_pred = model(data, ground_truth_segments)  
+            else:
+                pred_flattened, segment_change_pred = model(data)  
 
             gt_flattened = torch.flatten(torch.transpose(gt_reordered, 0, 1), start_dim=0, end_dim=1)
             
@@ -112,9 +102,8 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             if args.seg_loss == "sDTW":
                 # NOTE: for label dtw input shapes should be (b,n,l) not (n*b,l) 
                 # TODO: 
-                # - ablated study (only seg)
                 # - gamma val tuned (0.001 etc.)
-                # - bceloss distance
+                # - bceloss distance metric
                 # - ...
                 t_shape = segment_change_pred.T.shape + (1,)
                 segmentation_loss = segmentation_criterion(segment_change_pred.view(t_shape), ground_truth_segments.view(t_shape)).mean()
@@ -183,6 +172,8 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
         overall_conf_mat_top1 = conf_mat_top1.compute()
         overall_conf_mat_top3 = conf_mat_top3.compute()
+
+        
 
     # TODO: Fix all wandb logs to be consistent with each other. use same dict
     if mode != "test":
