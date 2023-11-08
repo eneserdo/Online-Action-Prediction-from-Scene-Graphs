@@ -8,7 +8,7 @@ from torch_geometric.utils import dropout_edge
 import math
 
 from dataset import OBJECTS
-from utils import get_filters_for_imbalance, align_embeddings_to_right
+from utils import get_filters_for_imbalance, align_embeddings_to_right, flatten_seq
 
 
 # Borrowed from https://github.com/pytorch/examples/blob/main/word_language_model/model.py
@@ -70,6 +70,7 @@ class ActionRecognition(torch.nn.Module):
                  edge_dropout,
                  dropout,
                  use_cls_token,
+                 do_seg,
                  sparse_pred,
                  perfect_seg,
                  merged_pred,
@@ -82,6 +83,7 @@ class ActionRecognition(torch.nn.Module):
         self.edge_dropout = edge_dropout
         self.temporal_type = temporal_type
         self.use_cls_token = use_cls_token
+        self.do_seg = do_seg
         self.sparse_pred = sparse_pred
         self.perfect_seg = perfect_seg
         self.merged_pred = merged_pred
@@ -216,21 +218,21 @@ class ActionRecognition(torch.nn.Module):
     def _apply_segment_mask(self, both_out, segments):
         
         batch_size = segments.shape[1] // 2
-        both_out = torch.flatten(torch.transpose(both_out, 0, 1), start_dim=0, end_dim=1)
+        both_out = flatten_seq(both_out)
 
         # [0,0,1,0,0,0,1,0,1] -> segments last frames 1
         mask = segments.to(torch.bool)
         if not self.sparse_pred:
             segment_starts = torch.concat([torch.ones(size=(1, batch_size * 2), device=mask.device),
-                                           mask[:-1]], dim=0).T
+                                           mask[:-1]], dim=0) #.T
 
-            segment_starts = torch.flatten(segment_starts, start_dim=0, end_dim=1)  # (n*b*2)
+            segment_starts = flatten_seq(segment_starts) # torch.flatten(segment_starts, start_dim=0, end_dim=1)  # (n*b*2)
             segment_starts[0] = 0.0
             indices_for_seg_f = torch.cumsum(segment_starts, dim=-1)  # (n*b*2)
 
         # NOTE: Is it correct to consider last frame of seq. to be the last frame of its respective segment?
         mask[-1] = True
-        mask = torch.flatten(mask.T, start_dim=0, end_dim=1)  # (n*b*2)
+        mask = flatten_seq(mask) # torch.flatten(mask.T, start_dim=0, end_dim=1)  # (n*b*2)
 
         # [f2, f6, f8] -> features at last frames of respective segments
         out_seg_ends = both_out[mask]  # (s~*b*2,f)
@@ -320,25 +322,30 @@ class ActionRecognition(torch.nn.Module):
         # NOTE:
         # 2 RNNs
         #   -> reset (zero, random,...) h_n-1 at every segment start for an RNN only focused to action sequence unaffected by previous happenings
-        if self.merged_pred == "early":
-            segment_change_pred_L, hard_segment_change_pred_L = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector_L)
-            segment_change_pred_R, hard_segment_change_pred_R = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector_R)
-            
-            segment_change_pred = torch.cat((segment_change_pred_L, segment_change_pred_R), dim=1)
-            hard_segment_change_pred = torch.cat((hard_segment_change_pred_L, hard_segment_change_pred_R), dim=1)
-            # NOTE: could merging have been done better here?
-            both_out = torch.cat((both_out, both_out), dim=1)   # shape -> (n,b*2,f)
-        else:
-            segment_change_pred, hard_segment_change_pred = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector)
-        # Masking according to segment endpoints:
+        if self.do_seg:
+            if self.merged_pred == "early":
+                segment_change_pred_L, hard_segment_change_pred_L = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector_L)
+                segment_change_pred_R, hard_segment_change_pred_R = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector_R)
+                
+                segment_change_pred = torch.cat((segment_change_pred_L, segment_change_pred_R), dim=1)
+                hard_segment_change_pred = torch.cat((hard_segment_change_pred_L, hard_segment_change_pred_R), dim=1)
+                # NOTE: could merging have been done better here?
+                both_out = torch.cat((both_out, both_out), dim=1)   # shape -> (n,b*2,f)
+            else:
+                segment_change_pred, hard_segment_change_pred = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector)
+            # Masking according to segment endpoints:
 
-        # if need be use .clone()
-        if self.perfect_seg:
-            segments = segment_gt
-        else:
-            segments = hard_segment_change_pred
+            # if need be use .clone()
+            if self.perfect_seg:
+                segments = segment_gt
+            else:
+                segments = hard_segment_change_pred
 
-        out_s, mask = self._apply_segment_mask(both_out, segments)
+            out_s, mask = self._apply_segment_mask(both_out, segments)
+        else:
+            out_s = both_out
+
+        
 
         # Label Prediction Task
         # TODO:
@@ -357,10 +364,13 @@ class ActionRecognition(torch.nn.Module):
         else:
             action_prediction = self.mlp(out_s)
 
-        if self.sparse_pred:
-            # action_prediction shape -> (s~*b*2, a)
-            return (action_prediction, mask), segment_change_pred
-        else: 
-            # unflatten = Unflatten(dim=0, unflattened_size=segments.shape)  # (n, b*2, a)
-            # action_prediction = unflatten(action_prediction)
-            return action_prediction, segment_change_pred
+        if self.do_seg:
+            if self.sparse_pred:
+                # action_prediction shape -> (s~*b*2, a)
+                return (action_prediction, mask), segment_change_pred
+            else: 
+                # unflatten = Unflatten(dim=0, unflattened_size=segments.shape)  # (n, b*2, a)
+                # action_prediction = unflatten(action_prediction)
+                return action_prediction, segment_change_pred
+        else:
+            return flatten_seq(action_prediction)

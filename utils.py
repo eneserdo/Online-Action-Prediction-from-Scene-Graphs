@@ -50,11 +50,12 @@ def arg_parser():
     ap.add_argument("--saving_freq", type=int, default=5, help="...")
     ap.add_argument("-nbn", "--no_bn", action="store_true", help="...")
     ap.add_argument("--use_global_pooling", action="store_true", help="...")    # :(
-    ap.add_argument("--edge_dropout", type=float, default=0.0, help="...")
-    ap.add_argument("--dropout", type=float, default=0.0, help="...")
+    ap.add_argument("--edge_dropout", type=float, default=0.0, help="...")  # :(
+    ap.add_argument("--dropout", type=float, default=0.0, help="...")   # :(
     ap.add_argument("--use_cls_token", action="store_true", help="Use class token in transformer")
     ap.add_argument("--merged_pred", type=str, default=None, choices=["early", "late", None], help="Merge hands predictions")
     # Segmentation task
+    ap.add_argument("--do_seg", action="store_true", help="Do segmentation along with action recognition")
     ap.add_argument("--sdtw_gamma", type=float, default=1.0, help="Gamma parameter for soft-DTW")
     ap.add_argument("--seg_loss", type=str, default="BCELoss", choices=["sDTW", "BCELoss"], help="Loss function for segmentation task")
     ap.add_argument("--sparse_pred", action="store_true", help="Predict only frames at ends of segments")   # :( 
@@ -78,7 +79,7 @@ def arg_parser():
     ap.add_argument("-me", "--max_epochs", type=int, default=20, help="Max number of epochs")
     ap.add_argument("-r", "--restore", type=int, help="...")
     ap.add_argument("-rn", "--restored_name", type=str, help="...")
-    ap.add_argument("-fih", "--filter_idle_hold", action="store_true", help="...")
+    ap.add_argument("-fih", "--filter_idle_hold", action="store_true", help="...")  # :(
 
     # Logging
     ap.add_argument("-n", "--name", required=True, type=str, help="Name of experiment for logging into Wandb")
@@ -218,6 +219,14 @@ def create_ground_truth_segments(label_series):
     change_occurring = torch.concat([label_series[1:] - label_series[:-1], torch.zeros(size=(1, label_series.shape[-1]), device=label_series.device)], dim=0)
     return torch.where(change_occurring != 0, 1.0, 0.0) # Should this be of shape [N, B, 2] instead of [N, B*2]
 
+def flatten_seq(x):
+        """
+            input:
+                x -> tensor of shape (n, b*2, f)
+            output:
+                y -> flattened tensor of shape (n*b*2, f)
+        """
+        return torch.flatten(torch.transpose(x, 0, 1), start_dim=0, end_dim=1)
 
 def seed_worker(worker_id):
     worker_seed = torch.initial_seed() % 2 ** 32

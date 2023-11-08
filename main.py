@@ -24,7 +24,7 @@ import models
 import wandb
 from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits)
 from utils import (F1_at_k, arg_parser, calc_metrics_at_once, combine_predictions, get_minutes, metrics_to_str, plot_conf_mat, seed_worker, 
-                   visualize_incorrect_preds, create_ground_truth_segments, assign_seg_labels)
+                   visualize_incorrect_preds, create_ground_truth_segments, assign_seg_labels, flatten_seq)
 
 from tslearn.metrics import SoftDTWLossPyTorch
 
@@ -83,35 +83,39 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
             batch_size = gt_reordered.shape[1] // 2
 
-            ground_truth_segments = create_ground_truth_segments(torch.argmax(gt_reordered, dim=-1))
+            if args.do_seg:
+                ground_truth_segments = create_ground_truth_segments(torch.argmax(gt_reordered, dim=-1))
 
-            if args.perfect_seg:
-                pred_flattened, segment_change_pred = model(data, ground_truth_segments)  
+                if args.perfect_seg:
+                    pred_flattened, segment_change_pred = model(data, ground_truth_segments)  
+                else:
+                    pred_flattened, segment_change_pred = model(data)  
             else:
-                pred_flattened, segment_change_pred = model(data)  
+                pred_flattened = model(data)  
 
-            gt_flattened = torch.flatten(torch.transpose(gt_reordered, 0, 1), start_dim=0, end_dim=1)
+            gt_flattened = flatten_seq(gt_reordered) # torch.flatten(torch.transpose(gt_reordered, 0, 1), start_dim=0, end_dim=1)
             
-            if args.sparse_pred:
+            if args.do_seg and args.sparse_pred:
                 pred_flattened, mask = pred_flattened
                 gt_flattened = gt_flattened[mask]
 
             label_loss = label_criterion(pred_flattened, gt_flattened)
             loss = label_loss * label_loss_weight
 
-            if args.seg_loss == "sDTW":
-                # NOTE: for label dtw input shapes should be (b,n,l) not (n*b,l) 
-                # TODO: 
-                # - gamma val tuned (0.001 etc.)
-                # - bceloss distance metric
-                # - ...
-                t_shape = segment_change_pred.T.shape + (1,)
-                segmentation_loss = segmentation_criterion(segment_change_pred.view(t_shape), ground_truth_segments.view(t_shape)).mean()
-            else:
-                segmentation_loss = segmentation_criterion(segment_change_pred, ground_truth_segments)
-            
-            if not args.perfect_seg:
-                loss += segmentation_loss
+            if args.do_seg:
+                if args.seg_loss == "sDTW":
+                    # NOTE: for label dtw input shapes should be (b,n,l) not (n*b,l) 
+                    # TODO: 
+                    # - gamma val tuned (0.001 etc.)
+                    # - bceloss distance metric
+                    # - ...
+                    t_shape = segment_change_pred.T.shape + (1,)
+                    segmentation_loss = segmentation_criterion(segment_change_pred.view(t_shape), ground_truth_segments.view(t_shape)).mean()
+                else:
+                    segmentation_loss = segmentation_criterion(segment_change_pred, ground_truth_segments)
+                
+                if not args.perfect_seg:
+                    loss += segmentation_loss
 
             if mode == "train":
                 loss.backward()
@@ -123,7 +127,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             if label_loss_weight == 0:
                 # It means that we do not have any label, so we need to assign labels to the segments 
                 pred = assign_seg_labels(gt_reordered.cpu(), ground_truth_segments.cpu(), segment_change_pred.cpu().detach())
-                pred_flattened_ = torch.flatten(torch.transpose(pred, 0, 1), start_dim=0, end_dim=1)
+                pred_flattened_ = flatten_seq(pred) # torch.flatten(torch.transpose(pred, 0, 1), start_dim=0, end_dim=1)
                 pred_flattened = torch.nn.functional.one_hot(pred_flattened_.long(), num_classes=len(ACTIONS)).float()
                 pred_flattened = pred_flattened.to(device)
             else:
@@ -157,7 +161,11 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             # This is so as to understand action segmentation affect.
 
             if mode != "test":
-                wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item(), "Label Loss": label_loss.item(), "Segmentation Loss": segmentation_loss.item()},
+                res = {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item(), "Label Loss": label_loss.item()}
+                if args.do_seg:
+                    res["Segmentation Loss"] = segmentation_loss.item()
+
+                wandb.log({f"{mode}/batch/": res,
                            'batch': step})
 
             if mode == "test" and args.save_incorrects:
@@ -273,6 +281,7 @@ if __name__ == "__main__":
                                      edge_dropout=args.edge_dropout,
                                      dropout=args.dropout,
                                      use_cls_token=args.use_cls_token,
+                                     do_seg=args.do_seg,
                                      sparse_pred=args.sparse_pred,
                                      perfect_seg=args.perfect_seg,
                                      merged_pred=args.merged_pred).to(device=device)
