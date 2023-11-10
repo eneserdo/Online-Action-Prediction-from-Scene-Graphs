@@ -128,20 +128,6 @@ def conf_mat_from_left_right(truth, pred, labels):
     return res
 
 
-def predicted_labels(pred_scores, corect_labels, k: float):
-    # pred_scores -> (n_samples, n_labels)
-    # corect_labels -> (n_samples,)
-    # k -> IoU expected to consider a prediction correct
-    pred_top_3 = torch.argsort(pred_scores, dim=1, descending=True)[:, :3]
-    pred_top_1 = pred_top_3[:, 0]
-    pred_top_3_final = torch.where(functorch.vmap(lambda t1, t2: torch.isin(t1, t2))(corect_labels, pred_top_3),
-                                   corect_labels, pred_top_1)
-    # F1 @ k metric -> commonly k = 0.1, 0.25 and 0.5
-    pred_at_k = torch.where(pred_scores[corect_labels] >= k, corect_labels, pred_top_1)
-
-    return pred_top_1, pred_top_3_final, pred_at_k
-
-
 def classification_scores(conf_mat):
     scores = {'recall': {}, 'precision': {}, 'F1': {}}
 
