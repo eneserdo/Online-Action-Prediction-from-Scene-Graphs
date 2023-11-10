@@ -210,6 +210,14 @@ def seed_worker(worker_id):
     np.random.seed(worker_seed)
     random.seed(worker_seed)
 
+def flatten_seq(x):
+        """
+            input:
+                x -> tensor of shape (n, b*2, f)
+            output:
+                y -> flattened tensor of shape (n*b*2, f)
+        """
+        return torch.flatten(torch.transpose(x, 0, 1), start_dim=0, end_dim=1)
 
 def get_filters_for_imbalance(dataBatchList):
     """ 2 out of 3 samples for the actions idle and hold were discarded """
