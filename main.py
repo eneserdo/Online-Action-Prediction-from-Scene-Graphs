@@ -405,7 +405,7 @@ if __name__ == "__main__":
     
 
     print(f'### [F1] TEST: ', metrics_to_str(test_metrics))
-    wandb.log({"test_top1": round(test_metrics["f1_top1"], 4), "test_top3": round(test_metrics["f1_top3"], 4), "f1_top1_once": round(test_metrics["f1_top1_once"], 4), "f1_at_10": round(test_metrics["f1_at_10"], 4), "f1_at_25": round(test_metrics["f1_at_25"], 4), "f1_at_50": round(test_metrics["f1_at_50"], 4)})
+    wandb.log({"test_top1": round(test_metrics["f1_top1"], 4), "test_top3": round(test_metrics["f1_top3"], 4), "f1_top1_once": round(test_metrics["f1_top1_once"], 4), "f1@10": round(test_metrics["f1@10"], 4), "f1@25": round(test_metrics["f1@25"], 4), "f1@50": round(test_metrics["f1@50"], 4)})
 
     plt.close()
     plt3.close()
