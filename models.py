@@ -333,28 +333,26 @@ class ActionRecognition(torch.nn.Module):
         # NOTE:
         # 2 RNNs
         #   -> reset (zero, random,...) h_n-1 at every segment start for an RNN only focused to action sequence unaffected by previous happenings
-        if  not self.no_seg:
-            if self.merged_pred == "early":
-                segment_change_pred_L, hard_segment_change_pred_L = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector_L)
-                segment_change_pred_R, hard_segment_change_pred_R = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector_R)
-                
-                segment_change_pred = torch.cat((segment_change_pred_L, segment_change_pred_R), dim=1)
-                hard_segment_change_pred = torch.cat((hard_segment_change_pred_L, hard_segment_change_pred_R), dim=1)
-                # NOTE: could merging have been done better here?
-                both_out = torch.cat((both_out, both_out), dim=1)   # shape -> (n,b*2,f)
-            else:
-                segment_change_pred, hard_segment_change_pred = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector)
-            # Masking according to segment endpoints:
-
-            # if need be use .clone()
-            if self.perfect_seg:
-                segments = segment_gt
-            else:
-                segments = hard_segment_change_pred
-
-            out_s, mask = self._apply_segment_mask(both_out, segments)
+        
+        if self.merged_pred == "early":
+            segment_change_pred_L, hard_segment_change_pred_L = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector_L)
+            segment_change_pred_R, hard_segment_change_pred_R = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector_R)
+            
+            segment_change_pred = torch.cat((segment_change_pred_L, segment_change_pred_R), dim=1)
+            hard_segment_change_pred = torch.cat((hard_segment_change_pred_L, hard_segment_change_pred_R), dim=1)
+            # NOTE: could merging have been done better here?
+            both_out = torch.cat((both_out, both_out), dim=1)   # shape -> (n,b*2,f)
         else:
-            out_s = both_out
+            segment_change_pred, hard_segment_change_pred = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector)
+        # Masking according to segment endpoints:
+
+        # if need be use .clone()
+        if self.perfect_seg:
+            segments = segment_gt
+        else:
+            segments = hard_segment_change_pred
+
+        out_s, mask = self._apply_segment_mask(both_out, segments)
 
         
 
