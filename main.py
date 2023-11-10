@@ -24,7 +24,7 @@ import models
 import wandb
 from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits)
 from utils import (F1_at_k, arg_parser, calc_metrics_at_once, combine_predictions, get_minutes, metrics_to_str, plot_conf_mat, seed_worker, 
-                   visualize_incorrect_preds, create_ground_truth_segments, assign_seg_labels)
+                   visualize_incorrect_preds, create_ground_truth_segments, assign_seg_labels, flatten_seq)
 
 from tslearn.metrics import SoftDTWLossPyTorch
 
@@ -90,7 +90,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             else:
                 pred_flattened, segment_change_pred = model(data)  
 
-            gt_flattened = torch.flatten(torch.transpose(gt_reordered, 0, 1), start_dim=0, end_dim=1)
+            gt_flattened = flatten_seq(gt_reordered)
             
             if args.sparse_pred:
                 pred_flattened, mask = pred_flattened
