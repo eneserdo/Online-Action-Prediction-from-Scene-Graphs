@@ -311,10 +311,11 @@ class ActionRecognition(torch.nn.Module):
 
             both_hn = self.temporal_layer(both_sequencial_embeddings)
 
-            if self.use_cls_token:
-                both_out = both_hn[0]
-            else:
-                both_out = both_hn.mean(dim=0)  # FIXME: It is dim=1 in the original code ?
+            both_out = both_hn
+            # if self.use_cls_token:
+            #     both_out = both_hn[0]
+            # else:
+            #     both_out = both_hn.mean(dim=0)  # FIXME: It is dim=1 in the original code ?
 
 
         elif self.temporal_type == "bi":
