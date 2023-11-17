@@ -110,6 +110,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             else:
                 segmentation_loss = segmentation_criterion(segment_change_pred, ground_truth_segments)
             
+            # TODO: Train on segmentation first than action prediction later (see if it works)
             if not args.perfect_seg:
                 loss += segmentation_loss
 

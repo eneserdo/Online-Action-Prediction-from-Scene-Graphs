@@ -492,8 +492,8 @@ def assign_seg_labels(gt_seg_labels, gt_seg, pred_seg):
     pred_seg = pred_seg > 0.5
     
     # FIXME: this is a hack to make sure that the last frame is always a segment ending
-    gt_seg[-1, :] = 1
-    pred_seg[-1, :] = 1
+    # gt_seg[-1, :] = 1
+    # pred_seg[-1, :] = 1
     
     batch_size=gt_seg.shape[1]
     pred_seg_labels = torch.zeros_like(gt_seg_labels)
