@@ -73,6 +73,7 @@ class ActionRecognition(torch.nn.Module):
                  sparse_pred,
                  perfect_seg,
                  merged_pred,
+                 norm_layer,
                  **kwargs):
         """ Accepts kwargs for non-general params of gnns """
         super().__init__()
@@ -112,8 +113,9 @@ class ActionRecognition(torch.nn.Module):
         self.act2 = SELU()
 
         if use_bn:
-            self.bn1 = geometric_nn.BatchNorm(effective_out_ch1)
-            self.bn2 = geometric_nn.BatchNorm(effective_out_ch2)
+            NormLayerType = getattr(geometric_nn, norm_layer)
+            self.bn1 = NormLayerType(effective_out_ch1)
+            self.bn2 = NormLayerType(effective_out_ch2)
             self.gnn = geometric_nn.Sequential("x, edge_index, edge_attr",
                                                [(self.conv1, "x, edge_index, edge_attr -> x"), self.act1, self.bn1,
                                                 (self.conv2, "x, edge_index, edge_attr -> x"), self.act2, self.bn2])

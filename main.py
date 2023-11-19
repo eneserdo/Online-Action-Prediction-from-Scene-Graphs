@@ -28,12 +28,7 @@ from utils import (F1_at_k, arg_parser, calc_metrics_at_once, combine_prediction
 
 from tslearn.metrics import SoftDTWLossPyTorch
 
-SEED = 34
-random.seed(SEED)
-np.random.seed(SEED)
-torch.manual_seed(SEED)
-torch.cuda.manual_seed_all(SEED)
-torch.cuda.manual_seed(SEED)
+
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
@@ -236,6 +231,12 @@ if __name__ == "__main__":
     args = arg_parser()
     print("ARGS:\n", args)
 
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
+    torch.cuda.manual_seed(args.seed)
+
     # assert args.gpu_id < torch.cuda.device_count(), f"gpu_id:{args.gpu_id} not found. Total gpu count: {torch.cuda.device_count()}"
     device = torch.device('cuda:' + str(args.gpu_id) if torch.cuda.is_available() else 'cpu')
 
@@ -276,7 +277,8 @@ if __name__ == "__main__":
                                      use_cls_token=args.use_cls_token,
                                      sparse_pred=args.sparse_pred,
                                      perfect_seg=args.perfect_seg,
-                                     merged_pred=args.merged_pred).to(device=device)
+                                     merged_pred=args.merged_pred,
+                                     norm_layer=args.norm_layer).to(device=device)
 
     print(model)
     print("# of parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))

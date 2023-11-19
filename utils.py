@@ -59,7 +59,11 @@ def arg_parser():
     ap.add_argument("--seg_loss", type=str, default="BCELoss", choices=["sDTW", "BCELoss"], help="Loss function for segmentation task")
     ap.add_argument("--sparse_pred", action="store_true", help="Predict only frames at ends of segments")   # :( 
     ap.add_argument("--perfect_seg", action="store_true", help="Use ground truth segment ending info")
- 
+
+    # Normalization Layer
+    ap.add_argument("--norm_layer", type=str, default="BatchNorm", choices=["BatchNorm", "InstanceNorm", "LayerNorm", "GraphNorm", "PairNorm"], help="Normalization  for GNN layer")
+
+
     # Optimizer
     ap.add_argument("-o", "--optimizer_type", type=str, required=True,
                     choices=["Adam", "AdamW", "NAdam", "RMSprop", "SGD"],
@@ -88,6 +92,7 @@ def arg_parser():
 
     # Others
     ap.add_argument("--gpu_id", type=int, default=0, help="...")
+    ap.add_argument("--seed", type=int, default=34, help="...")
 
     return ap.parse_args()
 
@@ -492,8 +497,8 @@ def assign_seg_labels(gt_seg_labels, gt_seg, pred_seg):
     pred_seg = pred_seg > 0.5
     
     # FIXME: this is a hack to make sure that the last frame is always a segment ending
-    # gt_seg[-1, :] = 1
-    # pred_seg[-1, :] = 1
+    gt_seg[-1, :] = 1
+    pred_seg[-1, :] = 1
     
     batch_size=gt_seg.shape[1]
     pred_seg_labels = torch.zeros_like(gt_seg_labels)
