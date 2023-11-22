@@ -91,14 +91,26 @@
 # python main.py -g TransformerConv -o Adam -lr 0.001 -wd 0.0001 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_tl_30_bi -tl 30 -bs 512 --temporal_type bi
 # sleep 5
 
-python prepare_dataset.py -tl 30
+# python prepare_dataset.py -tl 30
 
 
-python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_30_BI_ML -tl 30 --gpu_id 1 --temporal_type bi --merged_pred late
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_30_BI_ML -tl 30 --gpu_id 1 --temporal_type bi --merged_pred late
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_30_BI_ML_Perf -tl 30 --perfect_seg --gpu_id 1 --temporal_type bi --merged_pred late
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_30_BI_ML_Seg -tl 30 --label_loss_weight 0 --gpu_id 1 --temporal_type bi --merged_pred late
+# sleep 5
+
+python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_10_BI_ML_LN -tl 10 --merged_pred late --temporal_type bi --norm_layer LayerNorm
 sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_30_BI_ML_Perf -tl 30 --perfect_seg --gpu_id 1 --temporal_type bi --merged_pred late
+python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_10_BI_ML_IN -tl 10 --merged_pred late --temporal_type bi --norm_layer InstanceNorm
 sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_30_BI_ML_Seg -tl 30 --label_loss_weight 0 --gpu_id 1 --temporal_type bi --merged_pred late
+python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_10_BI_ML_GN -tl 10 --merged_pred late --temporal_type bi --norm_layer GraphNorm
+sleep 5
+
+python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_10_BI_ML_PN -tl 10 --merged_pred late --temporal_type bi --norm_layer PairNorm
 sleep 5

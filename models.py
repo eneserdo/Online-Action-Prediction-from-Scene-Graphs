@@ -114,11 +114,27 @@ class ActionRecognition(torch.nn.Module):
 
         if use_bn:
             NormLayerType = getattr(geometric_nn, norm_layer)
-            self.bn1 = NormLayerType(effective_out_ch1)
-            self.bn2 = NormLayerType(effective_out_ch2)
-            self.gnn = geometric_nn.Sequential("x, edge_index, edge_attr",
-                                               [(self.conv1, "x, edge_index, edge_attr -> x"), self.act1, self.bn1,
-                                                (self.conv2, "x, edge_index, edge_attr -> x"), self.act2, self.bn2])
+            
+            if norm_layer == "BatchNorm":
+                bn_transfer_string = "x -> x"
+            else:
+                bn_transfer_string = "x, batch -> x"
+            
+            if norm_layer == "PairNorm":
+                self.bn1 = NormLayerType()
+                self.bn2 = NormLayerType()
+            # elif norm_layer == "InstanceNorm":
+            #     # Somewhat track_running_stats=True and affine=True is NOT default in InstanceNorm both in pytorch and pytorch-geometric
+            #     self.bn1 = NormLayerType(effective_out_ch1, affine=True, track_running_stats=True)
+            #     self.bn2 = NormLayerType(effective_out_ch2, affine=True, track_running_stats=True)
+            else:
+                self.bn1 = NormLayerType(effective_out_ch1)
+                self.bn2 = NormLayerType(effective_out_ch2)
+                
+
+            self.gnn = geometric_nn.Sequential("x, edge_index, edge_attr, batch",
+                                               [(self.conv1, "x, edge_index, edge_attr -> x"), self.act1, (self.bn1, bn_transfer_string),
+                                                (self.conv2, "x, edge_index, edge_attr -> x"), self.act2, (self.bn2, bn_transfer_string)])
         else:
             self.gnn = geometric_nn.Sequential("x, edge_index, edge_attr",
                                                [(self.conv1, "x, edge_index, edge_attr -> x"), self.act1,
@@ -260,7 +276,7 @@ class ActionRecognition(torch.nn.Module):
                 edge_index, edge_mask = dropout_edge(edge_index, p=self.edge_dropout)
                 edge_attr = edge_attr[edge_mask]
 
-            H = self.gnn(x, edge_index, edge_attr)
+            H = self.gnn(x, edge_index, edge_attr, batch)
 
             if self.use_hand_pooling:
                 left_embeddings, right_embeddings = self._hands_pooling(x, H, batch)
