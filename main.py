@@ -281,7 +281,16 @@ if __name__ == "__main__":
                                      norm_layer=args.norm_layer).to(device=device)
 
     print(model)
-    print("# of parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))
+    rnn_params = sum(p.numel() for p in model.temporal_layer.parameters() if p.requires_grad)
+    gnn_params = sum(p.numel() for p in model.gnn.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+    print(f"Total trainable params: {total_params:_}")
+    print(f"RNN: {rnn_params:_}")
+    print(f"GNN: {gnn_params:_}")
+    wandb.log({"total_params": total_params, "rnn_params": rnn_params, "gnn_params": gnn_params})
+
+
 
     # for mode, run in runs.items():
     wandb.watch(model, log='all')
