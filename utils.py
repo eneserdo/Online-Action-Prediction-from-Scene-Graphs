@@ -453,18 +453,42 @@ def calc_cost_matrix_single(gt_seg, pred_seg):
 
     for i, (gt_start, gt_end) in enumerate(ground_truth_boundaries):
         for j, (p_start, p_end) in enumerate(predicted_boundaries):
+
+            # it is already passed
+            # g: [+---+      ]
+            # p: [       +--+]
             if gt_end < p_start:
                 break
+
+            # it is not reached yet
+            # g: [       +--+]
+            # p: [+---+      ]
             elif p_end < gt_start:
                 continue
+
+            # g: [ +----------+  ]
+            # p: [    +---+      ]
             elif gt_start <= p_start and p_end <= gt_end:
-                cost_matrix[i, j] = p_end - p_start + 1
+                # cost_matrix[i, j] = p_end - p_start + 1
+                cost_matrix[i, j] = (p_end - p_start + 1) / (gt_end - gt_start + 1)
+            
+            # g: [    +---+      ]
+            # p: [ +----------+  ]
             elif p_start <= gt_start and gt_end <= p_end:
-                cost_matrix[i, j] = gt_end - gt_start + 1
+                # cost_matrix[i, j] = gt_end - gt_start + 1
+                cost_matrix[i, j] = (gt_end - gt_start + 1) / (p_end - p_start + 1)
+            
+            # g: [   +--------+   ]
+            # p: [ +----+         ]
+            # or
+            # g: [ +----+         ]
+            # p: [   +--------+   ] 
             else:
                 arg1 = p_end - gt_start + 1
                 arg2 = gt_end - p_start + 1
-                cost_matrix[i, j] = min(max(arg1, 0), max(arg2, 0)) 
+                assert arg1 > 0 and arg2 > 0, "arg1 and arg2 must be positive"
+                # cost_matrix[i, j] = min(max(arg1, 0), max(arg2, 0)) 
+                cost_temp = arg1/arg2 if arg1 < arg2 else arg2/arg1
     
     return cost_matrix, ground_truth_boundaries, predicted_boundaries
     
@@ -626,6 +650,8 @@ def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, save_di
     f1_classic = MulticlassF1Score(num_classes=num_classes, average='macro')
     
     if save_dir is not None:
+        if os.path.exists(save_dir):
+            shutil.rmtree(save_dir)
         os.makedirs(save_dir)
 
     for video_id, y_true_LR in mapping.items():
