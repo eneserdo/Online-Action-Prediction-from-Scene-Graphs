@@ -139,8 +139,23 @@
 # python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_10_TR_ML_Seg -tl 10 --label_loss_weight 0 --temporal_type tr --merged_pred late --gpu_id 1
 # sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_10_TR_ML_S27 -tl 10 --temporal_type tr --merged_pred late --seed 27 --gpu_id 1
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_10_TR_ML_S27 -tl 10 --temporal_type tr --merged_pred late --seed 27 --gpu_id 1
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_30_TR_ML -tl 30 --temporal_type tr --merged_pred late --gpu_id 1
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_30_TR_ML_GN -tl 30 --merged_pred late --temporal_type tr --norm_layer GraphNorm --gpu_id 1
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_30_TR_ML_PN -tl 30 --merged_pred late --temporal_type tr --norm_layer PairNorm --gpu_id 1
+# sleep 5
+
+python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_10_BI_ML -tl 10 --temporal_type bi --merged_pred late
 sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 4 --name SEG_30_TR_ML -tl 30 --temporal_type tr --merged_pred late --gpu_id 1
+python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_10_TR_ML_Seg_sDTW_g01 -tl 10 --label_loss_weight 0 --temporal_type tr --merged_pred late --seg_loss sDTW --sdtw_gamma 0.1
+sleep 5
+
+python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_30_TR_ML_Seg_sDTW_g01 -tl 30 --label_loss_weight 0 --temporal_type tr --merged_pred late --seg_loss sDTW --sdtw_gamma 0.1
 sleep 5
