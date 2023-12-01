@@ -236,6 +236,9 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
     torch.cuda.manual_seed(args.seed)
+    torch.use_deterministic_algorithms() 
+    g = torch.Generator()
+    g.manual_seed(0)
 
     # assert args.gpu_id < torch.cuda.device_count(), f"gpu_id:{args.gpu_id} not found. Total gpu count: {torch.cuda.device_count()}"
     device = torch.device('cuda:' + str(args.gpu_id) if torch.cuda.is_available() else 'cpu')
@@ -254,11 +257,12 @@ if __name__ == "__main__":
                                                                fix_fps=args.fix_fps,
                                                                fix_null=args.fix_null)
 
-    train_loader = DataLoader(train_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker)
+    # Add generator=g to DataLoader to make it deterministic
+    train_loader = DataLoader(train_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker, generator=g)
     
-    test_loader = DataLoader(test_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker)
+    test_loader = DataLoader(test_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker, generator=g)
 
-    val_loader = DataLoader(val_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker)
+    val_loader = DataLoader(val_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker, generator=g)
 
     model = models.ActionRecognition(gnn_type=args.gnn_type,
                                      temporal_type=args.temporal_type,
