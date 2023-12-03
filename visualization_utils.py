@@ -1,6 +1,8 @@
 # This file is borrowed from https://github.com/RomeroBarata/human_object_interaction/blob/main/vhoi/visualisation.py
 
+import datetime
 from itertools import groupby
+import os
 from typing import Dict
 
 import matplotlib as mpl
@@ -131,4 +133,48 @@ def plot_segmentation_v2(y_true, y_pred, conf, y_pred_M, conf_M, save_file, titl
     
     fig.tight_layout()
     fig.savefig(save_file)
+    plt.close()
+
+
+def plot_segmentation_partial(y_pred_dict, y_true, save_dir, idx_of_sample, mode):
+    # This is a very custom function to plot the partial segments, and save it the temp folder.
+    # This function will be called from the training loop.
+
+    # y_dict: [epoch]: [y_true, y_pred]
+    num_epochs = len(y_pred_dict)
+
+    save_dir = os.path.join(save_dir, "partial_segments")
+    os.makedirs(save_dir, exist_ok=True)
+
+    title = f"{mode}_{idx_of_sample}"
+    file_name = f"{title}.png"
+
+    bar_width = 1
+    bar_height = 150
+
+    y_true = create_label_bar(y_true, bar_height=bar_height, bar_width=bar_width).astype(np.uint8)
+    y_pred = create_label_bar(y_pred, bar_height=bar_height, bar_width=bar_width).astype(np.uint8)
+
+    # Plot the segmentation
+    # plt.figure(figsize=(30, 10))
+
+    num_col = 3
+    num_row = (num_epochs+num_col-1) // num_col
+
+    fig, axs = plt.subplots(num_row, num_col, sharex=True, figsize=(30, 10))
+    plt.suptitle(title)
+
+    # for
+    # Plot the ground truth
+    axs[0, 0].set_title(f'Ground Truth: {title}')
+    axs[0, 0].imshow(y_true, cmap=plt.get_cmap('tab20'), vmin=0, vmax=20, aspect='auto')
+    
+    for e, y_pred in y_pred_dict.items():
+        x_pos = e % num_col
+        y_pos = e // num_col
+        axs[x_pos, y_pos].set_title('Pred')
+        axs[x_pos, y_pos].imshow(y_pred, cmap=plt.get_cmap('tab20'), vmin=0, vmax=20, aspect='auto')
+            
+    fig.tight_layout()
+    fig.savefig(os.path.join(save_dir, file_name))
     plt.close()

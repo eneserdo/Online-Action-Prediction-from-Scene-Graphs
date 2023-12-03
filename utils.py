@@ -21,7 +21,7 @@ from scipy import sparse
 from collections import Counter
 
 from metrics import f1_at_k_single_example
-from visualization_utils import plot_segmentation, plot_segmentation_v2
+from visualization_utils import plot_segmentation, plot_segmentation_partial, plot_segmentation_v2
 plt.ioff()
 
 
@@ -700,3 +700,51 @@ def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, save_di
 def metrics_to_str(metrics):
     return " ".join([f"{k}: {v:.4f}" for k, v in metrics.items() if "cm" not in k])
     
+
+class VisSegmentsPartial:
+    def __init__(self, num_of_samples, training_len, val_len, save_dir) -> None:
+
+        # [mode][idx][epoch] = [y_pred]
+        self.segments_pred = {"train": {}, "val": {}}
+
+        # [mode][idx] = [y_true]
+        self.segments_gt = {"train": {}, "val": {}}
+
+        self.num_of_samples = num_of_samples
+        self.save_dir = save_dir
+        
+        self.selected_training_idx=np.random.choice(training_len, num_of_samples, replace=False)
+        for s_idx in self.selected_training_idx:
+            self.segments_pred["train"][s_idx] = {}
+
+        self.selected_val_idx=np.random.choice(val_len, num_of_samples, replace=False)
+        for s_idx in self.selected_val_idx:
+            self.segments_pred["val"][s_idx] = {}
+
+    def pick_samples(self, y_true, y_pred, idx, epoch, mode):
+        # called in each epoch
+        # pick samples for visualization
+        # save them in self.segments_pred
+
+        selected_idx=self.selected_training_idx if mode=="train" else self.selected_val_idx
+
+        for s_idx in selected_idx:
+            # check which selected_idx is in the idx, find mapping and slice it from y_true and y_pred
+            if s_idx not in idx:
+                continue
+            else:
+                idx_correspondence = idx.index(s_idx)            
+                self.segments_pred[mode][s_idx][epoch] = y_pred[idx_correspondence]
+                self.segments_gt[mode][s_idx] = y_true[idx_correspondence]
+
+
+    def visualize(self, max_epochs):
+        # call this after loop is finished i.e. epoch == args.max_epochs
+
+        for mode in ["train", "val"]:
+            selected_idx=self.selected_training_idx if mode=="train" else self.selected_val_idx
+
+            for s_idx in selected_idx:
+
+                plot_segmentation_partial(self.segments_pred[mode][s_idx], self.segments_gt[mode][s_idx], self.save_dir, s_idx, mode)
+                    

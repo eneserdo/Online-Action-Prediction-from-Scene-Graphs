@@ -23,7 +23,7 @@ import matplotlib.pyplot as pyplot
 import models
 import wandb
 from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits)
-from utils import (F1_at_k, arg_parser, calc_metrics_at_once, combine_predictions, get_minutes, metrics_to_str, plot_conf_mat, seed_worker, 
+from utils import (F1_at_k, VisSegmentsPartial, arg_parser, calc_metrics_at_once, combine_predictions, get_minutes, metrics_to_str, plot_conf_mat, seed_worker, 
                    visualize_incorrect_preds, create_ground_truth_segments, assign_seg_labels, flatten_seq)
 
 from tslearn.metrics import SoftDTWLossPyTorch
@@ -60,6 +60,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     # Used -1 as a placeholder value to check if all predictions are filled
     all_predictions_combined = {vid + m_and_hand_status: - np.ones((act.shape[0] - args.temporal_length + 1) * args.temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
 
+    # vsp = VisSegmentsPartial(20, training_len, val_len, save_dir)
 
     # To ignore warnings about functorch and nan values in confusion matrix
     with warnings.catch_warnings():
@@ -134,7 +135,8 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             # This takes 0.0024 seconds
             combine_predictions(all_predictions_combined, idxes.numpy(), pred, dataset_mapping[mode]["sample"])
             
-            
+            # Visualize predictions (without majority voting, only in temporal_len-long segments)
+            # vsp.pick_samples(y_true=gt_reordered, y_pred=pred, idx=idxes, epoch=epoch, mode=mode)
 
             # # Calculate metrics
             # testden gelen
@@ -189,6 +191,9 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     wandb.log({f"{mode}/epoch/": {'f1@10': f1_at_10, 'f1@25': f1_at_25, 'f1@50': f1_at_50, "f1_top1_once": f1_top1_once}, 'epoch': epoch})
 
 
+    # if mode != "test" and epoch == args.max_epochs:    
+    #     vsp.visualize(epoch=epoch)
+
     # To unify and simplify return statement
     return_dict = {"f1_top1": overall_f1_top1.item(), 
                    "f1_top3": overall_f1_top3.item(), 
@@ -236,7 +241,7 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
     torch.cuda.manual_seed(args.seed)
-    torch.use_deterministic_algorithms() 
+    # torch.use_deterministic_algorithms(mode=True, warn_only=True) # This throws an error
     g = torch.Generator()
     g.manual_seed(0)
 
@@ -263,6 +268,9 @@ if __name__ == "__main__":
     test_loader = DataLoader(test_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker, generator=g)
 
     val_loader = DataLoader(val_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker, generator=g)
+
+    training_len = len(train_set)
+    val_len = len(val_set)
 
     model = models.ActionRecognition(gnn_type=args.gnn_type,
                                      temporal_type=args.temporal_type,
