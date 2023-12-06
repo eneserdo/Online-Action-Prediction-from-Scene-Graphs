@@ -71,7 +71,7 @@ class ActionRecognition(torch.nn.Module):
                  dropout,
                  use_cls_token,
                  sparse_pred,
-                 perfect_seg,
+                 task,
                  merged_pred,
                  norm_layer,
                  **kwargs):
@@ -84,7 +84,7 @@ class ActionRecognition(torch.nn.Module):
         self.temporal_type = temporal_type
         self.use_cls_token = use_cls_token
         self.sparse_pred = sparse_pred
-        self.perfect_seg = perfect_seg
+        self.task = task
         self.merged_pred = merged_pred
 
         self.mother_of_all_h_vectors_dict = {}
@@ -366,9 +366,12 @@ class ActionRecognition(torch.nn.Module):
         # Masking according to segment endpoints:
 
         # if need be use .clone()
-        if self.perfect_seg:
+        if self.task == "labelonly":
             segments = segment_gt
-        else:
+        elif self.task == "onetoone":
+            # give a mask of all ones
+            segments = torch.ones_like(hard_segment_change_pred)
+        else: # "segonly", "both"
             segments = hard_segment_change_pred
 
         out_s, mask = self._apply_segment_mask(both_out, segments)

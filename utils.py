@@ -54,11 +54,16 @@ def arg_parser():
     ap.add_argument("--dropout", type=float, default=0.0, help="...")
     ap.add_argument("--use_cls_token", action="store_true", help="Use class token in transformer")
     ap.add_argument("--merged_pred", type=str, default=None, choices=["early", "late", None], help="Merge hands predictions")
+    
     # Segmentation task
     ap.add_argument("--sdtw_gamma", type=float, default=1.0, help="Gamma parameter for soft-DTW")
     ap.add_argument("--seg_loss", type=str, default="BCELoss", choices=["sDTW", "BCELoss"], help="Loss function for segmentation task")
     ap.add_argument("--sparse_pred", action="store_true", help="Predict only frames at ends of segments")   # :( 
     ap.add_argument("--perfect_seg", action="store_true", help="Use ground truth segment ending info")
+    
+    # Task
+    ap.add_argument("--task", type=str, default="both", choices=["segonly", "labelonly", "both", "onetoone"], help="There are two tasks: segmentation and action label prediction")
+    # "labelonly" is the new "perfect_seg" 
 
     # Normalization Layer
     ap.add_argument("--norm_layer", type=str, default="BatchNorm", choices=["BatchNorm", "InstanceNorm", "LayerNorm", "GraphNorm", "PairNorm"], help="Normalization  for GNN layer")
@@ -703,11 +708,12 @@ def metrics_to_str(metrics):
 
 class VisSegmentsPartial:
     def __init__(self, num_of_samples, training_len, val_len, save_dir) -> None:
+        """To visualize individual predictions"""
 
-        # [mode][idx][epoch] = [y_pred]
+        # [mode][idx][epoch] -> [y_pred]
         self.segments_pred = {"train": {}, "val": {}}
 
-        # [mode][idx] = [y_true]
+        # [mode][idx] -> [y_true]
         self.segments_gt = {"train": {}, "val": {}}
 
         self.num_of_samples = num_of_samples
@@ -717,14 +723,19 @@ class VisSegmentsPartial:
         for s_idx in self.selected_training_idx:
             self.segments_pred["train"][s_idx] = {}
 
+
         self.selected_val_idx=np.random.choice(val_len, num_of_samples, replace=False)
         for s_idx in self.selected_val_idx:
             self.segments_pred["val"][s_idx] = {}
 
-    def pick_samples(self, y_true, y_pred, idx, epoch, mode):
+    def pick_samples(self, *, y_true, y_pred, idx, epoch, mode):
         # called in each epoch
         # pick samples for visualization
         # save them in self.segments_pred
+        # expect y_true and y_pred to be of shape [temp len, batch size]
+
+        assert y_true.shape == y_pred.shape, "y_true and y_pred must have same shape"
+        assert len(y_true.shape) == 2, "len(y_true.shape) != 2" 
 
         selected_idx=self.selected_training_idx if mode=="train" else self.selected_val_idx
 
@@ -733,12 +744,21 @@ class VisSegmentsPartial:
             if s_idx not in idx:
                 continue
             else:
-                idx_correspondence = idx.index(s_idx)            
-                self.segments_pred[mode][s_idx][epoch] = y_pred[idx_correspondence]
-                self.segments_gt[mode][s_idx] = y_true[idx_correspondence]
+                idx_correspondence = idx.tolist().index(s_idx)
 
+                # For debug purposes, check if there is one and only one assignment.
+                if epoch not in self.segments_pred[mode][s_idx]:
+                    self.segments_pred[mode][s_idx][epoch] = y_pred[:, idx_correspondence]
+                else:
+                    raise ValueError("There is more than one assignment")
 
-    def visualize(self, max_epochs):
+                if s_idx not in self.segments_gt[mode]:
+                    self.segments_gt[mode][s_idx] = y_true[:, idx_correspondence]
+                else:
+                    assert (self.segments_gt[mode][s_idx] == y_true[:, idx_correspondence]).all(), "Conflicting assignments for ground truth"
+                    
+
+    def save(self):
         # call this after loop is finished i.e. epoch == args.max_epochs
 
         for mode in ["train", "val"]:
@@ -746,5 +766,7 @@ class VisSegmentsPartial:
 
             for s_idx in selected_idx:
 
-                plot_segmentation_partial(self.segments_pred[mode][s_idx], self.segments_gt[mode][s_idx], self.save_dir, s_idx, mode)
+                # check if there is an assignment
+                plot_segmentation_partial(self.segments_pred[mode][s_idx], self.segments_gt[mode][s_idx], self.save_dir, f"{mode}_{s_idx}")
+
                     

@@ -60,7 +60,6 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     # Used -1 as a placeholder value to check if all predictions are filled
     all_predictions_combined = {vid + m_and_hand_status: - np.ones((act.shape[0] - args.temporal_length + 1) * args.temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
 
-    # vsp = VisSegmentsPartial(20, training_len, val_len, save_dir)
 
     # To ignore warnings about functorch and nan values in confusion matrix
     with warnings.catch_warnings():
@@ -81,8 +80,9 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
             ground_truth_segments = create_ground_truth_segments(torch.argmax(gt_reordered, dim=-1))
 
-            if args.perfect_seg:
-                pred_flattened, segment_change_pred = model(data, ground_truth_segments)  
+            if args.task == "labelonly":
+                # perfect segmentation
+                pred_flattened, segment_change_pred = model(data, ground_truth_segments)
             else:
                 pred_flattened, segment_change_pred = model(data)  
 
@@ -107,7 +107,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                 segmentation_loss = segmentation_criterion(segment_change_pred, ground_truth_segments)
             
             # TODO: Train on segmentation first than action prediction later (see if it works)
-            if not args.perfect_seg:
+            if args.task in ["segonly", "both"]:
                 loss += segmentation_loss
 
             if mode == "train":
@@ -135,8 +135,9 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             # This takes 0.0024 seconds
             combine_predictions(all_predictions_combined, idxes.numpy(), pred, dataset_mapping[mode]["sample"])
             
-            # Visualize predictions (without majority voting, only in temporal_len-long segments)
-            # vsp.pick_samples(y_true=gt_reordered, y_pred=pred, idx=idxes, epoch=epoch, mode=mode)
+            if mode != "test":
+                # Visualize individiual predictions
+                VSP.pick_samples(y_true=gt_reordered.cpu().argmax(2), y_pred=pred.detach().cpu(), idx=idxes, epoch=epoch, mode=mode)
 
             # # Calculate metrics
             # testden gelen
@@ -191,9 +192,6 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     wandb.log({f"{mode}/epoch/": {'f1@10': f1_at_10, 'f1@25': f1_at_25, 'f1@50': f1_at_50, "f1_top1_once": f1_top1_once}, 'epoch': epoch})
 
 
-    # if mode != "test" and epoch == args.max_epochs:    
-    #     vsp.visualize(epoch=epoch)
-
     # To unify and simplify return statement
     return_dict = {"f1_top1": overall_f1_top1.item(), 
                    "f1_top3": overall_f1_top3.item(), 
@@ -235,6 +233,9 @@ def test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of="f1_t
 if __name__ == "__main__":
     args = arg_parser()
     print("ARGS:\n", args)
+
+    if args.perfect_seg:
+        raise KeyError("perfect_seg is deprecated. Use --task seg instead.")
 
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -288,7 +289,7 @@ if __name__ == "__main__":
                                      dropout=args.dropout,
                                      use_cls_token=args.use_cls_token,
                                      sparse_pred=args.sparse_pred,
-                                     perfect_seg=args.perfect_seg,
+                                     task=args.task,
                                      merged_pred=args.merged_pred,
                                      norm_layer=args.norm_layer).to(device=device)
 
@@ -375,6 +376,8 @@ if __name__ == "__main__":
         dataset_mapping = pickle.load(f)
         
     
+    VSP = VisSegmentsPartial(20, training_len, val_len, save_dir)
+
     # STARTS TRAINING AND VALIDATION
     step = 0
     print("Starts training...")
@@ -414,6 +417,10 @@ if __name__ == "__main__":
         #       f'### Val: k10: {round(val_metrics["f1_at_10"], 4)}, k25: {round(val_metrics["f1_at_25"], 4)}, k50: {round(val_metrics["f1_at_50"], 4)}')
 
         print(f'### {epoch:03d}: Time {get_minutes(stop - start)} m ### Train: ', metrics_to_str(train_metrics), ' ### Val: ', metrics_to_str(val_metrics))
+
+
+    # save the individual predictions
+    VSP.save()
 
     # TEST
     print("Starts test...")
