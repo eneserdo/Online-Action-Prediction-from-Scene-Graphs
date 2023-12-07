@@ -392,7 +392,7 @@ if __name__ == "__main__":
 
 
         # Save model
-        if epoch % args.saving_freq == 0:
+        if epoch % args.saving_freq == 0 or epoch == start + args.max_epochs - 1:
             torch.save({"model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(),
                         "scheduler_state_dict": scheduler.state_dict()},
                        opj(save_dir, f"model_epoch{epoch:0>4}.pt"))

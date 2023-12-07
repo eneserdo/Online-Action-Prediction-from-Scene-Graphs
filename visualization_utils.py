@@ -154,7 +154,7 @@ def plot_segmentation_partial(y_pred_dict, y_true, save_dir, title):
     # num_row = (num_epochs+num_col-1) // num_col
 
     # fig, axs = plt.subplots(num_row, num_col, sharex=True, figsize=(30, 10))
-    fig, axs = plt.subplots(num_epochs, 1, sharex=True, figsize=(10, 30))
+    fig, axs = plt.subplots(num_epochs+1, 1, sharex=True, figsize=(8, (num_epochs+1)*3))
     plt.suptitle(title)
 
     # Plot the ground truth
