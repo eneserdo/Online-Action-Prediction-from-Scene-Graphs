@@ -93,6 +93,9 @@ def arg_parser():
     ap.add_argument("-n", "--name", required=True, type=str, help="Name of experiment for logging into Wandb")
     ap.add_argument("--disable_wandb",action="store_true", help="Disable wandb")
     ap.add_argument("--save_incorrects",action="store_true", help="saves some incorrect samples")
+    ap.add_argument("--save_individual",action="store_true", help="Visualize individual segment predictions")
+    ap.add_argument("--save_segments",action="store_true", help="Visualize final predictions for whole video")
+
 
 
     # Others
@@ -706,7 +709,7 @@ def metrics_to_str(metrics):
     return " ".join([f"{k}: {v:.4f}" for k, v in metrics.items() if "cm" not in k])
     
 
-class VisSegmentsPartial:
+class VisIndividualPreds:
     def __init__(self, num_of_samples, training_len, val_len, save_dir) -> None:
         """To visualize individual predictions"""
 

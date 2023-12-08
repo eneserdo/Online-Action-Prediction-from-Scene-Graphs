@@ -23,7 +23,7 @@ import matplotlib.pyplot as pyplot
 import models
 import wandb
 from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits)
-from utils import (F1_at_k, VisSegmentsPartial, arg_parser, calc_metrics_at_once, combine_predictions, get_minutes, metrics_to_str, plot_conf_mat, seed_worker, 
+from utils import (F1_at_k, VisIndividualPreds, arg_parser, calc_metrics_at_once, combine_predictions, get_minutes, metrics_to_str, plot_conf_mat, seed_worker, 
                    visualize_incorrect_preds, create_ground_truth_segments, assign_seg_labels, flatten_seq)
 
 from tslearn.metrics import SoftDTWLossPyTorch
@@ -135,9 +135,9 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             # This takes 0.0024 seconds
             combine_predictions(all_predictions_combined, idxes.numpy(), pred, dataset_mapping[mode]["sample"])
             
-            if mode != "test":
+            if mode != "test" and args.save_individual:
                 # Visualize individiual predictions
-                VSP.pick_samples(y_true=gt_reordered.cpu().argmax(2), y_pred=pred.detach().cpu(), idx=idxes, epoch=epoch, mode=mode)
+                VIP.pick_samples(y_true=gt_reordered.cpu().argmax(2), y_pred=pred.detach().cpu(), idx=idxes, epoch=epoch, mode=mode)
 
             # # Calculate metrics
             # testden gelen
@@ -181,7 +181,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
         
     # it takes 0.659 seconds
     
-    seg_save_dir = opj(save_dir, f"test_results_{epoch}") if mode == "test" else None
+    seg_save_dir = opj(save_dir, f"test_results_{epoch}") if (mode == "test" and args.save_segments) else None
     
     f1_at_10, f1_at_25, f1_at_50, f1_top1_once = calc_metrics_at_once(all_predictions_combined, 
                                                         dataset_mapping[mode]["vid"], 
@@ -375,8 +375,8 @@ if __name__ == "__main__":
     with open(opj(train_set.processed_dir, "dataset_mapping.pickle"), "rb") as f:
         dataset_mapping = pickle.load(f)
         
-    
-    VSP = VisSegmentsPartial(20, training_len, val_len, save_dir)
+    if args.save_individual:
+        VIP = VisIndividualPreds(20, training_len, val_len, save_dir)
 
     # STARTS TRAINING AND VALIDATION
     step = 0
@@ -420,7 +420,8 @@ if __name__ == "__main__":
 
 
     # save the individual predictions
-    VSP.save()
+    if args.save_individual:
+        VIP.save()
 
     # TEST
     print("Starts test...")
