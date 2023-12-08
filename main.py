@@ -117,7 +117,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
             # # # Match predicted segments with ground truth segment labels 
             # This takes 0.006 seconds
-            if label_loss_weight == 0:
+            if args.task=="segonly":  # label_loss_weight == 0:
                 # It means that we do not have any label, so we need to assign labels to the segments 
                 pred = assign_seg_labels(gt_reordered.cpu(), ground_truth_segments.cpu(), segment_change_pred.cpu().detach())
                 pred_flattened_ = torch.flatten(torch.transpose(pred, 0, 1), start_dim=0, end_dim=1)
