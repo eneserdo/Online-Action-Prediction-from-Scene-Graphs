@@ -250,6 +250,9 @@ if __name__ == "__main__":
 
     if args.perfect_seg:
         raise KeyError("perfect_seg is deprecated. Use --task seg instead.")
+    
+    if args.task in ["labelonly", "both", "onetoone"] and args.label_loss_weight == 0:
+        raise ValueError(f"task {args.task} requires label_loss_weight to be non-zero")
 
     random.seed(args.seed)
     np.random.seed(args.seed)
