@@ -82,6 +82,9 @@ def arg_parser():
                     help="Use class frequencies as weight for loss function")       # :(
     ap.add_argument("--label_loss_weight", type=float, default=1.0,
                     help="Weight upon action label prediction task loss")
+    
+
+    ap.add_argument("--disable_seg", action="store_true", help="...")
 
     # Training
     ap.add_argument("-me", "--max_epochs", type=int, default=20, help="Max number of epochs")

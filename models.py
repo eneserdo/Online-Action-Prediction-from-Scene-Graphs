@@ -12,8 +12,6 @@ from dataset import OBJECTS
 from utils import get_filters_for_imbalance, align_embeddings_to_right, flatten_seq, print_warning
 
 
-DISABLE_SEGMENTATION = True
-
 
 # Borrowed from https://github.com/pytorch/examples/blob/main/word_language_model/model.py
 class PositionalEncoding(Module):
@@ -78,11 +76,14 @@ class ActionRecognition(torch.nn.Module):
                  task,
                  merged_pred,
                  norm_layer,
+                 DISABLE_SEGMENTATION,
                  **kwargs):
         """ Accepts kwargs for non-general params of gnns """
         super().__init__()
 
-        if DISABLE_SEGMENTATION:
+        self.DISABLE_SEGMENTATION = DISABLE_SEGMENTATION
+
+        if self.DISABLE_SEGMENTATION:
             print_warning("Segmentation is disabled")
 
         self.filter_it = filter_it
@@ -360,7 +361,7 @@ class ActionRecognition(torch.nn.Module):
         # 2 RNNs
         #   -> reset (zero, random,...) h_n-1 at every segment start for an RNN only focused to action sequence unaffected by previous happenings
         
-        if not DISABLE_SEGMENTATION:
+        if not self.DISABLE_SEGMENTATION:
             if self.merged_pred == "early":
                 segment_change_pred_L, hard_segment_change_pred_L = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector_L)
                 segment_change_pred_R, hard_segment_change_pred_R = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector_R)
@@ -375,7 +376,7 @@ class ActionRecognition(torch.nn.Module):
 
         # Masking according to segment endpoints:
 
-        if not DISABLE_SEGMENTATION:
+        if not self.DISABLE_SEGMENTATION:
             # if need be use .clone()
             if self.task == "labelonly":
                 segments = segment_gt

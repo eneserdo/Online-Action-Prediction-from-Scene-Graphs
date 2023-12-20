@@ -308,7 +308,8 @@ if __name__ == "__main__":
                                      sparse_pred=args.sparse_pred,
                                      task=args.task,
                                      merged_pred=args.merged_pred,
-                                     norm_layer=args.norm_layer).to(device=device)
+                                     norm_layer=args.norm_layer,
+                                     DISABLE_SEGMENTATION=args.disable_seg).to(device=device)
 
     print(model)
     rnn_params = sum(p.numel() for p in model.temporal_layer.parameters() if p.requires_grad)
