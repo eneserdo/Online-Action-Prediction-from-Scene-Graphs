@@ -112,11 +112,30 @@
 # python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_10_BI_ML -tl 10 --temporal_type bi --merged_pred late
 # sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_30_TR_ML_Perf -tl 30 --perfect_seg --gpu_id 1 --temporal_type tr --merged_pred late
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_30_TR_ML_Perf -tl 30 --perfect_seg --gpu_id 1 --temporal_type tr --merged_pred late
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_30_TR_ML_Seg -tl 30 --label_loss_weight 0 --gpu_id 1 --temporal_type tr --merged_pred late
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_50_TR_ML_Seg_sDTW_g01 -tl 50 --label_loss_weight 0 --temporal_type tr --merged_pred late --seg_loss sDTW --sdtw_gamma 0.1
+# sleep 5
+
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name OTO_30_TR_ML_LN -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_10_TR_ML_LN -tl 10 --merged_pred late --temporal_type tr --norm_layer LayerNorm
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name OTO_50_TR_ML_GN -tl 50 --merged_pred late --temporal_type tr --norm_layer GraphNorm --task onetoone
+# sleep 5
+
+python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_10_TR_ML_LN_Seg -tl 10 --temporal_type tr --merged_pred late --norm_layer LayerNorm --task segonly
 sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_30_TR_ML_Seg -tl 30 --label_loss_weight 0 --gpu_id 1 --temporal_type tr --merged_pred late
+python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_30_TR_ML_LN_Seg -tl 30 --temporal_type tr --merged_pred late --norm_layer LayerNorm --task segonly
 sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_50_TR_ML_Seg_sDTW_g01 -tl 50 --label_loss_weight 0 --temporal_type tr --merged_pred late --seg_loss sDTW --sdtw_gamma 0.1
+python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_50_TR_ML_LN_Seg -tl 50 --temporal_type tr --merged_pred late --norm_layer LayerNorm --task segonly
 sleep 5
