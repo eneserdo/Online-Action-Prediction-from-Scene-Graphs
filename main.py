@@ -15,6 +15,8 @@ import numpy as np
 import torch
 
 from torch_geometric.loader import DataLoader
+from torch_geometric.explain import Explainer, AttentionExplainer, ModelConfig
+
 from torchmetrics.classification import (MulticlassConfusionMatrix,
                                          MulticlassF1Score)
 
@@ -61,6 +63,12 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     all_predictions_combined = {vid + m_and_hand_status: - np.ones((act.shape[0] - args.temporal_length + 1) * args.temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
 
 
+    # exp=Explainer(model.gnn, 
+    #               algorithm=AttentionExplainer(), 
+    #               model_config=ModelConfig(mode="multiclass_classification", task_level="node", return_type="raw"),
+    #               explanation_type="model")
+    
+
     # To ignore warnings about functorch and nan values in confusion matrix
     with warnings.catch_warnings():
         warnings.filterwarnings('ignore', '.*There is a performance drop.*|.*NaN values found in confusion matrix.*', UserWarning)
@@ -93,7 +101,6 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                 gt_flattened = gt_flattened[mask]
 
             label_loss = label_criterion(pred_flattened, gt_flattened)
-            loss = label_loss * label_loss_weight
 
             if args.seg_loss == "sDTW":
                 # NOTE: for label dtw input shapes should be (b,n,l) not (n*b,l) 
@@ -107,9 +114,16 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                 segmentation_loss = segmentation_criterion(segment_change_pred, ground_truth_segments)
             
             # TODO: Train on segmentation first than action prediction later (see if it works)
-            if args.task in ["segonly", "both"]:
-                loss += segmentation_loss
-
+            if args.task == "both":
+                loss = label_loss * label_loss_weight + segmentation_loss
+            elif args.task in ["labelonly", "onetoone"]:
+                loss = label_loss_weight * label_loss
+            elif args.task == "segonly":
+                loss = segmentation_loss
+            else:
+                raise NotImplementedError(f"Task {args.task} is not implemented")
+            
+            
             if mode == "train":
                 loss.backward()
                 optimizer.step()
