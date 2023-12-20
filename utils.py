@@ -772,4 +772,8 @@ class VisIndividualPreds:
                 # check if there is an assignment
                 plot_segmentation_partial(self.segments_pred[mode][s_idx], self.segments_gt[mode][s_idx], self.save_dir, f"{mode}_{s_idx}")
 
-                    
+
+
+def print_warning(text, color=(230, 50, 10)):
+    print(f"\033[38;2;{color[0]};{color[1]};{color[2]}m{text} \033[38;2;255;255;255m")
+ 
