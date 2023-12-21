@@ -84,7 +84,7 @@ class ActionRecognition(torch.nn.Module):
         self.DISABLE_SEGMENTATION = DISABLE_SEGMENTATION
 
         if self.DISABLE_SEGMENTATION:
-            print_warning("Segmentation is disabled")
+            print("[WARN] Segmentation is disabled\n"*5)
 
         self.filter_it = filter_it
         self.use_hand_pooling = use_hand_pooling
@@ -372,7 +372,9 @@ class ActionRecognition(torch.nn.Module):
                 both_out = torch.cat((both_out, both_out), dim=1)   # shape -> (n,b*2,f)
             else:
                 segment_change_pred, hard_segment_change_pred = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector)
-            
+        
+        else:
+            segment_change_pred = None
 
         # Masking according to segment endpoints:
 

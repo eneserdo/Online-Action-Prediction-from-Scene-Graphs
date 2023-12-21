@@ -85,6 +85,7 @@ def arg_parser():
     
 
     ap.add_argument("--disable_seg", action="store_true", help="...")
+    ap.add_argument("--use_weighted_mv", action="store_true", help="...")
 
     # Training
     ap.add_argument("-me", "--max_epochs", type=int, default=20, help="Max number of epochs")
@@ -585,7 +586,7 @@ class F1_at_k:
         return np.mean(self.k_10), np.mean(self.k_25), np.mean(self.k_50)
 
 
-def majority_voting(arr, total_len, buffer_len, vote_weights=None):
+def majority_voting(arr, total_len, buffer_len, use_weights):
     # TODO: add asserts
     # majority voting for overlapping windows for single sample
     # arr: [T,]
@@ -601,14 +602,19 @@ def majority_voting(arr, total_len, buffer_len, vote_weights=None):
     result = np.zeros((total_len), dtype=np.int32)
     confidences = np.zeros((total_len))
     shift = buffer_len - 1
+    vote_weights = np.array([0]*1 + [1]*1 + [2]*1 + [5]*2 + [6]*3 + [7]*4 + [8]*6 +[7]*4 + [6]*3 + [5]*2 + [2]*1 + [1]*1 + [0]*1)
 
+    assert (vote_weights[:buffer_len//2] == vote_weights[-buffer_len//2:][::-1]).all(), "vote_weights is supposed to be symmetric"
+    assert vote_weights.shape[0] == 30, "vote_weights must have length 30"
+    assert vote_weights.shape[0] == buffer_len, "vote_weights must have same length as buffer_len"
+    
     # First element:
     result[0], confidences[0] = arr[0], 1
     
     for i in range(1, total_len):
         if i < buffer_len - 1: # First buffer_len-1 frames
             j = i
-            repeat = i
+            repeat = i + 1 
         elif buffer_len - 1 <= i < total_len - buffer_len + 1: # Middle frames
             j = (i - shift) * buffer_len + shift
             repeat = buffer_len
@@ -616,18 +622,21 @@ def majority_voting(arr, total_len, buffer_len, vote_weights=None):
             j = (i - shift) * buffer_len + shift
             repeat = total_len - i
         
-        sub_arr = arr[j : j + repeat * (buffer_len - 1) + 1 : buffer_len - 1]
+        sub_arr = arr[j : j + repeat * (buffer_len - 1) : buffer_len - 1]
+
+        assert sub_arr.shape[0] == repeat
+
+        if use_weights:
+            if sub_arr.shape[0] == vote_weights.shape[0]: 
+                sub_arr = np.repeat(sub_arr, vote_weights)
+
 
         # Count votes
         values, counts = np.unique(sub_arr, return_counts=True)
-        if vote_weights is not None:
-            raise NotImplementedError("This is not easy to implement. Use vote_weights=None")
-        else:
-            ind = np.argmax(counts)
-            elected = values[ind]
+        ind = np.argmax(counts)
+        elected = values[ind]
 
-        result[i], confidences[i] = elected, counts[ind] / buffer_len
-
+        result[i], confidences[i] = elected, counts[ind] / sub_arr.shape[0]
 
     return result, confidences
 
@@ -654,7 +663,7 @@ def combine_predictions(all_arr, idx, sub_arr, mapping):
     
     return all_arr
 
-def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, save_dir=None):
+def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, use_weighted_mv, save_dir=None):
     # In mapping there is no mirrored data, since it is redundant
 
     f1_at_k = F1_at_k(num_classes=num_classes)
@@ -677,11 +686,10 @@ def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, save_di
         for y_pred_ in [y_pred__L_all, y_pred__R_all, y_pred_ML_all, y_pred_MR_all]:
             assert -1 not in y_pred_, "Not filled appropriately. There should be -1 in y_pred"
 
-        y_pred__L, conf_L = majority_voting(y_pred__L_all, total_len=y_true_L.shape[0], buffer_len=temporal_length)
-        y_pred__R, conf_R = majority_voting(y_pred__R_all, total_len=y_true_R.shape[0], buffer_len=temporal_length)
-        y_pred_ML, conf_ML = majority_voting(y_pred_ML_all, total_len=y_true_L.shape[0], buffer_len=temporal_length)
-        y_pred_MR, conf_MR = majority_voting(y_pred_MR_all, total_len=y_true_R.shape[0], buffer_len=temporal_length)
-        
+        y_pred__L, conf_L = majority_voting(y_pred__L_all, total_len=y_true_L.shape[0], buffer_len=temporal_length, use_weights=use_weighted_mv)
+        y_pred__R, conf_R = majority_voting(y_pred__R_all, total_len=y_true_R.shape[0], buffer_len=temporal_length, use_weights=use_weighted_mv)
+        y_pred_ML, conf_ML = majority_voting(y_pred_ML_all, total_len=y_true_L.shape[0], buffer_len=temporal_length, use_weights=use_weighted_mv)
+        y_pred_MR, conf_MR = majority_voting(y_pred_MR_all, total_len=y_true_R.shape[0], buffer_len=temporal_length, use_weights=use_weighted_mv)
         
         
         # Notice that the convention is (y_true, y_pred)

@@ -15,7 +15,7 @@ import numpy as np
 import torch
 
 from torch_geometric.loader import DataLoader
-from torch_geometric.explain import Explainer, AttentionExplainer, ModelConfig
+# from torch_geometric.explain import Explainer, AttentionExplainer, ModelConfig
 
 from torchmetrics.classification import (MulticlassConfusionMatrix,
                                          MulticlassF1Score)
@@ -102,17 +102,20 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
             label_loss = label_criterion(pred_flattened, gt_flattened)
 
-            if args.seg_loss == "sDTW":
-                # NOTE: for label dtw input shapes should be (b,n,l) not (n*b,l) 
-                # TODO: 
-                # - gamma val tuned (0.001 etc.)
-                # - bceloss distance metric
-                # - ...
-                t_shape = segment_change_pred.T.shape + (1,)
-                segmentation_loss = segmentation_criterion(segment_change_pred.view(t_shape), ground_truth_segments.view(t_shape)).mean()
+            if not args.disable_seg:
+                if args.seg_loss == "sDTW":
+                    # NOTE: for label dtw input shapes should be (b,n,l) not (n*b,l) 
+                    # TODO: 
+                    # - gamma val tuned (0.001 etc.)
+                    # - bceloss distance metric
+                    # - ...
+                    t_shape = segment_change_pred.T.shape + (1,)
+                    segmentation_loss = segmentation_criterion(segment_change_pred.view(t_shape), ground_truth_segments.view(t_shape)).mean()
+                else:
+                    segmentation_loss = segmentation_criterion(segment_change_pred, ground_truth_segments)
             else:
-                segmentation_loss = segmentation_criterion(segment_change_pred, ground_truth_segments)
-            
+                segmentation_loss = torch.tensor(0.0)
+
             # TODO: Train on segmentation first than action prediction later (see if it works)
             if args.task == "both":
                 loss = label_loss * label_loss_weight + segmentation_loss
@@ -201,6 +204,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                                                         dataset_mapping[mode]["vid"], 
                                                         num_classes=len(ACTIONS), 
                                                         temporal_length=args.temporal_length,
+                                                        use_weighted_mv=args.use_weighted_mv,
                                                         save_dir=seg_save_dir)
     
     wandb.log({f"{mode}/epoch/": {'f1@10': f1_at_10, 'f1@25': f1_at_25, 'f1@50': f1_at_50, "f1_top1_once": f1_top1_once}, 'epoch': epoch})
