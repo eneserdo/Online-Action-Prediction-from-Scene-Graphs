@@ -174,11 +174,29 @@
 # python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_30_TR_ML_OTO_GN -tl 30 --merged_pred late --temporal_type tr --norm_layer GraphNorm --task onetoone
 # sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_10_TR_ML_LN_perf -tl 10 --temporal_type tr --merged_pred late --norm_layer LayerNorm --task labelonly --gpu_id 1
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_10_TR_ML_LN_perf -tl 10 --temporal_type tr --merged_pred late --norm_layer LayerNorm --task labelonly --gpu_id 1
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_30_TR_ML_LN_perf -tl 30 --temporal_type tr --merged_pred late --norm_layer LayerNorm --task labelonly --gpu_id 1
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_50_TR_ML_LN_perf -tl 50 --temporal_type tr --merged_pred late --norm_layer LayerNorm --task labelonly --gpu_id 1
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name OTO_30_TR_ML_LN_R -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --gpu_id 1 --disable_seg
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_50_TR_ML_LN_Seg_R -tl 50 --temporal_type tr --merged_pred late --norm_layer LayerNorm --task segonly --save_segments --save_individual --gpu_id 1
+# sleep 5
+
+python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name OTO_30_TR_ML_LN_LS1 -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --smoothing 0.1 --gpu_id 1
 sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_30_TR_ML_LN_perf -tl 30 --temporal_type tr --merged_pred late --norm_layer LayerNorm --task labelonly --gpu_id 1
+python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name OTO_30_TR_ML_LN_LS2 -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --smoothing 0.2 --gpu_id 1
 sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_50_TR_ML_LN_perf -tl 50 --temporal_type tr --merged_pred late --norm_layer LayerNorm --task labelonly --gpu_id 1
+python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name OTO_30_TR_ML_LN_SINV -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --weighted_loss sqrt_inv --gpu_id 1
+sleep 5
+
+python main.py -g GATv2Conv -o Adam -lr 0.0005 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name OTO_30_G2_ML_LN -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --gpu_id 1
 sleep 5

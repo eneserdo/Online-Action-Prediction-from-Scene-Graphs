@@ -131,11 +131,35 @@
 # python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name OTO_50_TR_ML_GN -tl 50 --merged_pred late --temporal_type tr --norm_layer GraphNorm --task onetoone
 # sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_10_TR_ML_LN_Seg -tl 10 --temporal_type tr --merged_pred late --norm_layer LayerNorm --task segonly
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_10_TR_ML_LN_Seg -tl 10 --temporal_type tr --merged_pred late --norm_layer LayerNorm --task segonly
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_30_TR_ML_LN_Seg -tl 30 --temporal_type tr --merged_pred late --norm_layer LayerNorm --task segonly
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_50_TR_ML_LN_Seg -tl 50 --temporal_type tr --merged_pred late --norm_layer LayerNorm --task segonly
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_10_TR_ML_LN_Seg_R -tl 10 --temporal_type tr --merged_pred late --norm_layer LayerNorm --task segonly --save_segments --save_individual
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_30_TR_ML_LN_Seg_R -tl 30 --temporal_type tr --merged_pred late --norm_layer LayerNorm --task segonly --save_segments --save_individual
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name OTO_30_TR_ML_LN_W -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --use_weighted_mv
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name OTO_30_TR_ML_LN_RR -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg
+# sleep 5
+
+python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name OTO_30_TR_ML_LN_W2 -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --use_weighted_mv
 sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_30_TR_ML_LN_Seg -tl 30 --temporal_type tr --merged_pred late --norm_layer LayerNorm --task segonly
+python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name OTO_30_TR_ML_LN_ED05 -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --edge_dropout 0.05
 sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name SEG_50_TR_ML_LN_Seg -tl 50 --temporal_type tr --merged_pred late --norm_layer LayerNorm --task segonly
+python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name OTO_30_TR_ML_LN_ED15 -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --edge_dropout 0.15
+sleep 5
+
+python main.py -g TransformerConv -o Adam -lr 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name OTO_30_TR_ML_LN_EDD -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --edge_dropout 0.05 --dropout 0.05
 sleep 5
