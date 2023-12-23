@@ -370,7 +370,7 @@ if __name__ == "__main__":
     label_loss_weight = args.label_loss_weight
 
     # TODO: multiple loss -> FSD 22.09.2023
-    label_criterion = torch.nn.CrossEntropyLoss(weight=loss_weights).to(device=device)
+    label_criterion = torch.nn.CrossEntropyLoss(weight=loss_weights, label_smoothing=args.smoothing).to(device=device)
     if args.seg_loss == "BCELoss":
         segmentation_criterion = torch.nn.BCELoss(weight=loss_weights).to(device=device)
     elif args.seg_loss == "sDTW":

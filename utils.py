@@ -83,6 +83,9 @@ def arg_parser():
     ap.add_argument("--label_loss_weight", type=float, default=1.0,
                     help="Weight upon action label prediction task loss")
     
+    
+    ap.add_argument("--smoothing", type=float, default=0.0, help="Label smoothing weight")
+    
 
     ap.add_argument("--disable_seg", action="store_true", help="...")
     ap.add_argument("--use_weighted_mv", action="store_true", help="...")
@@ -602,7 +605,8 @@ def majority_voting(arr, total_len, buffer_len, use_weights):
     result = np.zeros((total_len), dtype=np.int32)
     confidences = np.zeros((total_len))
     shift = buffer_len - 1
-    vote_weights = np.array([0]*1 + [1]*1 + [2]*1 + [5]*2 + [6]*3 + [7]*4 + [8]*6 +[7]*4 + [6]*3 + [5]*2 + [2]*1 + [1]*1 + [0]*1)
+    # vote_weights = np.array([0]*1 + [1]*1 + [2]*1 + [5]*2 + [6]*3 + [7]*4 + [8]*6 +[7]*4 + [6]*3 + [5]*2 + [2]*1 + [1]*1 + [0]*1)
+    vote_weights = np.array([0]*3 + [4]*2 + [5]*3 + [6]*3 + [7]*3 + [8]*2 + [7]*3 +[6]*3 + [5]*3 + [4]*2 + [0]*3)
 
     assert (vote_weights[:buffer_len//2] == vote_weights[-buffer_len//2:][::-1]).all(), "vote_weights is supposed to be symmetric"
     assert vote_weights.shape[0] == 30, "vote_weights must have length 30"
