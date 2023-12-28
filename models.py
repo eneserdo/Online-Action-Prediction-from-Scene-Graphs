@@ -77,6 +77,7 @@ class ActionRecognition(torch.nn.Module):
                  merged_pred,
                  norm_layer,
                  DISABLE_SEGMENTATION,
+                 norm_first,
                  **kwargs):
         """ Accepts kwargs for non-general params of gnns """
         super().__init__()
@@ -165,7 +166,7 @@ class ActionRecognition(torch.nn.Module):
         elif temporal_type == "tr":
             # Default dropout is 0.1
             self.temporal_layer = TransformerEncoder(
-                TransformerEncoderLayer(effective_out_ch2, 4, lstm_hidden_size // 4 * 3), 2)
+                TransformerEncoderLayer(effective_out_ch2, 4, lstm_hidden_size // 4 * 3, norm_first=norm_first), 2)
             self.PE_coef = math.sqrt(effective_out_ch2)
             self.pos_encoder = PositionalEncoding(effective_out_ch2)
 

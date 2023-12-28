@@ -55,6 +55,8 @@ def arg_parser():
     ap.add_argument("--use_cls_token", action="store_true", help="Use class token in transformer")
     ap.add_argument("--merged_pred", type=str, default=None, choices=["early", "late", None], help="Merge hands predictions")
     
+    ap.add_argument("--norm_first", action="store_true", help="To make norm_first=true in TransformerEncoderLayer")
+
     # Segmentation task
     ap.add_argument("--sdtw_gamma", type=float, default=1.0, help="Gamma parameter for soft-DTW")
     ap.add_argument("--seg_loss", type=str, default="BCELoss", choices=["sDTW", "BCELoss"], help="Loss function for segmentation task")
