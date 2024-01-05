@@ -1,10 +1,21 @@
 """
-    TODO
-    - mirrored graph
-    - remove data.verify and unnecessary asserts
-    - bimanual paper sample count: 442216 vs our: 421610 
+    TODO:
+        # Enes's
+        [ ] mirrored graph
+        [ ] remove data.verify and unnecessary asserts
+        [ ] bimanual paper sample count: 442216 vs our: 421610 
 
-    - !!! prepating dataset and getting Dataset instances should be separate
+        [ ] !!! preparing dataset and getting Dataset instances should be separate
+
+        # Fatih's
+        [ ]     1. Whole video sample generation
+        [ ]         1.1 Adjust dataloader for whole video batching (Sequence window length=max length video)
+        [ ]             1.1.1 Max sequence length finder method
+        [ ]         1.2 Implement zero graph padding
+        [ ]             1.2.1 Control of seq sample length for padding amount
+        [ ]             1.2.2 Zero/-1 graph sample creation for padding 
+        [ ]     2. Implement auto hypertuning using Torch Ray Tune
+        [ ]     3. Adjust dataloader for easy cross validation
 """
 import glob
 import json
