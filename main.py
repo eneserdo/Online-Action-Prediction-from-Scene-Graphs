@@ -15,6 +15,8 @@ import numpy as np
 import torch
 
 from torch_geometric.loader import DataLoader
+# from torch_geometric.explain import Explainer, AttentionExplainer, ModelConfig
+
 from torchmetrics.classification import (MulticlassConfusionMatrix,
                                          MulticlassF1Score)
 
@@ -61,6 +63,12 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     all_predictions_combined = {vid + m_and_hand_status: - np.ones((act.shape[0] - args.temporal_length + 1) * args.temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
 
 
+    # exp=Explainer(model.gnn, 
+    #               algorithm=AttentionExplainer(), 
+    #               model_config=ModelConfig(mode="multiclass_classification", task_level="node", return_type="raw"),
+    #               explanation_type="model")
+    
+
     # To ignore warnings about functorch and nan values in confusion matrix
     with warnings.catch_warnings():
         warnings.filterwarnings('ignore', '.*There is a performance drop.*|.*NaN values found in confusion matrix.*', UserWarning)
@@ -93,23 +101,32 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                 gt_flattened = gt_flattened[mask]
 
             label_loss = label_criterion(pred_flattened, gt_flattened)
-            loss = label_loss * label_loss_weight
 
-            if args.seg_loss == "sDTW":
-                # NOTE: for label dtw input shapes should be (b,n,l) not (n*b,l) 
-                # TODO: 
-                # - gamma val tuned (0.001 etc.)
-                # - bceloss distance metric
-                # - ...
-                t_shape = segment_change_pred.T.shape + (1,)
-                segmentation_loss = segmentation_criterion(segment_change_pred.view(t_shape), ground_truth_segments.view(t_shape)).mean()
+            if not args.disable_seg:
+                if args.seg_loss == "sDTW":
+                    # NOTE: for label dtw input shapes should be (b,n,l) not (n*b,l) 
+                    # TODO: 
+                    # - gamma val tuned (0.001 etc.)
+                    # - bceloss distance metric
+                    # - ...
+                    t_shape = segment_change_pred.T.shape + (1,)
+                    segmentation_loss = segmentation_criterion(segment_change_pred.view(t_shape), ground_truth_segments.view(t_shape)).mean()
+                else:
+                    segmentation_loss = segmentation_criterion(segment_change_pred, ground_truth_segments)
             else:
-                segmentation_loss = segmentation_criterion(segment_change_pred, ground_truth_segments)
-            
-            # TODO: Train on segmentation first than action prediction later (see if it works)
-            if args.task in ["segonly", "both"]:
-                loss += segmentation_loss
+                segmentation_loss = torch.tensor(0.0)
 
+            # TODO: Train on segmentation first than action prediction later (see if it works)
+            if args.task == "both":
+                loss = label_loss * label_loss_weight + segmentation_loss
+            elif args.task in ["labelonly", "onetoone"]:
+                loss = label_loss_weight * label_loss
+            elif args.task == "segonly":
+                loss = segmentation_loss
+            else:
+                raise NotImplementedError(f"Task {args.task} is not implemented")
+            
+            
             if mode == "train":
                 loss.backward()
                 optimizer.step()
@@ -187,6 +204,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                                                         dataset_mapping[mode]["vid"], 
                                                         num_classes=len(ACTIONS), 
                                                         temporal_length=args.temporal_length,
+                                                        use_weighted_mv=args.use_weighted_mv,
                                                         save_dir=seg_save_dir)
     
     wandb.log({f"{mode}/epoch/": {'f1@10': f1_at_10, 'f1@25': f1_at_25, 'f1@50': f1_at_50, "f1_top1_once": f1_top1_once}, 'epoch': epoch})
@@ -236,6 +254,9 @@ if __name__ == "__main__":
 
     if args.perfect_seg:
         raise KeyError("perfect_seg is deprecated. Use --task seg instead.")
+    
+    if args.task in ["labelonly", "both", "onetoone"] and args.label_loss_weight == 0:
+        raise ValueError(f"task {args.task} requires label_loss_weight to be non-zero")
 
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -291,7 +312,9 @@ if __name__ == "__main__":
                                      sparse_pred=args.sparse_pred,
                                      task=args.task,
                                      merged_pred=args.merged_pred,
-                                     norm_layer=args.norm_layer).to(device=device)
+                                     norm_layer=args.norm_layer,
+                                     DISABLE_SEGMENTATION=args.disable_seg,
+                                     norm_first=args.norm_first).to(device=device)
 
     print(model)
     rnn_params = sum(p.numel() for p in model.temporal_layer.parameters() if p.requires_grad)
@@ -348,7 +371,7 @@ if __name__ == "__main__":
     label_loss_weight = args.label_loss_weight
 
     # TODO: multiple loss -> FSD 22.09.2023
-    label_criterion = torch.nn.CrossEntropyLoss(weight=loss_weights).to(device=device)
+    label_criterion = torch.nn.CrossEntropyLoss(weight=loss_weights, label_smoothing=args.smoothing).to(device=device)
     if args.seg_loss == "BCELoss":
         segmentation_criterion = torch.nn.BCELoss(weight=loss_weights).to(device=device)
     elif args.seg_loss == "sDTW":

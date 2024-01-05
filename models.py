@@ -1,4 +1,5 @@
 from typing import List
+import warnings
 import torch
 from torch.nn import Sequential, Dropout, Linear, ReLU, SELU, LSTM, TransformerEncoder, \
     TransformerEncoderLayer, Module, functional as F
@@ -8,7 +9,8 @@ from torch_geometric.utils import dropout_edge
 import math
 
 from dataset import OBJECTS
-from utils import get_filters_for_imbalance, align_embeddings_to_right, flatten_seq
+from utils import get_filters_for_imbalance, align_embeddings_to_right, flatten_seq, print_warning
+
 
 
 # Borrowed from https://github.com/pytorch/examples/blob/main/word_language_model/model.py
@@ -74,9 +76,16 @@ class ActionRecognition(torch.nn.Module):
                  task,
                  merged_pred,
                  norm_layer,
+                 DISABLE_SEGMENTATION,
+                 norm_first,
                  **kwargs):
         """ Accepts kwargs for non-general params of gnns """
         super().__init__()
+
+        self.DISABLE_SEGMENTATION = DISABLE_SEGMENTATION
+
+        if self.DISABLE_SEGMENTATION:
+            print("[WARN] Segmentation is disabled\n"*5)
 
         self.filter_it = filter_it
         self.use_hand_pooling = use_hand_pooling
@@ -157,7 +166,7 @@ class ActionRecognition(torch.nn.Module):
         elif temporal_type == "tr":
             # Default dropout is 0.1
             self.temporal_layer = TransformerEncoder(
-                TransformerEncoderLayer(effective_out_ch2, 4, lstm_hidden_size // 4 * 3), 2)
+                TransformerEncoderLayer(effective_out_ch2, 4, lstm_hidden_size // 4 * 3, norm_first=norm_first), 2)
             self.PE_coef = math.sqrt(effective_out_ch2)
             self.pos_encoder = PositionalEncoding(effective_out_ch2)
 
@@ -353,29 +362,36 @@ class ActionRecognition(torch.nn.Module):
         # 2 RNNs
         #   -> reset (zero, random,...) h_n-1 at every segment start for an RNN only focused to action sequence unaffected by previous happenings
         
-        if self.merged_pred == "early":
-            segment_change_pred_L, hard_segment_change_pred_L = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector_L)
-            segment_change_pred_R, hard_segment_change_pred_R = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector_R)
-            
-            segment_change_pred = torch.cat((segment_change_pred_L, segment_change_pred_R), dim=1)
-            hard_segment_change_pred = torch.cat((hard_segment_change_pred_L, hard_segment_change_pred_R), dim=1)
-            # NOTE: could merging have been done better here?
-            both_out = torch.cat((both_out, both_out), dim=1)   # shape -> (n,b*2,f)
+        if not self.DISABLE_SEGMENTATION:
+            if self.merged_pred == "early":
+                segment_change_pred_L, hard_segment_change_pred_L = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector_L)
+                segment_change_pred_R, hard_segment_change_pred_R = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector_R)
+                
+                segment_change_pred = torch.cat((segment_change_pred_L, segment_change_pred_R), dim=1)
+                hard_segment_change_pred = torch.cat((hard_segment_change_pred_L, hard_segment_change_pred_R), dim=1)
+                # NOTE: could merging have been done better here?
+                both_out = torch.cat((both_out, both_out), dim=1)   # shape -> (n,b*2,f)
+            else:
+                segment_change_pred, hard_segment_change_pred = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector)
+        
         else:
-            segment_change_pred, hard_segment_change_pred = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector)
+            segment_change_pred = None
+
         # Masking according to segment endpoints:
 
-        # if need be use .clone()
-        if self.task == "labelonly":
-            segments = segment_gt
-        elif self.task == "onetoone":
-            # give a mask of all ones
-            segments = torch.ones_like(hard_segment_change_pred)
-        else: # "segonly", "both"
-            segments = hard_segment_change_pred
+        if not self.DISABLE_SEGMENTATION:
+            # if need be use .clone()
+            if self.task == "labelonly":
+                segments = segment_gt
+            elif self.task == "onetoone":
+                # give a mask of all ones
+                segments = torch.ones_like(hard_segment_change_pred)
+            else: # "segonly", "both"
+                segments = hard_segment_change_pred
 
-        out_s, mask = self._apply_segment_mask(both_out, segments)
-
+            out_s, mask = self._apply_segment_mask(both_out, segments)
+        else:
+            out_s = flatten_seq(both_out)
         
 
         # Label Prediction Task
