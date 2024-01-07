@@ -25,11 +25,11 @@ import matplotlib.pyplot as pyplot
 import models
 import wandb
 from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits)
-from utils import (F1_at_k, VisIndividualPreds, arg_parser, calc_metrics_at_once, combine_predictions, get_minutes, metrics_to_str, plot_conf_mat, seed_worker, 
+from utils import (F1_at_k, VisIndividualPreds, arg_parser, calc_metrics_at_once, combine_predictions, get_minutes,
+                   metrics_to_str, plot_conf_mat, seed_worker,
                    visualize_incorrect_preds, create_ground_truth_segments, assign_seg_labels, flatten_seq)
 
 from tslearn.metrics import SoftDTWLossPyTorch
-
 
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
@@ -53,25 +53,29 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
         model.train()
 
     f1_calc_top1 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(device)
-    f1_calc_top3 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(device)  # top_k is intentionally 1
+    f1_calc_top3 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(
+        device)  # top_k is intentionally 1
 
     conf_mat_top1 = MulticlassConfusionMatrix(num_classes=len(ACTIONS), normalize="true").to(device)
     conf_mat_top3 = MulticlassConfusionMatrix(num_classes=len(ACTIONS), normalize="true").to(device)
 
-    # A dictionary that will store the all predictions for all videos. This will be used to calculate f1@k
+    # A dictionary that will store all the predictions for all videos. This will be used to calculate f1@k
     # Used -1 as a placeholder value to check if all predictions are filled
-    all_predictions_combined = {vid + m_and_hand_status: - np.ones((act.shape[0] - args.temporal_length + 1) * args.temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
+    # FIXME: Handle case where args.temporal_length is -1.
+    #       What should temporal length be in the case of whole video? Max length?
+    all_predictions_combined = {
+        vid + m_and_hand_status: - np.ones((act.shape[0] - args.temporal_length + 1) * args.temporal_length) for
+        vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
 
-
-    # exp=Explainer(model.gnn, 
+    # exp=Explainer(model.gnn,
     #               algorithm=AttentionExplainer(), 
     #               model_config=ModelConfig(mode="multiclass_classification", task_level="node", return_type="raw"),
     #               explanation_type="model")
-    
 
     # To ignore warnings about functorch and nan values in confusion matrix
     with warnings.catch_warnings():
-        warnings.filterwarnings('ignore', '.*There is a performance drop.*|.*NaN values found in confusion matrix.*', UserWarning)
+        warnings.filterwarnings('ignore', '.*There is a performance drop.*|.*NaN values found in confusion matrix.*',
+                                UserWarning)
 
         for idxes, data in loader:
             step += 1
@@ -81,7 +85,6 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
             data = [d.to(device) for d in data]
 
-            
             gt_reordered = torch.stack([torch.cat([d.y[::2], d.y[1::2]]) for d in data], dim=0)
 
             batch_size = gt_reordered.shape[1] // 2
@@ -92,10 +95,10 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                 # perfect segmentation
                 pred_flattened, segment_change_pred = model(data, ground_truth_segments)
             else:
-                pred_flattened, segment_change_pred = model(data)  
+                pred_flattened, segment_change_pred = model(data)
 
             gt_flattened = flatten_seq(gt_reordered)
-            
+
             if args.sparse_pred:
                 pred_flattened, mask = pred_flattened
                 gt_flattened = gt_flattened[mask]
@@ -110,7 +113,8 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                     # - bceloss distance metric
                     # - ...
                     t_shape = segment_change_pred.T.shape + (1,)
-                    segmentation_loss = segmentation_criterion(segment_change_pred.view(t_shape), ground_truth_segments.view(t_shape)).mean()
+                    segmentation_loss = segmentation_criterion(segment_change_pred.view(t_shape),
+                                                               ground_truth_segments.view(t_shape)).mean()
                 else:
                     segmentation_loss = segmentation_criterion(segment_change_pred, ground_truth_segments)
             else:
@@ -125,18 +129,17 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                 loss = segmentation_loss
             else:
                 raise NotImplementedError(f"Task {args.task} is not implemented")
-            
-            
+
             if mode == "train":
                 loss.backward()
                 optimizer.step()
 
-
-            # # # Match predicted segments with ground truth segment labels 
+            # # # Match predicted segments with ground truth segment labels
             # This takes 0.006 seconds
-            if args.task=="segonly":  # label_loss_weight == 0:
+            if args.task == "segonly":  # label_loss_weight == 0:
                 # It means that we do not have any label, so we need to assign labels to the segments 
-                pred = assign_seg_labels(gt_reordered.cpu(), ground_truth_segments.cpu(), segment_change_pred.cpu().detach())
+                pred = assign_seg_labels(gt_reordered.cpu(), ground_truth_segments.cpu(),
+                                         segment_change_pred.cpu().detach())
                 pred_flattened_ = torch.flatten(torch.transpose(pred, 0, 1), start_dim=0, end_dim=1)
                 pred_flattened = torch.nn.functional.one_hot(pred_flattened_.long(), num_classes=len(ACTIONS)).float()
                 pred_flattened = pred_flattened.to(device)
@@ -145,26 +148,28 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                 # TODO: sanity check: assert pred_flattened = assign_seg_labels(...)
                 # pred_dummy = assign_seg_labels(gt_reordered.cpu(), ground_truth_segments.cpu(), segment_change_pred.cpu().detach())
                 # print("diff between original pred and matched pred: ", np.sum(pred.numpy() != pred_dummy) / (pred_flattened.shape[0]*pred_flattened.shape[1]))
-                
+
                 pred_ = pred_flattened.cpu().detach()
-                pred = torch.transpose(pred_.unflatten(0, (batch_size*2, args.temporal_length)), 0, 1).argmax(dim=-1)
+                pred = torch.transpose(pred_.unflatten(0, (batch_size * 2, args.temporal_length)), 0, 1).argmax(dim=-1)
 
             # This takes 0.0024 seconds
             combine_predictions(all_predictions_combined, idxes.numpy(), pred, dataset_mapping[mode]["sample"])
-            
+
             if mode != "test" and args.save_individual:
                 # Visualize individiual predictions
-                VIP.pick_samples(y_true=gt_reordered.cpu().argmax(2), y_pred=pred.detach().cpu(), idx=idxes, epoch=epoch, mode=mode)
+                VIP.pick_samples(y_true=gt_reordered.cpu().argmax(2), y_pred=pred.detach().cpu(), idx=idxes,
+                                 epoch=epoch, mode=mode)
 
             # # Calculate metrics
             # testden gelen
             pred_top_3 = torch.argsort(pred_flattened, dim=-1, descending=True)[:, :3]
-            pred_top_1 = pred_top_3[:,0]
+            pred_top_1 = pred_top_3[:, 0]
             ground_truth = gt_flattened.argmax(dim=-1)
             pred_top_3_final = torch.where(functorch.vmap(lambda t1, t2: torch.isin(t1, t2))(ground_truth, pred_top_3),
-                                        ground_truth, pred_top_1)
+                                           ground_truth, pred_top_1)
             # torchmetric
-            step_f1_top1 = f1_calc_top1(pred_flattened, ground_truth) # NOTE: Lookup if input can have more than 2 channels
+            step_f1_top1 = f1_calc_top1(pred_flattened,
+                                        ground_truth)  # NOTE: Lookup if input can have more than 2 channels
             step_f1_top3 = f1_calc_top3(pred_top_3_final, ground_truth)
 
             conf_mat_top1(pred_top_1, ground_truth)
@@ -173,47 +178,47 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             # This is so as to understand action segmentation affect.
 
             if mode != "test":
-                wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item(), "Label Loss": label_loss.item(), "Segmentation Loss": segmentation_loss.item()},
+                wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item(),
+                                              "Label Loss": label_loss.item(),
+                                              "Segmentation Loss": segmentation_loss.item()},
                            'batch': step})
 
             if mode == "test" and args.save_incorrects:
-                visualize_incorrect_preds(pred_top_1, ground_truth, idxes, num_of_samples=4, 
+                visualize_incorrect_preds(pred_top_1, ground_truth, idxes, num_of_samples=4,
                                           test_idx_sample_mapping=dataset_mapping["test"]["sample"])
             # if (step+1)%20==0:
             #     print("20 BATCH ÇALIŞIYOR SADECE")
             #     break
-        
+
         overall_f1_top1 = f1_calc_top1.compute()
         overall_f1_top3 = f1_calc_top3.compute()
 
         overall_conf_mat_top1 = conf_mat_top1.compute()
         overall_conf_mat_top3 = conf_mat_top3.compute()
 
-        
-
     # TODO: Fix all wandb logs to be consistent with each other. use same dict
     if mode != "test":
         wandb.log({f"{mode}/epoch/": {'top1_F1': overall_f1_top1, 'top3_F1': overall_f1_top3}, 'epoch': epoch})
 
-        
     # it takes 0.659 seconds
-    
-    seg_save_dir = opj(save_dir, f"test_results_{epoch}") if (mode == "test" and args.save_segments) else None
-    
-    f1_at_10, f1_at_25, f1_at_50, f1_top1_once = calc_metrics_at_once(all_predictions_combined, 
-                                                        dataset_mapping[mode]["vid"], 
-                                                        num_classes=len(ACTIONS), 
-                                                        temporal_length=args.temporal_length,
-                                                        use_weighted_mv=args.use_weighted_mv,
-                                                        save_dir=seg_save_dir)
-    
-    wandb.log({f"{mode}/epoch/": {'f1@10': f1_at_10, 'f1@25': f1_at_25, 'f1@50': f1_at_50, "f1_top1_once": f1_top1_once}, 'epoch': epoch})
 
+    seg_save_dir = opj(save_dir, f"test_results_{epoch}") if (mode == "test" and args.save_segments) else None
+
+    f1_at_10, f1_at_25, f1_at_50, f1_top1_once = calc_metrics_at_once(all_predictions_combined,
+                                                                      dataset_mapping[mode]["vid"],
+                                                                      num_classes=len(ACTIONS),
+                                                                      temporal_length=args.temporal_length,
+                                                                      use_weighted_mv=args.use_weighted_mv,
+                                                                      save_dir=seg_save_dir)
+
+    wandb.log(
+        {f"{mode}/epoch/": {'f1@10': f1_at_10, 'f1@25': f1_at_25, 'f1@50': f1_at_50, "f1_top1_once": f1_top1_once},
+         'epoch': epoch})
 
     # To unify and simplify return statement
-    return_dict = {"f1_top1": overall_f1_top1.item(), 
-                   "f1_top3": overall_f1_top3.item(), 
-                   "cm_top1": overall_conf_mat_top1.cpu(), 
+    return_dict = {"f1_top1": overall_f1_top1.item(),
+                   "f1_top3": overall_f1_top3.item(),
+                   "cm_top1": overall_conf_mat_top1.cpu(),
                    "cm_top3": overall_conf_mat_top3.cpu(),
                    "f1@10": f1_at_10,
                    "f1@25": f1_at_25,
@@ -224,12 +229,11 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
 
 def test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of="f1_top1"):
-    
-    comparison_metric=choose_best_in_terms_of
-    
-    weight_list=sorted(glob.glob(opj(save_dir, "*.pt")))
-    
-    best_metric = 0    
+    comparison_metric = choose_best_in_terms_of
+
+    weight_list = sorted(glob.glob(opj(save_dir, "*.pt")))
+
+    best_metric = 0
     results = []
     best_i = -1
     for i, w_name in enumerate(weight_list):
@@ -237,10 +241,10 @@ def test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of="f1_t
         checkpoint = torch.load(w_name)
         model.load_state_dict(checkpoint["model_state_dict"])
         returned_dict = run_one_epoch(model, test_loader, 'test', epoch=int((w_name[-7:-3])))
-        
+
         print(f'### [F1] TEST: ', metrics_to_str(returned_dict))
 
-        results.append(returned_dict)        
+        results.append(returned_dict)
         if best_metric < returned_dict[comparison_metric]:
             best_metric = returned_dict[comparison_metric]
             best_i = i
@@ -254,7 +258,7 @@ if __name__ == "__main__":
 
     if args.perfect_seg:
         raise KeyError("perfect_seg is deprecated. Use --task seg instead.")
-    
+
     if args.task in ["labelonly", "both", "onetoone"] and args.label_loss_weight == 0:
         raise ValueError(f"task {args.task} requires label_loss_weight to be non-zero")
 
@@ -285,14 +289,18 @@ if __name__ == "__main__":
                                                                fix_null=args.fix_null)
 
     # Add generator=g to DataLoader to make it deterministic
-    train_loader = DataLoader(train_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker, generator=g)
-    
-    test_loader = DataLoader(test_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker, generator=g)
+    train_loader = DataLoader(train_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker,
+                              generator=g)
 
-    val_loader = DataLoader(val_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker, generator=g)
+    test_loader = DataLoader(test_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker,
+                             generator=g)
+
+    val_loader = DataLoader(val_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker,
+                            generator=g)
 
     training_len = len(train_set)
     val_len = len(val_set)
+    args.temporal_length = train_set.temporal_length    # Max temporal length of the dataset
 
     model = models.ActionRecognition(gnn_type=args.gnn_type,
                                      temporal_type=args.temporal_type,
@@ -325,8 +333,6 @@ if __name__ == "__main__":
     print(f"RNN: {rnn_params:_}")
     print(f"GNN: {gnn_params:_}")
     wandb.log({"total_params": total_params, "rnn_params": rnn_params, "gnn_params": gnn_params})
-
-
 
     # for mode, run in runs.items():
     wandb.watch(model, log='all')
@@ -367,7 +373,7 @@ if __name__ == "__main__":
         loss_weights = loss_weights / loss_weights.sum() * len(ACTIONS)
     else:
         raise NotImplementedError(f"Weighted loss type {args.weighted_loss} is not implemented")
-    
+
     label_loss_weight = args.label_loss_weight
 
     # TODO: multiple loss -> FSD 22.09.2023
@@ -382,7 +388,6 @@ if __name__ == "__main__":
     if not os.path.isdir(save_dir):
         os.mkdir(save_dir)
 
-
     # Load saved models if required
     if args.restore is not None:
         assert args.restored_name is not None, "restored_name must be provided if restore is not None"
@@ -392,12 +397,11 @@ if __name__ == "__main__":
         # scheduler.load_state_dict(checkpoint["scheduler_state_dict"]) # FIXME: It overrides the scheduler. Is it desired?
         print("model and optimizer parameters are restored successfully!")
 
-    
-    # dataset_mapping contains mapping for each sample to its location in the videos. 
+    # dataset_mapping contains mapping for each sample to its location in the videos.
     # Also, a mapping from video to ground truth action labels
     with open(opj(train_set.processed_dir, "dataset_mapping.pickle"), "rb") as f:
         dataset_mapping = pickle.load(f)
-        
+
     if args.save_individual:
         VIP = VisIndividualPreds(20, training_len, val_len, save_dir)
 
@@ -412,7 +416,6 @@ if __name__ == "__main__":
         train_metrics = run_one_epoch(model, train_loader, 'train', epoch)
 
         val_metrics = run_one_epoch(model, val_loader, 'val', epoch)
-
 
         # Save model
         if epoch % args.saving_freq == 0 or epoch == start + args.max_epochs - 1:
@@ -439,8 +442,8 @@ if __name__ == "__main__":
         #       f'### [F1@k] Train: k10: {round(train_metrics["f1_at_10"], 4)}, k25: {round(train_metrics["f1_at_25"], 4)}, k50: {round(train_metrics["f1_at_50"], 4)} '
         #       f'### Val: k10: {round(val_metrics["f1_at_10"], 4)}, k25: {round(val_metrics["f1_at_25"], 4)}, k50: {round(val_metrics["f1_at_50"], 4)}')
 
-        print(f'### {epoch:03d}: Time {get_minutes(stop - start)} m ### Train: ', metrics_to_str(train_metrics), ' ### Val: ', metrics_to_str(val_metrics))
-
+        print(f'### {epoch:03d}: Time {get_minutes(stop - start)} m ### Train: ', metrics_to_str(train_metrics),
+              ' ### Val: ', metrics_to_str(val_metrics))
 
     # save the individual predictions
     if args.save_individual:
@@ -452,15 +455,15 @@ if __name__ == "__main__":
     # f_top1_test, f_top3_test, conf_mat_top1_test, conf_mat_top3_test = test_for_all_saved_weights(model, test_loader)
     test_metrics = test_for_all_saved_weights(model, test_loader)
 
-
     plt = plot_conf_mat(test_metrics["cm_top1"], f"TEST_conf_mat_top1_e{epoch:0>4}", do_return_plot=True)
     wandb.log({'test/confusion_matrix/': {'top1': wandb.Image(plt)}})
     plt3 = plot_conf_mat(test_metrics["cm_top3"], f"TEST_conf_mat_top3_e{epoch:0>4}", do_return_plot=True)
     wandb.log({'test/confusion_matrix/': {'top3': wandb.Image(plt3)}})
-    
 
     print(f'### [F1] TEST: ', metrics_to_str(test_metrics))
-    wandb.log({"test_top1": round(test_metrics["f1_top1"], 4), "test_top3": round(test_metrics["f1_top3"], 4), "f1_top1_once": round(test_metrics["f1_top1_once"], 4), "f1@10": round(test_metrics["f1@10"], 4), "f1@25": round(test_metrics["f1@25"], 4), "f1@50": round(test_metrics["f1@50"], 4)})
+    wandb.log({"test_top1": round(test_metrics["f1_top1"], 4), "test_top3": round(test_metrics["f1_top3"], 4),
+               "f1_top1_once": round(test_metrics["f1_top1_once"], 4), "f1@10": round(test_metrics["f1@10"], 4),
+               "f1@25": round(test_metrics["f1@25"], 4), "f1@50": round(test_metrics["f1@50"], 4)})
 
     plt.close()
     plt3.close()

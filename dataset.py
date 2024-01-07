@@ -1,21 +1,26 @@
 """
-    TODO:
-        # Enes's
-        [ ] mirrored graph
-        [ ] remove data.verify and unnecessary asserts
-        [ ] bimanual paper sample count: 442216 vs our: 421610 
+    # Enes's
+        TODO:
+            [ ] mirrored graph
+            [ ] remove data.verify and unnecessary asserts
+            [ ] bimanual paper sample count: 442216 vs our: 421610
+            [ ]
+            [ ] !!! preparing dataset and getting Dataset instances should be separate
 
-        [ ] !!! preparing dataset and getting Dataset instances should be separate
-
-        # Fatih's
-        [ ]     1. Whole video sample generation
-        [ ]         1.1 Adjust dataloader for whole video batching (Sequence window length=max length video)
-        [ ]             1.1.1 Max sequence length finder method
-        [ ]         1.2 Implement zero graph padding
-        [ ]             1.2.1 Control of seq sample length for padding amount
-        [ ]             1.2.2 Zero/-1 graph sample creation for padding 
-        [ ]     2. Implement auto hypertuning using Torch Ray Tune
-        [ ]     3. Adjust dataloader for easy cross validation
+    # Fatih's
+        TODO:
+            [ ] 1. Whole video sample generation
+            [ ]     1.1 Adjust dataloader for whole video batching (Sequence window length=max length video)
+            [~]         1.1.1 Max sequence length finder method
+            [~]         1.1.2 args.temporal_length will be max length video length
+            [ ]     1.2 Implement zero graph padding
+            [ ]         1.2.1 Control of seq sample length for padding amount
+            [ ]         1.2.2 Zero/-1 graph sample creation for padding
+            [ ]         1.2.3 Padding zero/-1 graph samples to the end of the sequence
+            [ ]         1.2.4 Implement zero graph padding for mirrored graph
+            [ ]         1.2.5 Saving of padded sequence
+            [ ] 2. Implement auto hyper tuning using Torch Ray Tune
+            [ ] 3. Adjust dataloader for easy cross validation
 """
 import glob
 import json
@@ -34,25 +39,22 @@ from torch_geometric.data import Data, Dataset, download_url, extract_zip
 from torch_geometric.loader import DataLoader
 import pickle
 
-
 # Global variables
 OBJECTS = ['bowl', 'knife', 'screwdriver', 'cuttingboard', 'whisk', 'hammer', 'bottle', 'cup',
            'banana', 'cereals', 'sponge', 'woodenwedge', 'saw', 'harddrive', 'LeftHand',
            'RightHand']
 RELATIONS = ['contact', 'above', 'below', 'left of', 'right of', 'behind of', 'in front of',
              'inside', 'surround', 'moving together', 'halting together', 'fixed moving together',
-             'getting close', 'moving apart', 'stable'] # , 'temporal'
+             'getting close', 'moving apart', 'stable']  # , 'temporal'
 
 ACTIONS = ['idle', 'approach', 'retreat', 'lift', 'place', 'hold', 'pour', 'cut', 'hammer', 'saw',
            'stir', 'screw', 'drink', 'wipe']
 
-
-MISSING_HAND_COUNT=0
-NULL_COUNT=0
-TOTAL_FRAME_COUNT=0
-EMPTY_COUNT=0
-NO_EDGE_COUNT=0
-
+MISSING_HAND_COUNT = 0
+NULL_COUNT = 0
+TOTAL_FRAME_COUNT = 0
+EMPTY_COUNT = 0
+NO_EDGE_COUNT = 0
 
 
 def crawl_dataset_FULL():
@@ -63,23 +65,24 @@ def crawl_dataset_FULL():
             for take in ['take_{}'.format(take_i) for take_i in range(10)]:
                 yield subject, task, take
 
+
 def crawl_dataset_DEBUG():
-    for subject in ['subject_1', 'subject_2']: # (1, 7)
+    for subject in ['subject_1', 'subject_2']:  # (1, 7)
         # for task in ['task_1_k_cooking', 'task_2_k_cooking_with_bowls']:
         for task in ['task_1_k_cooking', 'task_2_k_cooking_with_bowls', 'task_3_k_pouring',
                      'task_4_k_wiping', 'task_5_k_cereals', 'task_6_w_hard_drive',
                      'task_7_w_free_hard_drive', 'task_8_w_hammering', 'task_9_w_sawing']:
-            for take in ['take_1', 'take_7']: # 10
+            for take in ['take_1', 'take_7']:  # 10
                 yield subject, task, take
+
 
 DEBUG_MODE = False
 
 if DEBUG_MODE:
-    print("Debug mode is on\n"*5)
+    print("Debug mode is on\n" * 5)
     crawl_dataset = crawl_dataset_DEBUG
 else:
     crawl_dataset = crawl_dataset_FULL
-
 
 
 def _get_actions_list(gt_action_json: os.PathLike, act_len: int) -> np.ndarray:
@@ -88,37 +91,34 @@ def _get_actions_list(gt_action_json: os.PathLike, act_len: int) -> np.ndarray:
     with open(gt_action_json) as f:
         actions_json = json.load(f)
 
-
-    actions_list=np.zeros((act_len, 2), dtype=np.int32)
+    actions_list = np.zeros((act_len, 2), dtype=np.int32)
 
     # right
     for t in range(0, len(actions_json["right_hand"]) - 1, 2):
-
         begin = actions_json["right_hand"][t]
         right_act = actions_json["right_hand"][t + 1]
         end = actions_json["right_hand"][t + 2]
 
         right_act = -1 if right_act == None else right_act
 
-        actions_list[begin:end, 1]=right_act
+        actions_list[begin:end, 1] = right_act
 
     # left
     for t in range(0, len(actions_json["left_hand"]) - 1, 2):
-
         begin = actions_json["left_hand"][t]
         left_act = actions_json["left_hand"][t + 1]
         end = actions_json["left_hand"][t + 2]
 
         left_act = -1 if left_act == None else left_act
-        actions_list[begin:end, 0]=left_act
-    
+        actions_list[begin:end, 0] = left_act
+
     return actions_list
 
 
 # def _get_graph(self, relation_json, object_json, gt_action_json, frame) -> Data:
 def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, take) -> Tuple[Data, Data]:
     # returns edge index and edge features
-    
+
     with open(relation_json) as f:
         curr_relations = json.load(f)
 
@@ -128,7 +128,7 @@ def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, tak
     # initialize "Data" params
     x = torch.zeros((len(curr_objects), len(OBJECTS)), dtype=torch.float)
     x_mirrored = torch.zeros((len(curr_objects), len(OBJECTS)), dtype=torch.float)
-    
+
     y = torch.zeros((2, len(ACTIONS)), dtype=torch.float)
     y_mirrored = torch.zeros((2, len(ACTIONS)), dtype=torch.float)
 
@@ -139,7 +139,7 @@ def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, tak
     edge_index = []
     edge_index_mirrored = []
 
-    num_possible_relations=len(curr_objects)*(len(curr_objects)-1)
+    num_possible_relations = len(curr_objects) * (len(curr_objects) - 1)
 
     edge_attr = torch.zeros((int(num_possible_relations), len(RELATIONS)))
     edge_attr_mirrored = torch.zeros((int(num_possible_relations), len(RELATIONS)))
@@ -150,16 +150,16 @@ def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, tak
         x[i, OBJECTS.index(obj["class_name"])] = 1
 
         # # # Mirrorred # # #
-        if obj["class_name"]=='LeftHand':
+        if obj["class_name"] == 'LeftHand':
             x_mirrored[i, OBJECTS.index('RightHand')] = 1
 
-        elif obj["class_name"]=='RightHand':
+        elif obj["class_name"] == 'RightHand':
             x_mirrored[i, OBJECTS.index('LeftHand')] = 1
 
         else:
             x_mirrored[i, OBJECTS.index(obj["class_name"])] = 1
         # # # # # # # # # # # #
-    
+
     for relation in curr_relations:
 
         # if self.contact_only and (relation["relation_name"] != "contact"):
@@ -169,34 +169,33 @@ def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, tak
         oi = relation["object_index"]
         si = relation["subject_index"]
 
-        edge=[oi, si]
+        edge = [oi, si]
 
         if edge not in edge_index:
             edge_index.append(edge)
 
         edge_attr[edge_index.index(edge), RELATIONS.index(relation["relation_name"])] = 1
-        
+
         # # # Mirrorred # # #
         if edge not in edge_index_mirrored:
             edge_index_mirrored.append(edge)
-        
-        if relation["relation_name"]=='right of':
+
+        if relation["relation_name"] == 'right of':
             edge_attr_mirrored[edge_index_mirrored.index(edge), RELATIONS.index('left of')] = 1
 
-        elif relation["relation_name"]=='left of':
+        elif relation["relation_name"] == 'left of':
             edge_attr_mirrored[edge_index_mirrored.index(edge), RELATIONS.index('right of')] = 1
 
         else:
             edge_attr_mirrored[edge_index_mirrored.index(edge), RELATIONS.index(relation["relation_name"])] = 1
         # # # # # # # # # # # #
-        
 
-    edge_attr=edge_attr[:len(edge_index)]
-    edge_index=torch.tensor(edge_index, dtype=torch.long)
+    edge_attr = edge_attr[:len(edge_index)]
+    edge_index = torch.tensor(edge_index, dtype=torch.long)
 
     # # # Mirrorred # # #
-    edge_attr_mirrored=edge_attr_mirrored[:len(edge_index_mirrored)]
-    edge_index_mirrored=torch.tensor(edge_index_mirrored, dtype=torch.long)
+    edge_attr_mirrored = edge_attr_mirrored[:len(edge_index_mirrored)]
+    edge_index_mirrored = torch.tensor(edge_index_mirrored, dtype=torch.long)
     # # # # # # # # # # # #
 
     left_act, right_act = gt_actions
@@ -205,16 +204,15 @@ def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, tak
     # y[0]=torch.tensor([left_act, int(subject[-1]+task[5]+take[-1]+str(frame))], dtype=torch.float)
     # y[1]=torch.tensor([right_act, int(subject[-1]+task[5]+take[-1]+str(frame))], dtype=torch.float)
 
-    graph_str=subject[-1]+task[5]+take[-1]+str(frame)
+    graph_str = subject[-1] + task[5] + take[-1] + str(frame)
 
     if left_act != -1:
-        y[0, left_act]=1
-        y_mirrored[1, left_act]=1
-        
+        y[0, left_act] = 1
+        y_mirrored[1, left_act] = 1
+
         # To debug
         # y[0, -1]=int("1"+graph_str)
         # y_mirrored[1, -1]=int("2"+graph_str)
-
 
     if right_act != -1:
         y[1, right_act] = 1
@@ -223,51 +221,50 @@ def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, tak
         # To debug
         # y[1, -1] = int("1"+graph_str)
         # y_mirrored[0, -1] = int("2"+graph_str)
-    
 
     data = Data(x=x, edge_index=edge_index.t().contiguous(),
                 edge_attr=edge_attr, y=y)
 
     data_mirrored = Data(x=x_mirrored, edge_index=edge_index_mirrored.t().contiguous(),
-                            edge_attr=edge_attr_mirrored, y=y_mirrored)
+                         edge_attr=edge_attr_mirrored, y=y_mirrored)
 
     return data, data_mirrored
 
 
 def _check_validity(data: Data) -> str:
     # Checks: both hands exists, action != null, has edge, not empty 
-    
+
     global MISSING_HAND_COUNT, NULL_COUNT, EMPTY_COUNT, NO_EDGE_COUNT
 
-    Lhand, Rhand=False, False
+    Lhand, Rhand = False, False
     # null
-    if torch.sum(data.y[0])==0 or torch.sum(data.y[1])==0:
-        NULL_COUNT+=1
+    if torch.sum(data.y[0]) == 0 or torch.sum(data.y[1]) == 0:
+        NULL_COUNT += 1
         raise Exception("Null action")
         return "null"
 
     # not empty
-    if len(data.x)==0:
-        EMPTY_COUNT+=1
+    if len(data.x) == 0:
+        EMPTY_COUNT += 1
         return "empty"
-    
+
     # both hands
     for row in data.x:
-        if row[OBJECTS.index("LeftHand")]==1:
-            Lhand=True
-        
-        if row[OBJECTS.index("RightHand")]==1:
-            Rhand=True
-            
+        if row[OBJECTS.index("LeftHand")] == 1:
+            Lhand = True
+
+        if row[OBJECTS.index("RightHand")] == 1:
+            Rhand = True
+
     if not (Rhand and Lhand):
-        MISSING_HAND_COUNT+=1
+        MISSING_HAND_COUNT += 1
         return "missing hand"
 
     # has edge
-    if len(data.edge_index)==0:
-        NO_EDGE_COUNT+=1
+    if len(data.edge_index) == 0:
+        NO_EDGE_COUNT += 1
         return "no edge"
-    
+
     return "valid"
 
 
@@ -275,50 +272,63 @@ def _impute_with_previous(graph: Data, previous_graph: Data, validity: str) -> D
     # For now, just returns the previous graph
     # If required, impute using the data of previous graph
     return previous_graph.clone()
-    
+
+
+def _count_files_in_directory(directory_path):
+    try:
+        # List all files in the directory
+        files = os.listdir(directory_path)
+
+        # Count the number of files
+        num_files = len(files)
+
+        return num_files
+    except FileNotFoundError:
+        print(f"The specified directory '{directory_path}' does not exist.")
+        return None
+
 
 class BimanualDataset(Dataset):
-    def __init__(self, root: str, 
-                       is_processed: bool, 
-                       split: str, 
-                       test_subject: int, 
-                       validation_take: int , 
-                       temporal_length: int, 
-                       contact_only: bool, 
-                       fix_fps: bool=False,
-                       fix_null: bool=False):
-        
+    def __init__(self, root: str,
+                 is_processed: bool,
+                 split: str,
+                 test_subject: int,
+                 validation_take: int,
+                 temporal_length: int,
+                 contact_only: bool,
+                 fix_fps: bool = False,
+                 fix_null: bool = False):
+
         # To process the whole video
         if temporal_length == -1:
-            self.process_whole_video=True
+            self.process_whole_video = True
             self.processed_folder_name = 'processed_whole'
         else:
             self.temporal_length = temporal_length
-            self.processed_folder_name = 'processed'+str(self.temporal_length)
+            self.processed_folder_name = 'processed' + str(self.temporal_length)
             if fix_fps:
-                assert temporal_length%2==0, "When fix fps enabled, temporal_length must be even"
-        
+                assert temporal_length % 2 == 0, "When fix fps enabled, temporal_length must be even"
+
         self.is_processed = is_processed
         self.test_subject = test_subject
         self.validation_take = validation_take
         self.split = split
         self.config = None
-        transform, pre_transform, pre_filter=None, None, None
-        self.deleted_once=False
-        self.fix_fps=fix_fps
-        self.fix_null=fix_null
+        transform, pre_transform, pre_filter = None, None, None
+        self.deleted_once = False
+        self.fix_fps = fix_fps
+        self.fix_null = fix_null
 
         self.root = root
-        self.contact_only=contact_only
+        self.contact_only = contact_only
         self.distribution = torch.zeros((len(ACTIONS)))
 
         assert split in ["val", "train", "test"], "split can only be val, train or test"
         if is_processed:
             self._load_config()
-            assert self.config["test_subject"]==test_subject
-            assert self.config["validation_take"]==validation_take
-            assert self.config["temporal_length"]==temporal_length
-
+            assert self.config["test_subject"] == test_subject
+            assert self.config["validation_take"] == validation_take
+            assert self.config["temporal_length"] == temporal_length
 
         super().__init__(root, transform, pre_transform, pre_filter)
 
@@ -331,7 +341,7 @@ class BimanualDataset(Dataset):
         return ["bimacs_rgbd_data_ground_truth/subject_1/task_1_k_cooking/take_0.json"]
 
     @property
-    def processed_file_names(self):        
+    def processed_file_names(self):
         if self.is_processed:
             # addr = [os.path.basename(x) for x in glob.glob(opj(self.processed_dir, 'data*.pt'))]
             # addr = [opj(self.split, a) for a in addr]
@@ -344,7 +354,7 @@ class BimanualDataset(Dataset):
                     print("Deleting processed_dir...")
                     shutil.rmtree(self.processed_dir)
                     os.mkdir(self.processed_dir)
-                    self.deleted_once=True
+                    self.deleted_once = True
             return "some_dummy_name.pt"
 
     def _fix_null(self):
@@ -353,23 +363,23 @@ class BimanualDataset(Dataset):
         def read_check_write(sub, task, tk_json, hand, new_vals):
             # An internal function to read, check and write the json file
             # Read
-            the_json_path=opj(self.raw_dir, "bimacs_rgbd_data_ground_truth", sub, task, tk_json)
+            the_json_path = opj(self.raw_dir, "bimacs_rgbd_data_ground_truth", sub, task, tk_json)
             with open(the_json_path, "r") as f:
                 the_dict = json.load(f)
 
             # Check
             old_time_steps = the_dict[hand][::2]
             new_time_steps = new_vals[::2]
-            
+
             assert old_time_steps == new_time_steps, f"{old_time_steps=}, {new_time_steps=}"
-            
-            none_found=False
+
+            none_found = False
             act_labels = the_dict[hand][1::2]
             for i in act_labels:
-                if i==None:
-                    none_found=True
+                if i == None:
+                    none_found = True
                     break
-            
+
             if not none_found:
                 print("No null found: ", the_json_path)
                 return  # no need to fix            
@@ -378,18 +388,19 @@ class BimanualDataset(Dataset):
             the_dict[hand] = new_vals
             with open(the_json_path, "w") as f:
                 json.dump(the_dict, f)
-            
+
             print("Fixed: ", the_json_path)
 
-
-        read_check_write("subject_6", "task_4_k_wiping", "take_1.json", "left_hand", 
+        read_check_write("subject_6", "task_4_k_wiping", "take_1.json", "left_hand",
                          [0, 0, 91, 1, 114, 3, 129, 5, 150, 4, 165, 2, 189, 1, 209, 5, 357])
-        read_check_write("subject_1", "task_9_w_sawing", "take_2.json", "right_hand", 
+        read_check_write("subject_1", "task_9_w_sawing", "take_2.json", "right_hand",
                          [0, 0, 14, 1, 32, 3, 42, 9, 97, 9, 133])
-        read_check_write("subject_1", "task_7_w_free_hard_drive", "take_7.json", "right_hand", 
-                         [0, 0, 13, 1, 28, 3, 36, 2, 39, 1, 44, 3, 56, 11, 135, 2, 138, 1, 142, 3, 154, 0, 181, 1, 207, 11, 285, 2, 290, 1, 292, 3, 300, 4, 309, 4, 331, 2, 333, 1, 337, 4, 350, 2, 358, 0, 381])
-        read_check_write("subject_3", "task_2_k_cooking_with_bowls", "take_1.json", "right_hand", 
-                         [0, 0, 61, 1, 85, 5, 194, 1, 199, 1, 206, 3, 241, 6, 339, 4, 366, 2, 371, 1, 376, 5, 475, 2, 521, 0, 542])
+        read_check_write("subject_1", "task_7_w_free_hard_drive", "take_7.json", "right_hand",
+                         [0, 0, 13, 1, 28, 3, 36, 2, 39, 1, 44, 3, 56, 11, 135, 2, 138, 1, 142, 3, 154, 0, 181, 1, 207,
+                          11, 285, 2, 290, 1, 292, 3, 300, 4, 309, 4, 331, 2, 333, 1, 337, 4, 350, 2, 358, 0, 381])
+        read_check_write("subject_3", "task_2_k_cooking_with_bowls", "take_1.json", "right_hand",
+                         [0, 0, 61, 1, 85, 5, 194, 1, 199, 1, 206, 3, 241, 6, 339, 4, 366, 2, 371, 1, 376, 5, 475, 2,
+                          521, 0, 542])
 
         print("# Replaced null actions by manually detected labels (This is directly done on the raw data!)")
 
@@ -403,38 +414,49 @@ class BimanualDataset(Dataset):
         for url in urls:
             path = download_url(url, self.raw_dir)
             extract_zip(path, self.raw_dir)
-        
+
         # Features https://drive.google.com/drive/folders/1yfwItIoQrAnbnk5GTjbbfN8Ls8Ybl_hr
 
         gdown.download(id="1FceipuZMUjp1ES2THqlAmQgPdE18-flk", output=opj(self.raw_dir, "BimanualActions.zip"))
         extract_zip(opj(self.raw_dir, "BimanualActions.zip"), self.raw_dir)
         self._fix_null()
-        
+
     def _save_config(self, config_info: dict) -> None:
         with open(opj(self.processed_dir, "config_info.json"), "w") as f:
             json.dump(config_info, f)
-        
-        self.split_len=self.config[self.split]
-        
+
+        self.split_len = self.config[self.split]
+
     def _load_config(self) -> None:
         with open(opj(self.processed_dir, "config_info.json"), "r") as f:
             self.config = json.load(f)
-        
-        self.split_len=self.config[self.split]
+
+        self.split_len = self.config[self.split]
         self.distribution = torch.tensor(self.config["distribution"])
 
     def _get_longest_video_len(self) -> int:
-        ...
+        # Returns the length of the longest video
+        # TODO: Should data validity be checked here?
+        max_len = 0
+        for subject, task, take in crawl_dataset():
+            spat_dir = opj(self.raw_dir, "bimacs_derived_data", subject, task, take, "spatial_relations")
+
+            # NOTE: Should we divide by two for left and right hands?
+            num_files = _count_files_in_directory(spat_dir)
+
+            max_len = max(max_len, num_files)
+
+        return max_len
 
     def process(self):
         global TOTAL_FRAME_COUNT
 
-
         if self.fix_null:
             self._fix_null()
 
-        train_dir, test_dir, val_dir = opj(self.processed_dir, "train"), opj(self.processed_dir, "test"), opj(self.processed_dir, "val")
-        
+        train_dir, test_dir, val_dir = opj(self.processed_dir, "train"), opj(self.processed_dir, "test"), opj(
+            self.processed_dir, "val")
+
         os.mkdir(train_dir)
         os.mkdir(test_dir)
         os.mkdir(val_dir)
@@ -442,39 +464,43 @@ class BimanualDataset(Dataset):
         derived_dir = opj(self.raw_dir, "bimacs_derived_data")
         gt_dir = opj(self.raw_dir, "bimacs_rgbd_data_ground_truth")
 
+        """ FIXME: .json file should be in git repo because content unreachable from outside"""
         with open(opj(self.raw_dir, "BimanualActions", "bimacs_video_id_to_video_fps.json"), "r") as f:
             self.fps_info = json.load(f)
 
-        train_sample_idx=0
-        val_sample_idx=0
-        test_sample_idx=0
 
-        imputation_count=0
-        prepended_things_count=0
+        train_sample_idx = 0
+        val_sample_idx = 0
+        test_sample_idx = 0
 
-        progressbar_manager=enlighten.get_manager()
-        ticks=progressbar_manager.counter(total=540, desc="Progress:", unit="folder", color="blue")
-        
+        imputation_count = 0
+        prepended_things_count = 0
+
+        progressbar_manager = enlighten.get_manager()
+        ticks = progressbar_manager.counter(total=540, desc="Progress:", unit="folder", color="blue")
+
         # To reconstruct the video from the processed data
-        dataset_mapping = {"test":{"sample":{}, "vid":{}}, 
-                              "val": {"sample":{}, "vid":{}},
-                              "train": {"sample":{}, "vid":{}}}
+        dataset_mapping = {"test": {"sample": {}, "vid": {}},
+                           "val": {"sample": {}, "vid": {}},
+                           "train": {"sample": {}, "vid": {}}}
 
-
-        # To double check
+        # To double-check
         train_sample_count = 0
         val_sample_count = 0
         test_sample_count = 0
+
+        # TODO: Get max length video and use it as temporal_length
+        self.temporal_length = self._get_longest_video_len()
 
         for subject, task, take in crawl_dataset():
 
             subject_int, task_int, take_int = int(subject[-1]), int(task[5]), int(take[-1])
             # Sometimes initial graphs are invalid, so imputation is not working. This is to fix that
-            prepend_count=0
+            prepend_count = 0
 
             # make sure there is no cross-folder graph sequence
-            data_list = [] 
-            data_list_mirrored = [] 
+            data_list = []
+            data_list_mirrored = []
 
             object_dir = opj(derived_dir, subject, task, take, "3d_objects")
             object_json_list = natsort.natsorted(glob.glob(opj(object_dir, "*.json")))
@@ -483,34 +509,33 @@ class BimanualDataset(Dataset):
             relation_json_list = natsort.natsorted(glob.glob(opj(relation_dir, "*.json")))
 
             gt_action_json = opj(gt_dir, subject, task, f"{take}.json")
-            act_list=_get_actions_list(gt_action_json, len(relation_json_list))
+            act_list = _get_actions_list(gt_action_json, len(relation_json_list))
 
             assert len(relation_json_list) == len(object_json_list)
 
             # To double check, also fills dataset_mapping
             if subject_int == self.test_subject:
                 test_sample_count = test_sample_count + len(relation_json_list) - self.temporal_length + 1
-                dataset_mapping["test"]["vid"][str(subject_int)+str(task_int)+str(take_int)] = act_list
+                dataset_mapping["test"]["vid"][str(subject_int) + str(task_int) + str(take_int)] = act_list
 
             elif take_int == self.validation_take:
                 val_sample_count = val_sample_count + len(relation_json_list) - self.temporal_length + 1
-                dataset_mapping["val"]["vid"][str(subject_int)+str(task_int)+str(take_int)] = act_list
-            
+                dataset_mapping["val"]["vid"][str(subject_int) + str(task_int) + str(take_int)] = act_list
+
             else:
                 train_sample_count = train_sample_count + len(relation_json_list) - self.temporal_length + 1
-                dataset_mapping["train"]["vid"][str(subject_int)+str(task_int)+str(take_int)] = act_list
-
-            
+                dataset_mapping["train"]["vid"][str(subject_int) + str(task_int) + str(take_int)] = act_list
 
             for frame, (relation_json, object_json) in enumerate(zip(relation_json_list, object_json_list)):
-                
-                TOTAL_FRAME_COUNT+=1
-                graph, graph_mirrored = _get_graph(relation_json, object_json, act_list[frame], frame, subject, task, take)
+
+                TOTAL_FRAME_COUNT += 1
+                graph, graph_mirrored = _get_graph(relation_json, object_json, act_list[frame], frame, subject, task,
+                                                   take)
 
                 # If the graph is not valid, try to fix it (impute maybe). 
                 # If it is not possible resets the sequence and continues
                 validity = _check_validity(graph)
-                
+
                 if validity == "valid":
                     pass
                 elif validity in ["null"]:
@@ -519,61 +544,67 @@ class BimanualDataset(Dataset):
                     # use previous graph to impute
                     graph = _impute_with_previous(graph, data_list[-1], validity)
                     graph_mirrored = _impute_with_previous(graph_mirrored, data_list_mirrored[-1], validity)
-                    imputation_count+=1
+                    imputation_count += 1
                 else:
                     # print("Skipping: invalid graph and no previous graph to impute: ", subject, task, take, "f", frame)
-                    prepend_count+=1
-                    prepended_things_count+=1
+                    prepend_count += 1
+                    prepended_things_count += 1
                     # data_list=[]
                     # data_list_mirrored=[]
                     continue
-                
-                data_list.append(graph)    
+
+                data_list.append(graph)
                 data_list_mirrored.append(graph_mirrored)
-                
+
                 # TODO: Fix_fps and prepend_count are not compatible. Fix it
                 if prepend_count != 0 and len(data_list) == 1:
                     for _ in range(prepend_count):
                         data_list.append(graph.clone())
                         data_list_mirrored.append(graph_mirrored.clone())
-                    assert len(data_list) == prepend_count+1
-                    prepend_count=0
+                    assert len(data_list) == prepend_count + 1
+                    prepend_count = 0
 
                 # TODO: we pop only one graph, but when fix_fps is true, we need to pop two of them
                 # Check if fps need to be fixed. If so, add same graph again  
-                if self.fix_fps and self.fps_info[subject+"-"+task+"-"+take] == 15:
+                if self.fix_fps and self.fps_info[subject + "-" + task + "-" + take] == 15:
                     data_list.append(graph)
                     data_list_mirrored.append(graph_mirrored)
-                    
+
                 # if the sequence is complete, saves it
                 if len(data_list) == self.temporal_length:
-                    
-                    if subject_int==self.test_subject:
+
+                    if subject_int == self.test_subject:
                         torch.save(data_list, opj(test_dir, f'data_{test_sample_idx}.pt'))
-                        dataset_mapping["test"]["sample"][test_sample_idx] = (subject_int, task_int, take_int, frame-self.temporal_length + 1, frame + 1, "_")
-                        test_sample_idx+=1
+                        dataset_mapping["test"]["sample"][test_sample_idx] = (
+                            subject_int, task_int, take_int, frame - self.temporal_length + 1, frame + 1, "_")
+                        test_sample_idx += 1
 
                         torch.save(data_list_mirrored, opj(test_dir, f'data_{test_sample_idx}.pt'))
-                        dataset_mapping["test"]["sample"][test_sample_idx] = (subject_int, task_int, take_int, frame-self.temporal_length + 1, frame + 1, "M")
-                        test_sample_idx+=1
-                    
-                    elif int(take[-1])==self.validation_take:
+                        dataset_mapping["test"]["sample"][test_sample_idx] = (
+                            subject_int, task_int, take_int, frame - self.temporal_length + 1, frame + 1, "M")
+                        test_sample_idx += 1
+
+                    elif int(take[-1]) == self.validation_take:
                         torch.save(data_list, opj(val_dir, f'data_{val_sample_idx}.pt'))
-                        dataset_mapping["val"]["sample"][val_sample_idx] = (subject_int, task_int, take_int, frame-self.temporal_length + 1, frame + 1, "_")
-                        val_sample_idx+=1
-                        
+                        dataset_mapping["val"]["sample"][val_sample_idx] = (
+                            subject_int, task_int, take_int, frame - self.temporal_length + 1, frame + 1, "_")
+                        val_sample_idx += 1
+
                         torch.save(data_list_mirrored, opj(val_dir, f'data_{val_sample_idx}.pt'))
-                        dataset_mapping["val"]["sample"][val_sample_idx] = (subject_int, task_int, take_int, frame-self.temporal_length + 1, frame + 1, "M")
-                        val_sample_idx+=1
+                        dataset_mapping["val"]["sample"][val_sample_idx] = (
+                            subject_int, task_int, take_int, frame - self.temporal_length + 1, frame + 1, "M")
+                        val_sample_idx += 1
 
                     else:
                         torch.save(data_list, opj(train_dir, f'data_{train_sample_idx}.pt'))
-                        dataset_mapping["train"]["sample"][train_sample_idx] = (subject_int, task_int, take_int, frame-self.temporal_length + 1, frame + 1, "_")
-                        train_sample_idx+=1
+                        dataset_mapping["train"]["sample"][train_sample_idx] = (
+                            subject_int, task_int, take_int, frame - self.temporal_length + 1, frame + 1, "_")
+                        train_sample_idx += 1
 
                         torch.save(data_list_mirrored, opj(train_dir, f'data_{train_sample_idx}.pt'))
-                        dataset_mapping["train"]["sample"][train_sample_idx] = (subject_int, task_int, take_int, frame-self.temporal_length + 1, frame + 1, "M")
-                        train_sample_idx+=1
+                        dataset_mapping["train"]["sample"][train_sample_idx] = (
+                            subject_int, task_int, take_int, frame - self.temporal_length + 1, frame + 1, "M")
+                        train_sample_idx += 1
 
                     self.distribution = self.distribution + data_list[0].y[0] + data_list[0].y[1]
                     data_list[0].validate(raise_on_error=True)
@@ -581,35 +612,40 @@ class BimanualDataset(Dataset):
                     data_list.pop(0)
                     data_list_mirrored.pop(0)
 
+            # TODO:
+            #  Handle sequence length less than temporal_length (shorter than max length in whole video mode)
+            #  Padding with zero graphs will be done here.
+            #  Save operation must be done.
+
             ticks.update()
 
-
         progressbar_manager.stop()
-        
-        assert train_sample_idx == train_sample_count*2, f"{train_sample_idx=} ,{train_sample_count*2=}"
-        assert val_sample_idx == val_sample_count*2, f"{val_sample_idx=} ,{val_sample_count*2=}"
-        assert test_sample_idx == test_sample_count*2, f"{test_sample_idx=} ,{test_sample_count*2=}"
 
-        print(f"\n\n#######\n{TOTAL_FRAME_COUNT=}, {EMPTY_COUNT=}, {NO_EDGE_COUNT=}, {MISSING_HAND_COUNT=}, {NULL_COUNT=}")
-        
-        self.config = {"test": test_sample_idx, 
-                       "train": train_sample_idx, 
-                       "val": val_sample_idx, 
-                       "test_subject": self.test_subject, 
+        assert train_sample_idx == train_sample_count * 2, f"{train_sample_idx=} ,{train_sample_count*2=}"
+        assert val_sample_idx == val_sample_count * 2, f"{val_sample_idx=} ,{val_sample_count*2=}"
+        assert test_sample_idx == test_sample_count * 2, f"{test_sample_idx=} ,{test_sample_count*2=}"
+
+        print(
+            f"\n\n#######\n{TOTAL_FRAME_COUNT=}, {EMPTY_COUNT=}, {NO_EDGE_COUNT=}, {MISSING_HAND_COUNT=}, {NULL_COUNT=}")
+
+        self.config = {"test": test_sample_idx,
+                       "train": train_sample_idx,
+                       "val": val_sample_idx,
+                       "test_subject": self.test_subject,
                        "validation_take": self.validation_take,
                        "temporal_length": self.temporal_length,
                        "distribution": self.distribution.tolist()}
-        
+
         print(self.config)
         print(f"{imputation_count=}, {prepended_things_count=}")
-        
+
         self._save_config(self.config)
-        
+
         with open(opj(self.processed_dir, "dataset_mapping.pickle"), "wb") as f:
             # json.dump(dataset_mapping, f)
             pickle.dump(dataset_mapping, f)
-            
-        self.is_processed=True
+
+        self.is_processed = True
 
     def len(self):
         # return len(self.processed_file_names)
@@ -626,7 +662,6 @@ class BimanualDataset(Dataset):
 
 # Simple test
 def print_data_point(data: Data):
-
     print("Summary:")
     print(f"{data.num_nodes=}")
     print(f"{data.num_edges=}")
@@ -650,18 +685,23 @@ def print_data_point(data: Data):
             print(RELATIONS[j], end=", ")
 
     print("\n\nActions:")
-    print("Left:", ACTIONS[torch.argmax(data.y[0, :-1], dim=0)], ", Right: ", ACTIONS[torch.argmax(data.y[1, :-1], dim=0)])
+    print("Left:", ACTIONS[torch.argmax(data.y[0, :-1], dim=0)], ", Right: ",
+          ACTIONS[torch.argmax(data.y[1, :-1], dim=0)])
 
-    print("Graph id: ", data.y[0,-1].item())
+    print("Graph id: ", data.y[0, -1].item())
 
 
-def get_bimanual_dataset_splits(*, root: str, is_processed: bool, test_subject: int, validation_take: int , temporal_length: int, contact_only: bool, fix_fps: bool, fix_null: bool) -> Tuple[Dataset, Dataset, Dataset]:
+def get_bimanual_dataset_splits(*, root: str, is_processed: bool, test_subject: int, validation_take: int,
+                                temporal_length: int, contact_only: bool, fix_fps: bool, fix_null: bool) -> Tuple[
+    Dataset, Dataset, Dataset]:
     # Wrapper function to prepare dataset splits (train, test, validation)
-    
-    train_set=BimanualDataset(root, is_processed, "train", test_subject, validation_take, temporal_length, contact_only, fix_fps, fix_null)
-    test_set=BimanualDataset(root, True, "test", test_subject, validation_take, temporal_length, contact_only, fix_fps)
-    val_set=BimanualDataset(root, True, "val", test_subject, validation_take, temporal_length, contact_only, fix_fps)
-    
+
+    train_set = BimanualDataset(root, is_processed, "train", test_subject, validation_take, temporal_length,
+                                contact_only, fix_fps, fix_null)
+    test_set = BimanualDataset(root, True, "test", test_subject, validation_take, temporal_length, contact_only,
+                               fix_fps)
+    val_set = BimanualDataset(root, True, "val", test_subject, validation_take, temporal_length, contact_only, fix_fps)
+
     print("Datasets are ready")
     return train_set, test_set, val_set
 
