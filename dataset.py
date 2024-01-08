@@ -20,9 +20,8 @@
             [x]         1.2.4 Implement zero graph padding for mirrored graph
             [x]         1.2.5 Saving of padded sequence
             [~]     1.3 Test whole video sample generation
-            [ ] 2. Implement auto hyper tuning using Torch Ray Tune
-            [ ] 3. Adjust dataloader for easy cross validation
-            [ ] 4. Clean up code
+            [ ] 2. Adjust dataloader for easy cross validation
+            [ ] 3. Clean up code
 """
 import glob
 import json

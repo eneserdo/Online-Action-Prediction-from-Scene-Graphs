@@ -1,5 +1,19 @@
 # -*- coding: utf-8 -*-
 
+"""
+    TODO:
+        [ ] 1. Masking padded values in the loss calculation
+        [ ]     1.1. Test if masking is working
+        [ ]         1.1.1. Test if masking is working in the loss calculation
+        [ ]         1.1.2. Test if masking is working for evaluation metrics
+        [ ]     1.2. Masking for segmentation
+        [ ]         1.2.1. sDTW loss is currently not working with padding
+        [ ]         1.2.2. Debug masking for segmentation
+        [ ] 2. Only label classification task should be brought to this git branch
+        [ ] 3. Implement auto hyper tuning using Torch Ray Tune
+
+"""
+
 import glob
 import json
 import os
