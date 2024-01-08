@@ -9,18 +9,20 @@
 
     # Fatih's
         TODO:
-            [ ] 1. Whole video sample generation
-            [ ]     1.1 Adjust dataloader for whole video batching (Sequence window length=max length video)
-            [~]         1.1.1 Max sequence length finder method
-            [~]         1.1.2 args.temporal_length will be max length video length
-            [ ]     1.2 Implement zero graph padding
-            [ ]         1.2.1 Control of seq sample length for padding amount
-            [ ]         1.2.2 Zero/-1 graph sample creation for padding
-            [ ]         1.2.3 Padding zero/-1 graph samples to the end of the sequence
-            [ ]         1.2.4 Implement zero graph padding for mirrored graph
-            [ ]         1.2.5 Saving of padded sequence
+            [~] 1. Whole video sample generation
+            [x]     1.1 Adjust dataloader for whole video batching (Sequence window length=max length video)
+            [x]         1.1.1 Max sequence length finder method
+            [x]         1.1.2 args.temporal_length will be max length video length
+            [x]     1.2 Implement zero graph padding
+            [x]         1.2.1 Control of seq sample length for padding amount
+            [x]         1.2.2 Blank graph sample creation for padding
+            [x]         1.2.3 Padding blank graph samples to the end of the sequence
+            [x]         1.2.4 Implement zero graph padding for mirrored graph
+            [x]         1.2.5 Saving of padded sequence
+            [~]     1.3 Test whole video sample generation
             [ ] 2. Implement auto hyper tuning using Torch Ray Tune
             [ ] 3. Adjust dataloader for easy cross validation
+            [ ] 4. Clean up code
 """
 import glob
 import json
@@ -565,7 +567,8 @@ class BimanualDataset(Dataset):
                     prepend_count = 0
 
                 # TODO: we pop only one graph, but when fix_fps is true, we need to pop two of them
-                # Check if fps need to be fixed. If so, add same graph again  
+                # Check if fps need to be fixed. If so, add same graph again
+                """NOTE: Is this actively used?"""
                 if self.fix_fps and self.fps_info[subject + "-" + task + "-" + take] == 15:
                     data_list.append(graph)
                     data_list_mirrored.append(graph_mirrored)
@@ -616,6 +619,42 @@ class BimanualDataset(Dataset):
             #  Handle sequence length less than temporal_length (shorter than max length in whole video mode)
             #  Padding with zero graphs will be done here.
             #  Save operation must be done.
+            if len(data_list) < self.temporal_length:
+                print("Sequence length is less than temporal_length: ", subject, task, take)
+                # Padding with zero graphs
+                for _ in range(self.temporal_length - len(data_list)):
+                    # TODO: Below are dummy graphs designed by Copilot.
+                    #        Check validity of them and change if necessary.
+                    data_list.append(Data(x=torch.zeros((len(OBJECTS), len(OBJECTS)), dtype=torch.float),
+                                          edge_index=torch.zeros((2, 0), dtype=torch.long),
+                                          edge_attr=torch.zeros((0, len(RELATIONS)), dtype=torch.float),
+                                          y=torch.zeros((2, len(ACTIONS)), dtype=torch.float)))
+                    data_list_mirrored.append(Data(x=torch.zeros((len(OBJECTS), len(OBJECTS)), dtype=torch.float),
+                                                   edge_index=torch.zeros((2, 0), dtype=torch.long),
+                                                   edge_attr=torch.zeros((0, len(RELATIONS)), dtype=torch.float),
+                                                   y=torch.zeros((2, len(ACTIONS)), dtype=torch.float)))
+
+                if subject_int == self.test_subject:
+                    torch.save(data_list, opj(test_dir, f'data_{test_sample_idx}.pt'))
+                    test_sample_idx += 1
+                    torch.save(data_list_mirrored, opj(test_dir, f'data_{test_sample_idx}.pt'))
+                    test_sample_idx += 1
+                elif int(take[-1]) == self.validation_take:
+                    torch.save(data_list, opj(val_dir, f'data_{val_sample_idx}.pt'))
+                    val_sample_idx += 1
+                    torch.save(data_list_mirrored, opj(val_dir, f'data_{val_sample_idx}.pt'))
+                    val_sample_idx += 1
+                else:
+                    torch.save(data_list, opj(train_dir, f'data_{train_sample_idx}.pt'))
+                    train_sample_idx += 1
+                    torch.save(data_list_mirrored, opj(train_dir, f'data_{train_sample_idx}.pt'))
+                    train_sample_idx += 1
+
+                self.distribution = self.distribution + data_list[0].y[0] + data_list[0].y[1]
+                data_list[0].validate(raise_on_error=True)
+                data_list_mirrored[0].validate(raise_on_error=True)
+                data_list.pop(0)
+                data_list_mirrored.pop(0)
 
             ticks.update()
 
