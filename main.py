@@ -89,6 +89,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
             batch_size = gt_reordered.shape[1] // 2
 
+            # FIXME: Padding may mess with segmentation
             ground_truth_segments = create_ground_truth_segments(torch.argmax(gt_reordered, dim=-1))
 
             if args.task == "labelonly":
@@ -103,19 +104,28 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                 pred_flattened, mask = pred_flattened
                 gt_flattened = gt_flattened[mask]
 
+            # TODO: Mask out the padded values in the loss calculation
+            if args.temporal_length > 100:  # FIXME: Is there better way to check?
+                gt_padding_mask = torch.sum(gt_flattened, dim=-1) != 0.
+                pred_flattened, gt_flattened = pred_flattened[gt_padding_mask], gt_flattened[gt_padding_mask]
+
             label_loss = label_criterion(pred_flattened, gt_flattened)
 
             if not args.disable_seg:
                 if args.seg_loss == "sDTW":
                     # NOTE: for label dtw input shapes should be (b,n,l) not (n*b,l) 
                     # TODO: 
-                    # - gamma val tuned (0.001 etc.)
-                    # - bceloss distance metric
-                    # - ...
+                    #   - gamma val tuned (0.001 etc.)
+                    #   - bceloss distance metric
+                    #   - ...
+                    # FIXME:
+                    #   - sdtw loss is currently not working with padding
                     t_shape = segment_change_pred.T.shape + (1,)
                     segmentation_loss = segmentation_criterion(segment_change_pred.view(t_shape),
                                                                ground_truth_segments.view(t_shape)).mean()
                 else:
+                    if args.temporal_length > 100:  # FIXME: Is there better way to check?
+                        segment_change_pred, ground_truth_segments = segment_change_pred[gt_padding_mask], ground_truth_segments[gt_padding_mask]
                     segmentation_loss = segmentation_criterion(segment_change_pred, ground_truth_segments)
             else:
                 segmentation_loss = torch.tensor(0.0)
