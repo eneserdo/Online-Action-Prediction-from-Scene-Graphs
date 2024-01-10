@@ -192,9 +192,13 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                     pad_mask_ = gt_padding_mask.cpu().detach()
                     pad_mask = torch.transpose(pad_mask_.unflatten(0, (batch_size * 2, args.temporal_length)), 0, 1).argmax(dim=-1)
 
-                    # y_trgt=
-                    # y_pred=
-                    f1_at_k() # Input list of lists shaped: (b*2, n)
+                    # Convert tensor to list of lists.
+                    y_trgt = trgt.cpu().argmax(-1).tolist()  # Shape: (b*2, n)
+                    y_pred = pred.tolist()  # Shape: (b*2, n)
+                    # Mask out the padded values
+                    y_trgt = [[y_trgt[i][j] for j in range(len(y_trgt[i])) if pad_mask[i][j] == 1] for i in range(len(y_trgt))]
+                    y_pred = [[y_pred[i][j] for j in range(len(y_pred[i])) if pad_mask[i][j] == 1] for i in range(len(y_pred))]
+                    f1_at_k(y_trgt, y_pred)  # Inputs are list of lists shaped: (b*2, n)
 
 
             # This takes 0.0024 seconds
