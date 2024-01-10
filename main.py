@@ -192,8 +192,9 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                     pad_mask_ = gt_padding_mask.cpu().detach()
                     pad_mask = torch.transpose(pad_mask_.unflatten(0, (batch_size * 2, args.temporal_length)), 0, 1).argmax(dim=-1)
 
-                    
-                    f1_at_k() # Input list of lists shaped: (b, n)
+                    # y_trgt=
+                    # y_pred=
+                    f1_at_k() # Input list of lists shaped: (b*2, n)
 
 
             # This takes 0.0024 seconds
