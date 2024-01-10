@@ -276,17 +276,14 @@ def _impute_with_previous(graph: Data, previous_graph: Data, validity: str) -> D
 
 
 def _count_files_in_directory(directory_path):
-    try:
-        # List all files in the directory
-        files = os.listdir(directory_path)
+    # List all files in the directory
+    files = os.listdir(directory_path)
 
-        # Count the number of files
-        num_files = len(files)
+    # Count the number of files
+    num_files = len(files)
 
-        return num_files
-    except FileNotFoundError:
-        print(f"The specified directory '{directory_path}' does not exist.")
-        return None
+    return num_files
+
 
 
 class BimanualDataset(Dataset):
@@ -329,7 +326,10 @@ class BimanualDataset(Dataset):
             self._load_config()
             assert self.config["test_subject"] == test_subject
             assert self.config["validation_take"] == validation_take
-            assert self.config["temporal_length"] == temporal_length
+            if temporal_length != -1:
+                assert self.config["temporal_length"] == temporal_length
+            else:
+                self.temporal_length = self.config["temporal_length"]
 
         super().__init__(root, transform, pre_transform, pre_filter)
 
@@ -516,15 +516,27 @@ class BimanualDataset(Dataset):
 
             # To double check, also fills dataset_mapping
             if subject_int == self.test_subject:
-                test_sample_count = test_sample_count + len(relation_json_list) - self.temporal_length + 1
+                if len(relation_json_list) < self.temporal_length:
+                    test_sample_count += 1
+                else:   
+                    test_sample_count = test_sample_count + len(relation_json_list) - self.temporal_length + 1
+                
                 dataset_mapping["test"]["vid"][str(subject_int) + str(task_int) + str(take_int)] = act_list
 
             elif take_int == self.validation_take:
-                val_sample_count = val_sample_count + len(relation_json_list) - self.temporal_length + 1
+                if len(relation_json_list) < self.temporal_length:
+                    val_sample_count += 1
+                else:
+                    val_sample_count = val_sample_count + len(relation_json_list) - self.temporal_length + 1
+                
                 dataset_mapping["val"]["vid"][str(subject_int) + str(task_int) + str(take_int)] = act_list
 
             else:
-                train_sample_count = train_sample_count + len(relation_json_list) - self.temporal_length + 1
+                if len(relation_json_list) < self.temporal_length:
+                    train_sample_count += 1
+                else:
+                    train_sample_count = train_sample_count + len(relation_json_list) - self.temporal_length + 1
+                
                 dataset_mapping["train"]["vid"][str(subject_int) + str(task_int) + str(take_int)] = act_list
 
             for frame, (relation_json, object_json) in enumerate(zip(relation_json_list, object_json_list)):
@@ -569,6 +581,7 @@ class BimanualDataset(Dataset):
                 # Check if fps need to be fixed. If so, add same graph again
                 """NOTE: Is this actively used?"""
                 if self.fix_fps and self.fps_info[subject + "-" + task + "-" + take] == 15:
+                    raise NotImplementedError("Fix fix_fps")
                     data_list.append(graph)
                     data_list_mirrored.append(graph_mirrored)
 
@@ -608,11 +621,13 @@ class BimanualDataset(Dataset):
                             subject_int, task_int, take_int, frame - self.temporal_length + 1, frame + 1, "M")
                         train_sample_idx += 1
 
+                    # NOTE: What does this mean in the case of whole videos?
                     self.distribution = self.distribution + data_list[0].y[0] + data_list[0].y[1]
                     data_list[0].validate(raise_on_error=True)
                     data_list_mirrored[0].validate(raise_on_error=True)
-                    data_list.pop(0)
-                    data_list_mirrored.pop(0)
+                    # FIXME: Why is there a pop if data list is not to be used again??
+                    # data_list.pop(0)
+                    # data_list_mirrored.pop(0)
 
             # TODO:
             #  Handle sequence length less than temporal_length (shorter than max length in whole video mode)
@@ -652,8 +667,9 @@ class BimanualDataset(Dataset):
                 self.distribution = self.distribution + data_list[0].y[0] + data_list[0].y[1]
                 data_list[0].validate(raise_on_error=True)
                 data_list_mirrored[0].validate(raise_on_error=True)
-                data_list.pop(0)
-                data_list_mirrored.pop(0)
+                # FIXME: Why is there a pop if data list is not to be used again??
+                # data_list.pop(0)
+                # data_list_mirrored.pop(0)
 
             ticks.update()
 

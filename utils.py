@@ -223,6 +223,10 @@ def plot_conf_mat(mat, name, do_save=False, do_return_plot=False):
 
 
 def create_ground_truth_segments(label_series):
+    """
+        Input:  tensor (n, b*2)
+        Output: tensor (n, b*2)
+    """
     change_occurring = torch.concat([label_series[1:] - label_series[:-1], torch.zeros(size=(1, label_series.shape[-1]), device=label_series.device)], dim=0)
     return torch.where(change_occurring != 0, 1.0, 0.0) # Should this be of shape [N, B, 2] instead of [N, B*2]
 
@@ -575,12 +579,13 @@ class F1_at_k:
     def __call__(self, y_true, y_pred, segment_name = None):
          
         assert y_true.shape == y_pred.shape, "y_true and y_pred must have same shape"
-        
+        y_true 
+
         if self.batch_mode:
-            for y_t, y_p in zip(y_true, y_pred):
-                self.k_10.append(f1_at_k_single_example(y_t, y_p, num_classes=self.num_classes, overlap=0.1))
-                self.k_25.append(f1_at_k_single_example(y_t, y_p, num_classes=self.num_classes, overlap=0.25))
-                self.k_50.append(f1_at_k_single_example(y_t, y_p, num_classes=self.num_classes, overlap=0.5))
+            # for y_t, y_p in zip(y_true, y_pred):
+            #     self.k_10.append(f1_at_k_single_example(y_t, y_p, num_classes=self.num_classes, overlap=0.1))
+            #     self.k_25.append(f1_at_k_single_example(y_t, y_p, num_classes=self.num_classes, overlap=0.25))
+            #     self.k_50.append(f1_at_k_single_example(y_t, y_p, num_classes=self.num_classes, overlap=0.5))
 
         else:
             self.k_10.append(f1_at_k_single_example(y_true, y_pred, num_classes=self.num_classes, overlap=0.1))

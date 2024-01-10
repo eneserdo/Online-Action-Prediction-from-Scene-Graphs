@@ -77,9 +77,12 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     # Used -1 as a placeholder value to check if all predictions are filled
     # FIXME: Handle case where args.temporal_length is -1.
     #       What should temporal length be in the case of whole video? Max length?
-    all_predictions_combined = {
-        vid + m_and_hand_status: - np.ones((act.shape[0] - args.temporal_length + 1) * args.temporal_length) for
-        vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
+    if args.temporal_length != -1:
+        all_predictions_combined = {
+            vid + m_and_hand_status: - np.ones((act.shape[0] - args.temporal_length + 1) * args.temporal_length) for
+            vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
+    else:
+        f1_at_k =  F1_at_k(num_classes=len(ACTIONS), batch_mode=True)
 
     # exp=Explainer(model.gnn,
     #               algorithm=AttentionExplainer(), 
@@ -99,18 +102,21 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
             data = [d.to(device) for d in data]
 
-            gt_reordered = torch.stack([torch.cat([d.y[::2], d.y[1::2]]) for d in data], dim=0)
+            gt_reordered = torch.stack([torch.cat([d.y[::2], d.y[1::2]]) for d in data], dim=0) # Shape: (n,b*2,f)
 
             batch_size = gt_reordered.shape[1] // 2
 
-            # FIXME: Padding may mess with segmentation
-            ground_truth_segments = create_ground_truth_segments(torch.argmax(gt_reordered, dim=-1))
+            if not args.disable_seg:
+                # FIXME: Padding may mess with segmentation
+                ground_truth_segments = create_ground_truth_segments(torch.argmax(gt_reordered, dim=-1))
 
-            if args.task == "labelonly":
-                # perfect segmentation
-                pred_flattened, segment_change_pred = model(data, ground_truth_segments)
+                if args.task == "labelonly":
+                    # perfect segmentation
+                    pred_flattened, segment_change_pred = model(data, ground_truth_segments)
+                else:
+                    pred_flattened, segment_change_pred = model(data)
             else:
-                pred_flattened, segment_change_pred = model(data)
+                pred_flattened, _ = model(data)
 
             gt_flattened = flatten_seq(gt_reordered)
 
@@ -119,11 +125,14 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                 gt_flattened = gt_flattened[mask]
 
             # TODO: Mask out the padded values in the loss calculation
-            if args.temporal_length > 100:  # FIXME: Is there better way to check?
+            if args.temporal_length == -1:  # FIXME: Is there better way to check?
                 gt_padding_mask = torch.sum(gt_flattened, dim=-1) != 0.
-                pred_flattened, gt_flattened = pred_flattened[gt_padding_mask], gt_flattened[gt_padding_mask]
+                # # Shape: (n*b*2, a)
+                pred_flattened_masked, gt_flattened = pred_flattened[gt_padding_mask], gt_flattened[gt_padding_mask]
+            else:
+                pred_flattened_masked = pred_flattened
 
-            label_loss = label_criterion(pred_flattened, gt_flattened)
+            label_loss = label_criterion(pred_flattened_masked, gt_flattened)
 
             if not args.disable_seg:
                 if args.seg_loss == "sDTW":
@@ -138,7 +147,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                     segmentation_loss = segmentation_criterion(segment_change_pred.view(t_shape),
                                                                ground_truth_segments.view(t_shape)).mean()
                 else:
-                    if args.temporal_length > 100:  # FIXME: Is there better way to check?
+                    if args.temporal_length == -1:  # FIXME: Is there better way to check?
                         segment_change_pred, ground_truth_segments = segment_change_pred[gt_padding_mask], ground_truth_segments[gt_padding_mask]
                     segmentation_loss = segmentation_criterion(segment_change_pred, ground_truth_segments)
             else:
@@ -160,6 +169,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
             # # # Match predicted segments with ground truth segment labels
             # This takes 0.006 seconds
+            # TODO: Implement vid whole for segonly later
             if args.task == "segonly":  # label_loss_weight == 0:
                 # It means that we do not have any label, so we need to assign labels to the segments 
                 pred = assign_seg_labels(gt_reordered.cpu(), ground_truth_segments.cpu(),
@@ -172,12 +182,23 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                 # TODO: sanity check: assert pred_flattened = assign_seg_labels(...)
                 # pred_dummy = assign_seg_labels(gt_reordered.cpu(), ground_truth_segments.cpu(), segment_change_pred.cpu().detach())
                 # print("diff between original pred and matched pred: ", np.sum(pred.numpy() != pred_dummy) / (pred_flattened.shape[0]*pred_flattened.shape[1]))
-
+                # 
                 pred_ = pred_flattened.cpu().detach()
                 pred = torch.transpose(pred_.unflatten(0, (batch_size * 2, args.temporal_length)), 0, 1).argmax(dim=-1)
 
+                if args.temporal_length == -1:
+                    trgt = gt_reordered
+
+                    pad_mask_ = gt_padding_mask.cpu().detach()
+                    pad_mask = torch.transpose(pad_mask_.unflatten(0, (batch_size * 2, args.temporal_length)), 0, 1).argmax(dim=-1)
+
+                    
+                    f1_at_k() # Input list of lists shaped: (b, n)
+
+
             # This takes 0.0024 seconds
-            combine_predictions(all_predictions_combined, idxes.numpy(), pred, dataset_mapping[mode]["sample"])
+            if args.temporal_length != -1:
+                combine_predictions(all_predictions_combined, idxes.numpy(), pred, dataset_mapping[mode]["sample"])
 
             if mode != "test" and args.save_individual:
                 # Visualize individiual predictions
@@ -228,15 +249,19 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
     seg_save_dir = opj(save_dir, f"test_results_{epoch}") if (mode == "test" and args.save_segments) else None
 
-    f1_at_10, f1_at_25, f1_at_50, f1_top1_once = calc_metrics_at_once(all_predictions_combined,
-                                                                      dataset_mapping[mode]["vid"],
-                                                                      num_classes=len(ACTIONS),
-                                                                      temporal_length=args.temporal_length,
-                                                                      use_weighted_mv=args.use_weighted_mv,
-                                                                      save_dir=seg_save_dir)
+    if args.temporal_length != -1:  # TODO: check with special argument
+        f1_at_10, f1_at_25, f1_at_50, f1_top1_once = calc_metrics_at_once(all_predictions_combined,
+                                                                        dataset_mapping[mode]["vid"],
+                                                                        num_classes=len(ACTIONS),
+                                                                        temporal_length=args.temporal_length,
+                                                                        use_weighted_mv=args.use_weighted_mv,
+                                                                        save_dir=seg_save_dir)
+    else:
+        # TODO: calculate metrics for whole video case:
+        f1_at_10, f1_at_25, f1_at_50 = f1_at_k.compute()
 
     wandb.log(
-        {f"{mode}/epoch/": {'f1@10': f1_at_10, 'f1@25': f1_at_25, 'f1@50': f1_at_50, "f1_top1_once": f1_top1_once},
+        {f"{mode}/epoch/": {'f1@10': f1_at_10, 'f1@25': f1_at_25, 'f1@50': f1_at_50}, # "f1_top1_once": f1_top1_once},
          'epoch': epoch})
 
     # To unify and simplify return statement
@@ -246,8 +271,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                    "cm_top3": overall_conf_mat_top3.cpu(),
                    "f1@10": f1_at_10,
                    "f1@25": f1_at_25,
-                   "f1@50": f1_at_50,
-                   "f1_top1_once": f1_top1_once}
+                   "f1@50": f1_at_50} # "f1_top1_once": f1_top1_once}
 
     return return_dict
 
@@ -324,7 +348,7 @@ if __name__ == "__main__":
 
     training_len = len(train_set)
     val_len = len(val_set)
-    args.temporal_length = train_set.temporal_length    # Max temporal length of the dataset
+    # args.temporal_length = train_set.temporal_length    # Max temporal length of the dataset
 
     model = models.ActionRecognition(gnn_type=args.gnn_type,
                                      temporal_type=args.temporal_type,
@@ -421,8 +445,9 @@ if __name__ == "__main__":
         # scheduler.load_state_dict(checkpoint["scheduler_state_dict"]) # FIXME: It overrides the scheduler. Is it desired?
         print("model and optimizer parameters are restored successfully!")
 
-    # dataset_mapping contains mapping for each sample to its location in the videos.
+    # Dataset_mapping contains mapping for each sample to its location in the videos.
     # Also, a mapping from video to ground truth action labels
+    # FIXME: Check if dataset mapping works for whole video sized samples.
     with open(opj(train_set.processed_dir, "dataset_mapping.pickle"), "rb") as f:
         dataset_mapping = pickle.load(f)
 
@@ -486,7 +511,8 @@ if __name__ == "__main__":
 
     print(f'### [F1] TEST: ', metrics_to_str(test_metrics))
     wandb.log({"test_top1": round(test_metrics["f1_top1"], 4), "test_top3": round(test_metrics["f1_top3"], 4),
-               "f1_top1_once": round(test_metrics["f1_top1_once"], 4), "f1@10": round(test_metrics["f1@10"], 4),
+               # "f1_top1_once": round(test_metrics["f1_top1_once"], 4), 
+               "f1@10": round(test_metrics["f1@10"], 4),
                "f1@25": round(test_metrics["f1@25"], 4), "f1@50": round(test_metrics["f1@50"], 4)})
 
     plt.close()
