@@ -30,6 +30,9 @@ from utils import (F1_at_k, VisIndividualPreds, arg_parser, calc_metrics_at_once
 
 from tslearn.metrics import SoftDTWLossPyTorch
 
+from ray import tune
+from ray.air import Checkpoint, session
+from ray.tune.schedulers import ASHAScheduler
 
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
@@ -248,8 +251,7 @@ def test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of="f1_t
     return results[best_i]
 
 
-if __name__ == "__main__":
-    args = arg_parser()
+def run_model(args):
     print("ARGS:\n", args)
 
     if args.perfect_seg:
@@ -466,3 +468,19 @@ if __name__ == "__main__":
     plt3.close()
     torch.cuda.empty_cache()
     wandb.finish()
+
+def main():
+    # Get arguments
+    args = arg_parser()
+
+    # Configure hyperparameters to tune
+    config = {
+        
+    }
+
+    run_model(args)
+    
+
+if __name__ == "__main__":
+    main()
+    
