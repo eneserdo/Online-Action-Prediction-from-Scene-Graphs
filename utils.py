@@ -607,12 +607,14 @@ def majority_voting(arr, total_len, buffer_len, use_weights):
     result = np.zeros((total_len), dtype=np.int32)
     confidences = np.zeros((total_len))
     shift = buffer_len - 1
-    # vote_weights = np.array([0]*1 + [1]*1 + [2]*1 + [5]*2 + [6]*3 + [7]*4 + [8]*6 +[7]*4 + [6]*3 + [5]*2 + [2]*1 + [1]*1 + [0]*1)
-    vote_weights = np.array([0]*3 + [4]*2 + [5]*3 + [6]*3 + [7]*3 + [8]*2 + [7]*3 +[6]*3 + [5]*3 + [4]*2 + [0]*3)
 
-    assert (vote_weights[:buffer_len//2] == vote_weights[-buffer_len//2:][::-1]).all(), "vote_weights is supposed to be symmetric"
-    assert vote_weights.shape[0] == 30, "vote_weights must have length 30"
-    assert vote_weights.shape[0] == buffer_len, "vote_weights must have same length as buffer_len"
+    if use_weights:
+        # vote_weights = np.array([0]*1 + [1]*1 + [2]*1 + [5]*2 + [6]*3 + [7]*4 + [8]*6 +[7]*4 + [6]*3 + [5]*2 + [2]*1 + [1]*1 + [0]*1)
+        vote_weights = np.array([0]*3 + [4]*2 + [5]*3 + [6]*3 + [7]*3 + [8]*2 + [7]*3 +[6]*3 + [5]*3 + [4]*2 + [0]*3)
+
+        assert (vote_weights[:buffer_len//2] == vote_weights[-buffer_len//2:][::-1]).all(), "vote_weights is supposed to be symmetric"
+        assert vote_weights.shape[0] == 30, "vote_weights must have length 30"
+        assert vote_weights.shape[0] == buffer_len, "vote_weights must have same length as buffer_len"
     
     # First element:
     result[0], confidences[0] = arr[0], 1
