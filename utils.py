@@ -52,9 +52,12 @@ def arg_parser():
     ap.add_argument("--use_global_pooling", action="store_true", help="...")    # :(
     ap.add_argument("--edge_dropout", type=float, default=0.0, help="...")
     ap.add_argument("--dropout", type=float, default=0.0, help="...")
-    ap.add_argument("--merged_pred", type=str, default=None, choices=["early", "late", None], help="Merge hands predictions")
+    ap.add_argument("--merged_pred", type=str, default="none", choices=["early", "late", "none", "attention"], help="Merge hands predictions")
     
     ap.add_argument("--norm_first", action="store_true", help="To make norm_first=true in TransformerEncoderLayer")
+    
+    ap.add_argument("--pos_enc", type=str, default="original", choices=["original", "learnable", "none"], help="Type of positional encoding")
+    
 
     # Segmentation task
     ap.add_argument("--sdtw_gamma", type=float, default=1.0, help="Gamma parameter for soft-DTW")
@@ -82,7 +85,7 @@ def arg_parser():
                     help="Use class frequencies as weight for loss function")       # :(
     ap.add_argument("--label_loss_weight", type=float, default=1.0,
                     help="Weight upon action label prediction task loss")
-    
+
     
     ap.add_argument("--smoothing", type=float, default=0.0, help="Label smoothing weight")
     

@@ -52,6 +52,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     elif mode == "train":
         model.train()
 
+
     f1_calc_top1 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(device)
     f1_calc_top3 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(device)  # top_k is intentionally 1
 
@@ -96,9 +97,9 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
             gt_flattened = flatten_seq(gt_reordered)
             
-            if args.sparse_pred:
-                pred_flattened, mask = pred_flattened
-                gt_flattened = gt_flattened[mask]
+            # if args.sparse_pred:
+            #     pred_flattened, mask = pred_flattened
+            #     gt_flattened = gt_flattened[mask]
 
             label_loss = label_criterion(pred_flattened, gt_flattened)
 
@@ -252,20 +253,28 @@ if __name__ == "__main__":
     args = arg_parser()
     print("ARGS:\n", args)
 
+    #### asserts about args:
+
     if args.perfect_seg:
         raise KeyError("perfect_seg is deprecated. Use --task seg instead.")
     
     if args.task in ["labelonly", "both", "onetoone"] and args.label_loss_weight == 0:
         raise ValueError(f"task {args.task} requires label_loss_weight to be non-zero")
+    
+    if not args.disable_seg:
+        raise NotImplementedError("Segmentation may be broken, please check it")
 
+    assert args.merged_pred in ["none", "early", "late", "attention"], f"merged_pred must be one of [none, early, late, attention]. Given: {args.merged_pred}"
+
+    # Make sure it is reproducible
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
     torch.cuda.manual_seed(args.seed)
     # torch.use_deterministic_algorithms(mode=True, warn_only=True) # This throws an error
-    g = torch.Generator()
-    g.manual_seed(0)
+    torch_generator = torch.Generator()
+    torch_generator.manual_seed(0)
 
     # assert args.gpu_id < torch.cuda.device_count(), f"gpu_id:{args.gpu_id} not found. Total gpu count: {torch.cuda.device_count()}"
     device = torch.device('cuda:' + str(args.gpu_id) if torch.cuda.is_available() else 'cpu')
@@ -284,12 +293,11 @@ if __name__ == "__main__":
                                                                fix_fps=args.fix_fps,
                                                                fix_null=args.fix_null)
 
-    # Add generator=g to DataLoader to make it deterministic
-    train_loader = DataLoader(train_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker, generator=g)
+    train_loader = DataLoader(train_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker, generator=torch_generator)
     
-    test_loader = DataLoader(test_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker, generator=g)
+    test_loader = DataLoader(test_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker, generator=torch_generator)
 
-    val_loader = DataLoader(val_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker, generator=g)
+    val_loader = DataLoader(val_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker, generator=torch_generator)
 
     training_len = len(train_set)
     val_len = len(val_set)
@@ -312,7 +320,8 @@ if __name__ == "__main__":
                                      merged_pred=args.merged_pred,
                                      norm_layer=args.norm_layer,
                                      DISABLE_SEGMENTATION=args.disable_seg,
-                                     norm_first=args.norm_first).to(device=device)
+                                     norm_first=args.norm_first,
+                                     pos_enc=args.pos_enc).to(device=device)
 
     print(model)
     rnn_params = sum(p.numel() for p in model.temporal_layer.parameters() if p.requires_grad)
@@ -340,7 +349,8 @@ if __name__ == "__main__":
     wandb.define_metric("test_top1")
     wandb.define_metric("test_top3")
 
-    # optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+
+    # TODO: encapsulate optimizer and scheduler in a function
     if args.optimizer_type == 'SGD':
         optimizer = torch.optim.SGD(model.parameters(), lr=args.learning_rate, momentum=args.momentum,
                                     weight_decay=args.weight_decay)

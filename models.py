@@ -1,3 +1,12 @@
+"""
+Notes:
+
+Shape abbreviations:
+    T: temporal dimension
+    N: batch dimension
+    F: feature dimension
+"""
+
 from typing import List
 import warnings
 import torch
@@ -11,6 +20,7 @@ import math
 from dataset import OBJECTS
 from utils import get_filters_for_imbalance, align_embeddings_to_right, flatten_seq, print_warning
 
+from positional_encodings.torch_encodings import PositionalEncoding1D, PositionalEncoding2D
 
 
 # Borrowed from https://github.com/pytorch/examples/blob/main/word_language_model/model.py
@@ -30,8 +40,9 @@ class PositionalEncoding(Module):
         >>> pos_encoder = PositionalEncoding(d_model)
     """
 
-    def __init__(self, d_model, dropout=0.1, max_len=5000):
+    def __init__(self, d_model, dropout=0.1, max_len=5000, use_library=False):
         super(PositionalEncoding, self).__init__()
+        # FIXME: dropout ??
         self.dropout = Dropout(p=dropout)
 
         pe = torch.zeros(max_len, d_model)
@@ -41,6 +52,7 @@ class PositionalEncoding(Module):
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0).transpose(0, 1)
         self.register_buffer('pe', pe)
+
 
     def forward(self, x):
         r"""Inputs of forward function
@@ -54,6 +66,57 @@ class PositionalEncoding(Module):
         """
 
         x = x + self.pe[:x.size(0), :]
+        return self.dropout(x)
+    
+class PositionalEncodingPseudo2D(Module):
+    """
+    Same as previous but with pseudo 2D positional encoding. Instead of (T, 2), it is ([T1, T2])
+    """
+
+    def __init__(self, d_model, dropout=0.1):
+        super(PositionalEncodingPseudo2D, self).__init__()
+        # FIXME: dropout ??
+        self.dropout = Dropout(p=dropout)
+        self.pe_ = PositionalEncoding2D(d_model)
+        self.is_set = False
+        
+    def _set_pe(self, shape, device):
+        
+        x_dim, bs, d_model = shape
+
+        self.x_dim = x_dim
+
+        y_dim = 2
+        self.zeros = torch.zeros((bs, x_dim, y_dim, d_model), dtype=torch.float32).to(device)
+        
+        self.pe_obtained = self.pe_(self.zeros)
+
+        self.pe_y0 = self.pe_obtained[:, :, 0, :].transpose(0, 1)
+
+        self.pe_y1 = self.pe_obtained[:, :, 1, :].transpose(0, 1)
+
+        self.pe = torch.cat([self.pe_y0, self.pe_y1], dim=1)
+        self.is_set = True
+
+
+    def forward(self, x):
+        r"""Inputs of forward function
+        Args:
+            x: the sequence fed to the positional encoder model (required).
+        Shape:
+            x: [sequence length, batch size, embed dim]
+            output: [sequence length, batch size, embed dim]
+        Examples:
+            >>> output = pos_encoder(x)
+        """
+
+        if not self.is_set:
+            self._set_pe(x.shape, x.device)
+
+        assert x.shape == self.x_dim.shape
+
+        x = x + self.pe
+
         return self.dropout(x)
 
 
@@ -76,6 +139,7 @@ class ActionRecognition(torch.nn.Module):
                  norm_layer,
                  DISABLE_SEGMENTATION,
                  norm_first,
+                 pos_enc,
                  **kwargs):
         """ Accepts kwargs for non-general params of gnns """
         super().__init__()
@@ -161,11 +225,28 @@ class ActionRecognition(torch.nn.Module):
 
         elif temporal_type == "tr":
             # Default dropout is 0.1
-            self.temporal_layer = TransformerEncoder(
-                TransformerEncoderLayer(effective_out_ch2, 4, lstm_hidden_size // 4 * 3, norm_first=norm_first), 2)
+            self.temporal_layer = TransformerEncoder(TransformerEncoderLayer(effective_out_ch2, 4, lstm_hidden_size // 4 * 3, norm_first=norm_first), 2)
             self.PE_coef = math.sqrt(effective_out_ch2)
-            self.pos_encoder = PositionalEncoding(effective_out_ch2)
 
+            if pos_enc == "original":
+                # if merged_pred == "attention":
+                #     self.pos_encoder = PositionalEncodingPseudo2D(effective_out_ch2)
+                # else:
+                #     self.pos_encoder = PositionalEncodingPseudo2D(effective_out_ch2)
+                self.pos_encoder = PositionalEncoding(effective_out_ch2)
+                # self.pos_encoder = PositionalEncoding1D(effective_out_ch2)
+
+            elif pos_enc == "learnable":
+                # if merged_pred == "attention":
+                # self.pos_encoder = torch.nn.Parameter
+                raise NotImplementedError("Learnable positional encoding is not implemented yet")
+            
+            elif pos_enc == "none":
+                self.pos_encoder = lambda x: x
+            
+            else:
+                raise NotImplementedError(f"pos_enc: {pos_enc} is not implemented")
+            
             # self.cls_tokens = torch.nn.Parameter(torch.randn(1, 1, effective_out_ch2)).expand(self.batch_size, -1, -1)
 
             lstm_hidden_size = effective_out_ch2
@@ -186,7 +267,7 @@ class ActionRecognition(torch.nn.Module):
             self.left_mlp = build_mlp(lstm_hidden_size, num_action_classes)
             self.right_mlp = build_mlp(lstm_hidden_size, num_action_classes)
             # self.mlp = build_mlp(lstm_hidden_size, num_action_classes)
-        else:    
+        elif self.merged_pred in ["none", "attention"]:    
             self.mlp = build_mlp(lstm_hidden_size, num_action_classes)
             self.segment_boundary_detector = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
 
@@ -302,13 +383,14 @@ class ActionRecognition(torch.nn.Module):
             # assert graph_embedding.shape[0]==self.batch_size and graph_embedding.shape[1]==self.conv_out
 
 
-        left_sequencial_embeddings = torch.stack(left_embedding_list)
-        right_sequencial_embeddings = torch.stack(right_embedding_list)
-        # ?? Shape: (seq_len, batch_size, out_channels)
+        left_sequencial_embeddings = torch.stack(left_embedding_list) # Shape: (T, N, F)
+        right_sequencial_embeddings = torch.stack(right_embedding_list) # Shape: (T, N, F)
+
 
 
         # Filtering imbalanced data only during training
         if self.filter_it and self.training:
+            raise NotImplementedError("Filtering may be broken, please check it")
             # get filters
             left_filter, right_filter = get_filters_for_imbalance(dataBatchList)
 
@@ -322,17 +404,28 @@ class ActionRecognition(torch.nn.Module):
             left_sequencial_embeddings = align_embeddings_to_right(left_sequencial_embeddings, left_filter)
 
 
+        # TODO: shapes
         # Merging left and right embeddings
         if self.merged_pred == "early":
             both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=-1)
-        else: # "? late"
-            both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=1)
 
+        elif self.merged_pred == "attention":
+            both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=0)
+
+        else: # "late or none" -> concat in batch dimension
+            both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=1) 
+
+
+        
         #### Temporal part ####
 
         if self.temporal_type == "tr":
 
             both_sequencial_embeddings = self.pos_encoder(both_sequencial_embeddings * self.PE_coef)
+            # if self.merged_pred == "attention":
+            #     both_sequencial_embeddings = self.pos_encoder(both_sequencial_embeddings * self.PE_coef)
+            # else:
+            #     ...
 
             both_hn = self.temporal_layer(both_sequencial_embeddings)
 
@@ -404,10 +497,21 @@ class ActionRecognition(torch.nn.Module):
         elif self.merged_pred == "early":
             l_out_s, r_out_s = torch.tensor_split(out_s, 2, dim=0)
             action_prediction = torch.cat((self.left_mlp(l_out_s), self.right_mlp(r_out_s)),dim=0)
-            # OR 
+            # OR
             #action_prediction = self.mlp(out_s)
-        else:
+        elif self.merged_pred == "attention":
             action_prediction = self.mlp(out_s)
+
+            action_prediction = torch.cat(torch.tensor_split(action_prediction, 2, dim=0), dim=-1)
+
+
+            ... # need to split in 0th dim and concat in 1st dim
+        elif self.merged_pred == "none":
+            action_prediction = self.mlp(out_s)
+            
+        else:
+            raise NotImplementedError(f"merged_pred: {self.merged_pred} is not implemented")
+
 
         # if self.sparse_pred:
         #     # action_prediction shape -> (s~*b*2, a)
