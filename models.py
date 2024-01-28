@@ -58,7 +58,7 @@ class PositionalEncoding(Module):
 
 
 class ActionRecognition(torch.nn.Module):
-    def __init__(self, gnn_type,
+    def __init__(self, *, gnn_type,
                  temporal_type,
                  in_channels,
                  hidden_channels,
@@ -71,8 +71,6 @@ class ActionRecognition(torch.nn.Module):
                  use_hand_pooling,
                  edge_dropout,
                  dropout,
-                 use_cls_token,
-                 sparse_pred,
                  task,
                  merged_pred,
                  norm_layer,
@@ -91,8 +89,6 @@ class ActionRecognition(torch.nn.Module):
         self.use_hand_pooling = use_hand_pooling
         self.edge_dropout = edge_dropout
         self.temporal_type = temporal_type
-        self.use_cls_token = use_cls_token
-        self.sparse_pred = sparse_pred
         self.task = task
         self.merged_pred = merged_pred
 
@@ -170,10 +166,7 @@ class ActionRecognition(torch.nn.Module):
             self.PE_coef = math.sqrt(effective_out_ch2)
             self.pos_encoder = PositionalEncoding(effective_out_ch2)
 
-            if use_cls_token:
-                raise NotImplementedError("cant implement bc of batch size is not constant and unknown at init time by design")
-                self.cls_tokens = torch.nn.Parameter(torch.randn(1, 1, effective_out_ch2)).expand(self.batch_size, -1,
-                                                                                                  -1)
+            # self.cls_tokens = torch.nn.Parameter(torch.randn(1, 1, effective_out_ch2)).expand(self.batch_size, -1, -1)
 
             lstm_hidden_size = effective_out_ch2
 
@@ -249,13 +242,19 @@ class ActionRecognition(torch.nn.Module):
 
         # [0,0,1,0,0,0,1,0,1] -> segments last frames 1
         mask = segments.to(torch.bool)
-        if not self.sparse_pred:
-            segment_starts = torch.concat([torch.ones(size=(1, batch_size * 2), device=mask.device),
+        # if not self.sparse_pred:
+        #     segment_starts = torch.concat([torch.ones(size=(1, batch_size * 2), device=mask.device),
+        #                                    mask[:-1]], dim=0) #.T
+
+        #     segment_starts = flatten_seq(segment_starts) # torch.flatten(segment_starts, start_dim=0, end_dim=1)  # (n*b*2)
+        #     segment_starts[0] = 0.0
+        #     indices_for_seg_f = torch.cumsum(segment_starts, dim=-1)  # (n*b*2)
+        segment_starts = torch.concat([torch.ones(size=(1, batch_size * 2), device=mask.device),
                                            mask[:-1]], dim=0) #.T
 
-            segment_starts = flatten_seq(segment_starts) # torch.flatten(segment_starts, start_dim=0, end_dim=1)  # (n*b*2)
-            segment_starts[0] = 0.0
-            indices_for_seg_f = torch.cumsum(segment_starts, dim=-1)  # (n*b*2)
+        segment_starts = flatten_seq(segment_starts) # torch.flatten(segment_starts, start_dim=0, end_dim=1)  # (n*b*2)
+        segment_starts[0] = 0.0
+        indices_for_seg_f = torch.cumsum(segment_starts, dim=-1)  # (n*b*2)
 
         # NOTE: Is it correct to consider last frame of seq. to be the last frame of its respective segment?
         mask[-1] = True
@@ -264,10 +263,11 @@ class ActionRecognition(torch.nn.Module):
         # [f2, f6, f8] -> features at last frames of respective segments
         out_seg_ends = both_out[mask]  # (s~*b*2,f)
 
-        if self.sparse_pred:
-            out_s = out_seg_ends
-        else:
-            out_s = out_seg_ends[indices_for_seg_f.to(torch.long)] # (n*b*2, f) 
+        # if self.sparse_pred:
+        #     out_s = out_seg_ends
+        # else:
+            # out_s = out_seg_ends[indices_for_seg_f.to(torch.long)] # (n*b*2, f) 
+        out_s = out_seg_ends[indices_for_seg_f.to(torch.long)] # (n*b*2, f) 
         
         return out_s, mask
 
@@ -276,9 +276,10 @@ class ActionRecognition(torch.nn.Module):
         left_embedding_list = []
         right_embedding_list = []
 
-        # GNN part:
+        #### Graph part ####
 
-        for databatch in dataBatchList:  # processes each frame time-independently
+        # processes each frame time-independently
+        for databatch in dataBatchList:  
             x, edge_attr, edge_index, batch = databatch.x, databatch.edge_attr, databatch.edge_index, databatch.batch
 
             if self.edge_dropout != 0.0:
@@ -300,10 +301,13 @@ class ActionRecognition(torch.nn.Module):
 
             # assert graph_embedding.shape[0]==self.batch_size and graph_embedding.shape[1]==self.conv_out
 
+
         left_sequencial_embeddings = torch.stack(left_embedding_list)
         right_sequencial_embeddings = torch.stack(right_embedding_list)
+        # ?? Shape: (seq_len, batch_size, out_channels)
 
-        # Filtering imbalanced data
+
+        # Filtering imbalanced data only during training
         if self.filter_it and self.training:
             # get filters
             left_filter, right_filter = get_filters_for_imbalance(dataBatchList)
@@ -317,22 +321,16 @@ class ActionRecognition(torch.nn.Module):
             right_sequencial_embeddings = align_embeddings_to_right(right_sequencial_embeddings, right_filter)
             left_sequencial_embeddings = align_embeddings_to_right(left_sequencial_embeddings, left_filter)
 
+
+        # Merging left and right embeddings
         if self.merged_pred == "early":
             both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=-1)
-        else:
+        else: # "? late"
             both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=1)
 
-        # RNN part:
-
-        # TODO:
-        # # Get key as param?
-        # h_p = self.mother_of_all_h_vectors_dict.get(key)
-        # # if frame visited before use h vector from it
-        # if h_p is None:
+        #### Temporal part ####
 
         if self.temporal_type == "tr":
-            if self.use_cls_token:
-                both_sequencial_embeddings = torch.cat((self.cls_tokens, both_sequencial_embeddings), dim=1)
 
             both_sequencial_embeddings = self.pos_encoder(both_sequencial_embeddings * self.PE_coef)
 
@@ -411,10 +409,11 @@ class ActionRecognition(torch.nn.Module):
         else:
             action_prediction = self.mlp(out_s)
 
-        if self.sparse_pred:
-            # action_prediction shape -> (s~*b*2, a)
-            return (action_prediction, mask), segment_change_pred
-        else: 
-            # unflatten = Unflatten(dim=0, unflattened_size=segments.shape)  # (n, b*2, a)
-            # action_prediction = unflatten(action_prediction)
-            return action_prediction, segment_change_pred
+        # if self.sparse_pred:
+        #     # action_prediction shape -> (s~*b*2, a)
+        #     return (action_prediction, mask), segment_change_pred
+        # else: 
+        #     # unflatten = Unflatten(dim=0, unflattened_size=segments.shape)  # (n, b*2, a)
+        #     # action_prediction = unflatten(action_prediction)
+        #     return action_prediction, segment_change_pred
+        return action_prediction, segment_change_pred

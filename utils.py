@@ -52,7 +52,6 @@ def arg_parser():
     ap.add_argument("--use_global_pooling", action="store_true", help="...")    # :(
     ap.add_argument("--edge_dropout", type=float, default=0.0, help="...")
     ap.add_argument("--dropout", type=float, default=0.0, help="...")
-    ap.add_argument("--use_cls_token", action="store_true", help="Use class token in transformer")
     ap.add_argument("--merged_pred", type=str, default=None, choices=["early", "late", None], help="Merge hands predictions")
     
     ap.add_argument("--norm_first", action="store_true", help="To make norm_first=true in TransformerEncoderLayer")
@@ -60,7 +59,6 @@ def arg_parser():
     # Segmentation task
     ap.add_argument("--sdtw_gamma", type=float, default=1.0, help="Gamma parameter for soft-DTW")
     ap.add_argument("--seg_loss", type=str, default="BCELoss", choices=["sDTW", "BCELoss"], help="Loss function for segmentation task")
-    ap.add_argument("--sparse_pred", action="store_true", help="Predict only frames at ends of segments")   # :( 
     ap.add_argument("--perfect_seg", action="store_true", help="Use ground truth segment ending info")
     
     # Task

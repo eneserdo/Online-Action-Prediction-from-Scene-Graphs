@@ -308,8 +308,6 @@ if __name__ == "__main__":
                                      use_hand_pooling=not args.use_global_pooling,
                                      edge_dropout=args.edge_dropout,
                                      dropout=args.dropout,
-                                     use_cls_token=args.use_cls_token,
-                                     sparse_pred=args.sparse_pred,
                                      task=args.task,
                                      merged_pred=args.merged_pred,
                                      norm_layer=args.norm_layer,
