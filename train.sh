@@ -152,14 +152,44 @@
 # python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name OTO_30_TR_ML_LN_RR -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg
 # sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name OTO_30_TR_ML_LN_W2 -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --use_weighted_mv
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name OTO_30_TR_ML_LN_W2 -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --use_weighted_mv
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name OTO_30_TR_ML_LN_ED05 -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --edge_dropout 0.05
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name OTO_30_TR_ML_LN_EDD05 -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --edge_dropout 0.05 --dropout 0.05
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name OTO_30_TR_ML_LN_ED15_W2 -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --edge_dropout 0.15 --use_weighted_mv
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name OTO_30_TR_ML_LN_ED20 -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --edge_dropout 0.2
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name OTO_30_TR_ML_LN_ED25 -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --edge_dropout 0.25
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name OTO_30_TR_ML_LN_ED30 -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --edge_dropout 0.30
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.00025 -me 40 --scheduler_step_size 8 --saving_freq 4 --name OTO_30_TR_ML_LN_ED15_wd25 -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --edge_dropout 0.15
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.001 -wd 0.0005 -me 60 --scheduler_step_size 10 --saving_freq 4 --name Beta_L -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --hidden_channels 96 --out_channels 96 --lstm_hidden_size 192 --num_heads 4 --gpu_id 1
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name Beta_BS64 -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --batch_size 64 --gpu_id 1
+# sleep 5
+
+# Beta = OTO_30_TR_ML_LN
+
+
+python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name Beta_NoML_ED15 -tl 30 --merged_pred none --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --edge_dropout 0.15
 sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name OTO_30_TR_ML_LN_ED05 -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --edge_dropout 0.05
+python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name Beta_ED15 -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --edge_dropout 0.15
 sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name OTO_30_TR_ML_LN_ED15 -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --edge_dropout 0.15
-sleep 5
-
-python main.py -g TransformerConv -o Adam -lr 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name OTO_30_TR_ML_LN_EDD -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --edge_dropout 0.05 --dropout 0.05
+python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name Beta_ED15_MV -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --edge_dropout 0.15 --use_weighted_mv
 sleep 5
