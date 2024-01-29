@@ -10,9 +10,15 @@ from datetime import datetime
 from os.path import join as opj
 import warnings
 
-import functorch
+
 import numpy as np
 import torch
+
+try: 
+    torch_vmap = torch.vmap
+except AttributeError:
+    import functorch
+    torch_vmap = functorch.vmap
 
 from torch_geometric.loader import DataLoader
 # from torch_geometric.explain import Explainer, AttentionExplainer, ModelConfig
@@ -83,99 +89,57 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             data = [d.to(device) for d in data]
 
             
+
             gt_reordered = torch.stack([torch.cat([d.y[::2], d.y[1::2]]) for d in data], dim=0)
+            # gt_reordered: [temporal_length, 2*batch_size(left, ..., left, right, ..., right) , num_classes]
 
             batch_size = gt_reordered.shape[1] // 2
 
-            ground_truth_segments = create_ground_truth_segments(torch.argmax(gt_reordered, dim=-1))
+            pred = model(data)
 
-            if args.task == "labelonly":
-                # perfect segmentation
-                pred_flattened, segment_change_pred = model(data, ground_truth_segments)
-            else:
-                pred_flattened, segment_change_pred = model(data)  
-
-            gt_flattened = flatten_seq(gt_reordered)
+            pred_flattened = pred.flatten(0, 1)
+            gt_flattened = gt_reordered.flatten(0, 1)
             
-            # if args.sparse_pred:
-            #     pred_flattened, mask = pred_flattened
-            #     gt_flattened = gt_flattened[mask]
-
             label_loss = label_criterion(pred_flattened, gt_flattened)
-
-            if not args.disable_seg:
-                if args.seg_loss == "sDTW":
-                    # NOTE: for label dtw input shapes should be (b,n,l) not (n*b,l) 
-                    # TODO: 
-                    # - gamma val tuned (0.001 etc.)
-                    # - bceloss distance metric
-                    # - ...
-                    t_shape = segment_change_pred.T.shape + (1,)
-                    segmentation_loss = segmentation_criterion(segment_change_pred.view(t_shape), ground_truth_segments.view(t_shape)).mean()
-                else:
-                    segmentation_loss = segmentation_criterion(segment_change_pred, ground_truth_segments)
-            else:
-                segmentation_loss = torch.tensor(0.0)
-
-            # TODO: Train on segmentation first than action prediction later (see if it works)
-            if args.task == "both":
-                loss = label_loss * label_loss_weight + segmentation_loss
-            elif args.task in ["labelonly", "onetoone"]:
-                loss = label_loss_weight * label_loss
-            elif args.task == "segonly":
-                loss = segmentation_loss
-            else:
-                raise NotImplementedError(f"Task {args.task} is not implemented")
             
+            # Segmentation is currently removed
+            loss = label_loss            
             
             if mode == "train":
                 loss.backward()
                 optimizer.step()
 
-
-            # # # Match predicted segments with ground truth segment labels 
-            # This takes 0.006 seconds
-            if args.task=="segonly":  # label_loss_weight == 0:
-                # It means that we do not have any label, so we need to assign labels to the segments 
-                pred = assign_seg_labels(gt_reordered.cpu(), ground_truth_segments.cpu(), segment_change_pred.cpu().detach())
-                pred_flattened_ = torch.flatten(torch.transpose(pred, 0, 1), start_dim=0, end_dim=1)
-                pred_flattened = torch.nn.functional.one_hot(pred_flattened_.long(), num_classes=len(ACTIONS)).float()
-                pred_flattened = pred_flattened.to(device)
-            else:
-                # we need to reshatorch
-                # TODO: sanity check: assert pred_flattened = assign_seg_labels(...)
-                # pred_dummy = assign_seg_labels(gt_reordered.cpu(), ground_truth_segments.cpu(), segment_change_pred.cpu().detach())
-                # print("diff between original pred and matched pred: ", np.sum(pred.numpy() != pred_dummy) / (pred_flattened.shape[0]*pred_flattened.shape[1]))
-                
-                pred_ = pred_flattened.cpu().detach()
-                pred = torch.transpose(pred_.unflatten(0, (batch_size*2, args.temporal_length)), 0, 1).argmax(dim=-1)
-
             # This takes 0.0024 seconds
-            combine_predictions(all_predictions_combined, idxes.numpy(), pred, dataset_mapping[mode]["sample"])
+            combine_predictions(all_predictions_combined, idxes.numpy(), pred.detach().cpu().argmax(-1), dataset_mapping[mode]["sample"])
             
+
+
             if mode != "test" and args.save_individual:
                 # Visualize individiual predictions
                 VIP.pick_samples(y_true=gt_reordered.cpu().argmax(2), y_pred=pred.detach().cpu(), idx=idxes, epoch=epoch, mode=mode)
+
+
 
             # # Calculate metrics
             # testden gelen
             pred_top_3 = torch.argsort(pred_flattened, dim=-1, descending=True)[:, :3]
             pred_top_1 = pred_top_3[:,0]
             ground_truth = gt_flattened.argmax(dim=-1)
-            pred_top_3_final = torch.where(functorch.vmap(lambda t1, t2: torch.isin(t1, t2))(ground_truth, pred_top_3),
+            pred_top_3_final = torch.where(torch_vmap(lambda t1, t2: torch.isin(t1, t2))(ground_truth, pred_top_3),
                                         ground_truth, pred_top_1)
+            
+
             # torchmetric
+            # TODO: Create f1 for each position in the sequence separately
             step_f1_top1 = f1_calc_top1(pred_flattened, ground_truth) # NOTE: Lookup if input can have more than 2 channels
             step_f1_top3 = f1_calc_top3(pred_top_3_final, ground_truth)
 
             conf_mat_top1(pred_top_1, ground_truth)
             conf_mat_top3(pred_top_3_final, ground_truth)
-            # TODO: Log confusion matrices of starting, middle and ending frames predictions.
-            # This is so as to understand action segmentation affect.
+
 
             if mode != "test":
-                wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item(), "Label Loss": label_loss.item(), "Segmentation Loss": segmentation_loss.item()},
-                           'batch': step})
+                wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()}, 'batch': step})
 
             if mode == "test" and args.save_incorrects:
                 visualize_incorrect_preds(pred_top_1, ground_truth, idxes, num_of_samples=4, 
@@ -196,8 +160,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     if mode != "test":
         wandb.log({f"{mode}/epoch/": {'top1_F1': overall_f1_top1, 'top3_F1': overall_f1_top3}, 'epoch': epoch})
 
-        
-    # it takes 0.659 seconds
+
     
     seg_save_dir = opj(save_dir, f"test_results_{epoch}") if (mode == "test" and args.save_segments) else None
     
@@ -255,6 +218,9 @@ if __name__ == "__main__":
 
     #### asserts about args:
 
+    if args.task != "onetoone":
+        raise NotImplementedError("Currently only onetoone task is supported")
+
     if args.perfect_seg:
         raise KeyError("perfect_seg is deprecated. Use --task seg instead.")
     
@@ -264,7 +230,7 @@ if __name__ == "__main__":
     if not args.disable_seg:
         raise NotImplementedError("Segmentation may be broken, please check it")
 
-    assert args.merged_pred in ["none", "early", "late", "attention"], f"merged_pred must be one of [none, early, late, attention]. Given: {args.merged_pred}"
+    assert args.merged_pred in ["none", "late", "attention"], f"merged_pred must be one of [none, late, attention]. Given: {args.merged_pred}"
 
     # Make sure it is reproducible
     random.seed(args.seed)
@@ -321,7 +287,8 @@ if __name__ == "__main__":
                                      norm_layer=args.norm_layer,
                                      DISABLE_SEGMENTATION=args.disable_seg,
                                      norm_first=args.norm_first,
-                                     pos_enc=args.pos_enc).to(device=device)
+                                     pos_enc=args.pos_enc,
+                                     temporal_length=args.temporal_length).to(device=device)
 
     print(model)
     rnn_params = sum(p.numel() for p in model.temporal_layer.parameters() if p.requires_grad)

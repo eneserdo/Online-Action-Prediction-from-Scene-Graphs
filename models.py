@@ -120,6 +120,26 @@ class PositionalEncodingPseudo2D(Module):
         return self.dropout(x)
 
 
+class LearnablePositionalEncoding(Module):
+    """
+    Learnable positional encoding
+    """
+
+    def __init__(self, seg_len, d_model, dropout=0.1):
+        super(LearnablePositionalEncoding, self).__init__()
+
+        self.dropout = Dropout(p=dropout)
+        self.pe = torch.nn.Parameter(torch.zeros(seg_len, 1, d_model), requires_grad=True)
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        torch.nn.init.normal_(self.pe, std=0.02)
+
+    def forward(self, x):
+        x = x + self.pe
+        return self.dropout(x)
+
+
 class ActionRecognition(torch.nn.Module):
     def __init__(self, *, gnn_type,
                  temporal_type,
@@ -140,6 +160,7 @@ class ActionRecognition(torch.nn.Module):
                  DISABLE_SEGMENTATION,
                  norm_first,
                  pos_enc,
+                 temporal_length,
                  **kwargs):
         """ Accepts kwargs for non-general params of gnns """
         super().__init__()
@@ -155,8 +176,6 @@ class ActionRecognition(torch.nn.Module):
         self.temporal_type = temporal_type
         self.task = task
         self.merged_pred = merged_pred
-
-        self.mother_of_all_h_vectors_dict = {}
 
         # Sets Graph Network
         if gnn_type == "NNConv":
@@ -237,9 +256,12 @@ class ActionRecognition(torch.nn.Module):
                 # self.pos_encoder = PositionalEncoding1D(effective_out_ch2)
 
             elif pos_enc == "learnable":
-                # if merged_pred == "attention":
-                # self.pos_encoder = torch.nn.Parameter
-                raise NotImplementedError("Learnable positional encoding is not implemented yet")
+                if merged_pred == "attention":
+                    self.pos_encoder = LearnablePositionalEncoding(temporal_length*2, effective_out_ch2)
+                else:    
+                    self.pos_encoder = LearnablePositionalEncoding(temporal_length, effective_out_ch2)
+                
+                # raise NotImplementedError("Learnable positional encoding is not implemented yet")
             
             elif pos_enc == "none":
                 self.pos_encoder = lambda x: x
@@ -260,16 +282,16 @@ class ActionRecognition(torch.nn.Module):
             # Can this run in parallel? :smile:
             self.left_mlp = build_mlp(lstm_hidden_size*2, num_action_classes)
             self.right_mlp = build_mlp(lstm_hidden_size*2, num_action_classes)
-            self.segment_boundary_detector = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
+            # self.segment_boundary_detector = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
         elif self.merged_pred == "early":
-            self.segment_boundary_detector_L = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
-            self.segment_boundary_detector_R = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
+            # self.segment_boundary_detector_L = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
+            # self.segment_boundary_detector_R = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
             self.left_mlp = build_mlp(lstm_hidden_size, num_action_classes)
             self.right_mlp = build_mlp(lstm_hidden_size, num_action_classes)
             # self.mlp = build_mlp(lstm_hidden_size, num_action_classes)
         elif self.merged_pred in ["none", "attention"]:    
             self.mlp = build_mlp(lstm_hidden_size, num_action_classes)
-            self.segment_boundary_detector = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
+            # self.segment_boundary_detector = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
 
     def _hands_pooling(self, x, embeddings, batch):
         labels = torch.argmax(x, dim=1)
@@ -352,7 +374,7 @@ class ActionRecognition(torch.nn.Module):
         
         return out_s, mask
 
-    def forward(self, dataBatchList: List[Batch], segment_gt=None):
+    def forward(self, dataBatchList: List[Batch]):
 
         left_embedding_list = []
         right_embedding_list = []
@@ -404,26 +426,28 @@ class ActionRecognition(torch.nn.Module):
             left_sequencial_embeddings = align_embeddings_to_right(left_sequencial_embeddings, left_filter)
 
 
-        # TODO: shapes
-        # Merging left and right embeddings
-        if self.merged_pred == "early":
+        # Enabling the information flow between hands
+        if self.merged_pred == "early": # concat in feature dim
             both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=-1)
+            # shape = (T, N, F*2)
 
-        elif self.merged_pred == "attention":
+        elif self.merged_pred == "attention": # concat in time dim
             both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=0)
+            # shape = (T*2, N, F)
 
-        else: # "late or none" -> concat in batch dimension
+        elif self.merged_pred in ["late", "none"]: # concat in batch dim
             both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=1) 
-
-
+            # shape = (T, N*2, F)
+        else:
+            raise NotImplementedError(f"merged_pred: {self.merged_pred} is not implemented")
         
-        #### Temporal part ####
 
+        #### Temporal part ####
         if self.temporal_type == "tr":
 
             both_sequencial_embeddings = self.pos_encoder(both_sequencial_embeddings * self.PE_coef)
             # if self.merged_pred == "attention":
-            #     both_sequencial_embeddings = self.pos_encoder(both_sequencial_embeddings * self.PE_coef)
+            #     ...
             # else:
             #     ...
 
@@ -446,78 +470,51 @@ class ActionRecognition(torch.nn.Module):
             # assert both_hn.shape[0]==1
             both_hn = both_hn.squeeze()"""
         
-        # TODO: store hn (both_out) in dict 
-
-        # Segmentation task - predict segment change (0,1)
-        # NOTE:
-        # 2 RNNs
-        #   -> reset (zero, random,...) h_n-1 at every segment start for an RNN only focused to action sequence unaffected by previous happenings
-        
-        if not self.DISABLE_SEGMENTATION:
-            if self.merged_pred == "early":
-                segment_change_pred_L, hard_segment_change_pred_L = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector_L)
-                segment_change_pred_R, hard_segment_change_pred_R = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector_R)
-                
-                segment_change_pred = torch.cat((segment_change_pred_L, segment_change_pred_R), dim=1)
-                hard_segment_change_pred = torch.cat((hard_segment_change_pred_L, hard_segment_change_pred_R), dim=1)
-                # NOTE: could merging have been done better here?
-                both_out = torch.cat((both_out, both_out), dim=1)   # shape -> (n,b*2,f)
-            else:
-                segment_change_pred, hard_segment_change_pred = self._segment_prediction(both_sequencial_embeddings, both_out, self.segment_boundary_detector)
-        
-        else:
-            segment_change_pred = None
-
-        # Masking according to segment endpoints:
-
-        if not self.DISABLE_SEGMENTATION:
-            # if need be use .clone()
-            if self.task == "labelonly":
-                segments = segment_gt
-            elif self.task == "onetoone":
-                # give a mask of all ones
-                segments = torch.ones_like(hard_segment_change_pred)
-            else: # "segonly", "both"
-                segments = hard_segment_change_pred
-
-            out_s, mask = self._apply_segment_mask(both_out, segments)
-        else:
-            out_s = flatten_seq(both_out)
         
 
-        # Label Prediction Task
-        # TODO:
-        # => Increase linear layers to actually call it a mlp
-        #   -> now do experiments with it (merge, different models etc.)
-        # -> Do operation to merge right and left features (concatenation or attention)
-        #   so as to affect each others output predictions
+        #### Segmentation part ####
+        # CANCELLED FOR NOW
+
+        # out_s = flatten_seq(both_out)
+        
+        
+
+        #### Prediction part ####
         if self.merged_pred == "late":
-            merged_out_s = self._merge_hands(out_s)
-            action_prediction = torch.cat((self.left_mlp(merged_out_s), self.right_mlp(merged_out_s)),dim=0)
+            # merged_out_s = self._merge_hands(out_s)
+            # action_prediction = torch.cat((self.left_mlp(merged_out_s), self.right_mlp(merged_out_s)),dim=0)
+            # both_out.shape = (T, N*2, F)
+            # both_out_ml.shape = (T, N, F*2)
+            
+            both_out_left, both_out_right = torch.tensor_split(both_out, 2, dim=1) 
+
+            both_out_ml = torch.cat([both_out_left, both_out_right], dim=-1)
+            
+            action_prediction = torch.cat((self.left_mlp(both_out_ml), self.right_mlp(both_out_ml)), dim=1)
+            
+
         elif self.merged_pred == "early":
-            l_out_s, r_out_s = torch.tensor_split(out_s, 2, dim=0)
-            action_prediction = torch.cat((self.left_mlp(l_out_s), self.right_mlp(r_out_s)),dim=0)
+            raise NotImplementedError("Early merge is not implemented yet")
+            # l_out_s, r_out_s = torch.tensor_split(out_s, 2, dim=0)
+            # action_prediction = torch.cat((self.left_mlp(l_out_s), self.right_mlp(r_out_s)),dim=0)
             # OR
             #action_prediction = self.mlp(out_s)
         elif self.merged_pred == "attention":
-            action_prediction = self.mlp(out_s)
 
-            action_prediction = torch.cat(torch.tensor_split(action_prediction, 2, dim=0), dim=-1)
+            # both_out.shape = (T*2, N, F)
 
+            both_out_left, both_out_right = torch.tensor_split(both_out, 2, dim=0)
 
-            ... # need to split in 0th dim and concat in 1st dim
+            both_out = torch.cat([both_out_left, both_out_right], dim=1)
+
+            action_prediction = self.mlp(both_out)
+
         elif self.merged_pred == "none":
-            action_prediction = self.mlp(out_s)
+            # both_out.shape = (T, N*2, F)
+            action_prediction = self.mlp(both_out)
             
         else:
             raise NotImplementedError(f"merged_pred: {self.merged_pred} is not implemented")
 
 
-        # if self.sparse_pred:
-        #     # action_prediction shape -> (s~*b*2, a)
-        #     return (action_prediction, mask), segment_change_pred
-        # else: 
-        #     # unflatten = Unflatten(dim=0, unflattened_size=segments.shape)  # (n, b*2, a)
-        #     # action_prediction = unflatten(action_prediction)
-        #     return action_prediction, segment_change_pred
-        return action_prediction, segment_change_pred
+        return action_prediction
