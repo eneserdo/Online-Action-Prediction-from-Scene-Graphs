@@ -5,6 +5,7 @@ import os
 from os.path import join as opj
 import random
 import shutil
+from typing import Any
 
 import functorch
 import matplotlib.pyplot as plt
@@ -797,3 +798,37 @@ class VisIndividualPreds:
 def print_warning(text, color=(230, 50, 10)):
     print(f"\033[38;2;{color[0]};{color[1]};{color[2]}m{text} \033[38;2;255;255;255m")
  
+
+
+def get_loss_weights(weighted_loss_type, distribution):
+
+    if weighted_loss_type == "none":
+        loss_weights = None
+    elif weighted_loss_type == "inv":
+        loss_weights = 1.0 / torch.tensor(distribution)
+        loss_weights = loss_weights / loss_weights.sum() * len(ACTIONS)
+    elif weighted_loss_type == "sqrt_inv":
+        loss_weights = 1.0 / torch.sqrt(torch.tensor(distribution))
+        loss_weights = loss_weights / loss_weights.sum() * len(ACTIONS)
+    elif weighted_loss_type == "effective":
+        beta = 0.9999
+        effective_num = 1.0 - torch.power(beta, distribution)
+        loss_weights = (1.0 - beta) / effective_num
+        loss_weights = loss_weights / loss_weights.sum() * len(ACTIONS)
+    else:
+        raise NotImplementedError(f"Weighted loss type {weighted_loss_type} is not implemented")
+
+    return loss_weights
+
+
+class WindowMetrics:
+    def __init__(self) -> None:
+        pass
+
+    def __call__(self, *args: Any, **kwds: Any) -> Any:
+        pass
+
+    def compute():
+        pass
+
+

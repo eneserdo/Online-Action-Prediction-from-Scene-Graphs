@@ -31,7 +31,7 @@ import matplotlib.pyplot as pyplot
 import models
 import wandb
 from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits)
-from utils import (F1_at_k, VisIndividualPreds, arg_parser, calc_metrics_at_once, combine_predictions, get_minutes, metrics_to_str, plot_conf_mat, seed_worker, 
+from utils import (F1_at_k, VisIndividualPreds, arg_parser, calc_metrics_at_once, combine_predictions, get_loss_weights, get_minutes, metrics_to_str, plot_conf_mat, seed_worker, 
                    visualize_incorrect_preds, create_ground_truth_segments, assign_seg_labels, flatten_seq)
 
 from tslearn.metrics import SoftDTWLossPyTorch
@@ -317,7 +317,6 @@ if __name__ == "__main__":
     wandb.define_metric("test_top3")
 
 
-    # TODO: encapsulate optimizer and scheduler in a function
     if args.optimizer_type == 'SGD':
         optimizer = torch.optim.SGD(model.parameters(), lr=args.learning_rate, momentum=args.momentum,
                                     weight_decay=args.weight_decay)
@@ -327,31 +326,18 @@ if __name__ == "__main__":
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.scheduler_step_size,
                                                 gamma=args.scheduler_gamma, verbose=True)
 
-    if args.weighted_loss == "none":
-        loss_weights = None
-    elif args.weighted_loss == "inv":
-        loss_weights = 1.0 / torch.tensor(train_set.distribution)
-        loss_weights = loss_weights / loss_weights.sum() * len(ACTIONS)
-    elif args.weighted_loss == "sqrt_inv":
-        loss_weights = 1.0 / torch.sqrt(torch.tensor(train_set.distribution))
-        loss_weights = loss_weights / loss_weights.sum() * len(ACTIONS)
-    elif args.weighted_loss == "effective":
-        beta = 0.9999
-        effective_num = 1.0 - torch.power(beta, train_set.distribution)
-        loss_weights = (1.0 - beta) / effective_num
-        loss_weights = loss_weights / loss_weights.sum() * len(ACTIONS)
-    else:
-        raise NotImplementedError(f"Weighted loss type {args.weighted_loss} is not implemented")
-    
-    label_loss_weight = args.label_loss_weight
 
-    # TODO: multiple loss -> FSD 22.09.2023
+    # loss weights can be used to balance the classes using different strategies
+    loss_weights = get_loss_weights(args.weighted_loss, train_set.distribution)
+
+
     label_criterion = torch.nn.CrossEntropyLoss(weight=loss_weights, label_smoothing=args.smoothing).to(device=device)
-    if args.seg_loss == "BCELoss":
-        segmentation_criterion = torch.nn.BCELoss(weight=loss_weights).to(device=device)
-    elif args.seg_loss == "sDTW":
-        # TODO: try different distance measures... cross-entropy??
-        segmentation_criterion = SoftDTWLossPyTorch(gamma=args.sdtw_gamma)
+    
+    # if args.seg_loss == "BCELoss":
+    #     segmentation_criterion = torch.nn.BCELoss(weight=loss_weights).to(device=device)
+    # elif args.seg_loss == "sDTW":
+    #     # TODO: try different distance measures... cross-entropy??
+    #     segmentation_criterion = SoftDTWLossPyTorch(gamma=args.sdtw_gamma)
 
     save_dir = f"saved_{args.name}"
     if not os.path.isdir(save_dir):
@@ -406,13 +392,6 @@ if __name__ == "__main__":
 
         scheduler.step()
         stop = time.perf_counter()
-        # print(f'### {epoch:03d}: Time {get_minutes(stop - start)}'
-        #       f'm ### [F1] Train: top1: {round(train_metrics["f1_top1"], 4)},'
-        #       f' top3: {round(train_metrics["f1_top3"], 4)} '
-        #       f' top1_once: {round(train_metrics["f1_top1_once"], 4)} '
-        #       f'### Val: top1: {round(val_metrics["f1_top1"], 4)}, top3: {round(val_metrics["f1_top3"], 4)} '
-        #       f'### [F1@k] Train: k10: {round(train_metrics["f1_at_10"], 4)}, k25: {round(train_metrics["f1_at_25"], 4)}, k50: {round(train_metrics["f1_at_50"], 4)} '
-        #       f'### Val: k10: {round(val_metrics["f1_at_10"], 4)}, k25: {round(val_metrics["f1_at_25"], 4)}, k50: {round(val_metrics["f1_at_50"], 4)}')
 
         print(f'### {epoch:03d}: Time {get_minutes(stop - start)} m ### Train: ', metrics_to_str(train_metrics), ' ### Val: ', metrics_to_str(val_metrics))
 
@@ -424,7 +403,6 @@ if __name__ == "__main__":
     # TEST
     print("Starts test...")
     # f_top1_test, f_top3_test, conf_mat_top1_test, conf_mat_top3_test = run_one_epoch(model, test_loader, 'test', epoch=-1)
-    # f_top1_test, f_top3_test, conf_mat_top1_test, conf_mat_top3_test = test_for_all_saved_weights(model, test_loader)
     test_metrics = test_for_all_saved_weights(model, test_loader)
 
 
