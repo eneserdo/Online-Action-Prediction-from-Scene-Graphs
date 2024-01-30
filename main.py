@@ -59,8 +59,8 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
         model.train()
 
 
-
-    metrics = Metrics()
+    seg_save_dir = opj(save_dir, f"test_results_{epoch}") if (mode == "test" and args.save_segments) else None
+    metrics = Metrics(len(ACTIONS), args.temporal_length, device, dataset_mapping, mode, seg_save_dir, args.use_weighted_mv)
 
     f1_calc_top1 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(device)
     f1_calc_top3 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(device)  # top_k is intentionally 1
@@ -91,8 +91,6 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
             data = [d.to(device) for d in data]
 
-            
-
             gt_reordered = torch.stack([torch.cat([d.y[::2], d.y[1::2]]) for d in data], dim=0)
             # gt_reordered: [temporal_length, 2*batch_size(left, ..., left, right, ..., right) , num_classes]
 
@@ -122,7 +120,6 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                 VIP.pick_samples(y_true=gt_reordered.cpu().argmax(2), y_pred=pred.detach().cpu(), idx=idxes, epoch=epoch, mode=mode)
 
 
-
             # # Calculate metrics
             # testden gelen
             pred_top_3 = torch.argsort(pred_flattened, dim=-1, descending=True)[:, :3]
@@ -140,7 +137,8 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             conf_mat_top1(pred_top_1, ground_truth)
             conf_mat_top3(pred_top_3_final, ground_truth)
 
-            metrics.update(pred.detach(), gt_reordered, idxes)
+            step_f1_top1_, step_f1_top3_ = metrics.update(pred.detach(), gt_reordered, idxes)
+            assert np.allclose([step_f1_top1_, step_f1_top3_], step_f1_top1, step_f1_top3)
 
             if mode != "test":
                 wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()}, 'batch': step})
@@ -165,9 +163,8 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
         wandb.log({f"{mode}/epoch/": {'top1_F1': overall_f1_top1, 'top3_F1': overall_f1_top3}, 'epoch': epoch})
 
     
-    seg_save_dir = opj(save_dir, f"test_results_{epoch}") if (mode == "test" and args.save_segments) else None
     
-    f1_at_10, f1_at_25, f1_at_50, f1_top1_once, f1_top3_once = calc_metrics_at_once(all_predictions_combined, 
+    f1_at_10, f1_at_25, f1_at_50, f1_top1_once, f1_top3_once, _ = calc_metrics_at_once(all_predictions_combined, 
                                                                 dataset_mapping[mode]["vid"], 
                                                                 num_classes=len(ACTIONS), 
                                                                 temporal_length=args.temporal_length,
