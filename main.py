@@ -31,7 +31,7 @@ import matplotlib.pyplot as pyplot
 import models
 import wandb
 from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits)
-from utils import (F1_at_k, VisIndividualPreds, arg_parser, calc_metrics_at_once, combine_predictions, get_loss_weights, get_minutes, metrics_to_str, plot_conf_mat, seed_worker, 
+from utils import (F1_at_k, Metrics, VisIndividualPreds, arg_parser, calc_metrics_at_once, combine_predictions, get_loss_weights, get_minutes, metrics_to_str, plot_conf_mat, seed_worker, 
                    visualize_incorrect_preds, create_ground_truth_segments, assign_seg_labels, flatten_seq)
 
 from tslearn.metrics import SoftDTWLossPyTorch
@@ -58,6 +58,9 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     elif mode == "train":
         model.train()
 
+
+
+    metrics = Metrics()
 
     f1_calc_top1 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(device)
     f1_calc_top3 = MulticlassF1Score(num_classes=len(ACTIONS), top_k=1, average="macro").to(device)  # top_k is intentionally 1
@@ -137,6 +140,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             conf_mat_top1(pred_top_1, ground_truth)
             conf_mat_top3(pred_top_3_final, ground_truth)
 
+            metrics.update(pred.detach(), gt_reordered, idxes)
 
             if mode != "test":
                 wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()}, 'batch': step})
@@ -160,17 +164,19 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     if mode != "test":
         wandb.log({f"{mode}/epoch/": {'top1_F1': overall_f1_top1, 'top3_F1': overall_f1_top3}, 'epoch': epoch})
 
-
     
     seg_save_dir = opj(save_dir, f"test_results_{epoch}") if (mode == "test" and args.save_segments) else None
     
-    f1_at_10, f1_at_25, f1_at_50, f1_top1_once = calc_metrics_at_once(all_predictions_combined, 
-                                                        dataset_mapping[mode]["vid"], 
-                                                        num_classes=len(ACTIONS), 
-                                                        temporal_length=args.temporal_length,
-                                                        use_weighted_mv=args.use_weighted_mv,
-                                                        save_dir=seg_save_dir)
+    f1_at_10, f1_at_25, f1_at_50, f1_top1_once, f1_top3_once = calc_metrics_at_once(all_predictions_combined, 
+                                                                dataset_mapping[mode]["vid"], 
+                                                                num_classes=len(ACTIONS), 
+                                                                temporal_length=args.temporal_length,
+                                                                use_weighted_mv=args.use_weighted_mv,
+                                                                save_dir=seg_save_dir)
     
+
+    metric_dict = metrics.compute()
+
     wandb.log({f"{mode}/epoch/": {'f1@10': f1_at_10, 'f1@25': f1_at_25, 'f1@50': f1_at_50, "f1_top1_once": f1_top1_once}, 'epoch': epoch})
 
 

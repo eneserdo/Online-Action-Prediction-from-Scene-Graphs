@@ -5,20 +5,26 @@ import os
 from os.path import join as opj
 import random
 import shutil
-from typing import Any
 
-import functorch
+
 import matplotlib.pyplot as plt
 import natsort
 import numpy as np
 import seaborn as sns
 import torch
-from sklearn.metrics import confusion_matrix
-from torchmetrics.classification import MulticlassF1Score
+from torchmetrics.classification import MulticlassF1Score, MulticlassConfusionMatrix
+
+# functorch was merged into pytorch after certain version. I used try-except to make it compatible with both versions
+try: 
+    torch_vmap = torch.vmap
+except AttributeError:
+    import functorch
+    torch_vmap = functorch.vmap
+
 from scipy.optimize import linear_sum_assignment
 
 from dataset import ACTIONS
-from scipy import sparse
+
 from collections import Counter
 
 from metrics import f1_at_k_single_example
@@ -137,68 +143,6 @@ def arg_parser_inference():
     return ap.parse_args()
 
 
-def conf_mat_from_left_right(truth, pred, labels):
-    # pred_left, pred_right = pred[:batch_size], pred[batch_size:]
-    # truth_left, truth_right = truth[::2], truth[1::2]
-
-    # res = confusion_matrix(truth_left.cpu().detach().numpy(), pred_left.cpu().detach().numpy(), labels=[range(0,len(ACTIONS)]) + \
-    #  confusion_matrix(truth_right.cpu().detach().numpy(), pred_right.cpu().detach().numpy(), labels=[range(0,len(ACTIONS)])
-
-    # pred = torch.cat([pred[:batch_size], pred[batch_size:]])
-    truth = torch.cat([truth[::2], truth[1::2]])
-
-    res = confusion_matrix(truth.cpu().detach().numpy(), pred.cpu().detach().numpy(), labels=labels)
-
-    return res
-
-
-def classification_scores(conf_mat):
-    scores = {'recall': {}, 'precision': {}, 'F1': {}}
-
-    TP = np.diagonal(conf_mat)
-    TP_p_FN = np.sum(conf_mat, axis=1)  # total class true occurrences
-    TP_p_FP = np.sum(conf_mat, axis=0)  # total class predicted occurrences
-
-    mask1 = (TP_p_FN != 0)
-    # recall = TP / (TP + FN)
-    scores['recall']['all'] = TP[mask1] / TP_p_FN[mask1]
-
-    mask2 = (TP_p_FP != 0)
-    # precision = TP / (TP + FP)
-    scores['precision']['all'] = TP[mask2] / TP_p_FP[mask2]
-
-    #  mask??
-
-    # F1 = 2 * TP / (2 * TP + FN + FP)
-    scores['F1']['all'] = 2 * TP / (TP_p_FP + TP_p_FN)
-
-    # Micro average
-    scores['recall']['avg'] = {}
-    scores['precision']['avg'] = {}
-    scores['F1']['avg'] = {}
-
-    sum_labels = np.sum(TP_p_FN)
-    accuracy = np.sum(TP) / sum_labels
-    scores['accuracy'] = accuracy
-    scores['recall']['avg']['micro'] = accuracy
-    scores['precision']['avg']['micro'] = accuracy
-    scores['F1']['avg']['micro'] = accuracy
-
-    # Macro average
-    n_labels = len(TP)
-    scores['recall']['avg']['macro'] = np.sum(scores['recall']['all']) / n_labels
-    scores['precision']['avg']['macro'] = np.sum(scores['precision']['all']) / n_labels
-    scores['F1']['avg']['macro'] = np.sum(scores['F1']['all']) / n_labels
-
-    # Weighted average
-    scores['recall']['avg']['weighted'] = np.sum(scores['recall']['all'] * TP_p_FN[mask1]) / sum_labels
-    scores['precision']['avg']['weighted'] = np.sum(scores['precision']['all'] * TP_p_FN[mask2]) / sum_labels
-    scores['F1']['avg']['weighted'] = np.sum(scores['F1']['all'] * TP_p_FN) / sum_labels
-
-    # Normalized confusion matrix
-    scores['normalized confusion matrix'] = np.divide(conf_mat, conf_mat.sum(axis=1, keepdims=True))
-
-    return scores
 
 
 def get_minutes(elapsed) -> str:
@@ -678,6 +622,8 @@ def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, use_wei
 
     f1_at_k = F1_at_k(num_classes=num_classes)
     f1_classic = MulticlassF1Score(num_classes=num_classes, average='macro')
+    f1_classic_top3 = MulticlassF1Score(num_classes=num_classes, average='macro')
+
     
     if save_dir is not None:
         if os.path.exists(save_dir):
@@ -821,14 +767,75 @@ def get_loss_weights(weighted_loss_type, distribution):
     return loss_weights
 
 
-class WindowMetrics:
-    def __init__(self) -> None:
-        pass
+class Metrics:
+    def __init__(self, num_classes, temporal_length, device, dataset_mapping, mode) -> None:
+        
+        self.dataset_mapping = dataset_mapping
+        self.mode = mode
+        self.temporal_length = temporal_length
 
-    def __call__(self, *args: Any, **kwds: Any) -> Any:
-        pass
+        # Window-based
+        self.f1_top1 = MulticlassF1Score(num_classes=num_classes, top_k=1, average="macro").to(device)
+        self.f1_top3 = MulticlassF1Score(num_classes=num_classes, top_k=1, average="macro").to(device) # top_k is intentionally 1
 
-    def compute():
-        pass
+        self.conf_mat_top1 = MulticlassConfusionMatrix(num_classes=num_classes, normalize="true").to(device)
+        self.conf_mat_top3 = MulticlassConfusionMatrix(num_classes=num_classes, normalize="true").to(device)
+        
+        # Window-location-sensitive
+        self.win_f1_calc_top1 = [MulticlassF1Score(num_classes=num_classes, top_k=1, average="macro").to(device) for _ in range(temporal_length)]
+        self.win_f1_calc_top3 = [MulticlassF1Score(num_classes=num_classes, top_k=1, average="macro").to(device) for _ in range(temporal_length)]
+
+
+        # After majority voting
+        # Dictionaries to store predictions for each sample
+        self.all_predictions_combined_top1 = {vid + m_and_hand_status: - np.ones((act.shape[0] - temporal_length + 1) * temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
+        self.all_predictions_combined_top3 = {vid + m_and_hand_status: - np.ones((act.shape[0] - temporal_length + 1) * temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
+
+
+
+    def update(self, pred, gt, idxes, mode):
+
+        gt_flattened = gt.flatten(start_dim=0, end_dim=1)
+        pred_flattened = pred.flatten(start_dim=0, end_dim=1)
+
+        pred_top_3 = torch.argsort(pred_flattened, dim=-1, descending=True)[:, :3]
+        pred_top_1 = pred_top_3[:,0]
+        gt_flattened_i = gt_flattened.argmax(dim=-1)
+        pred_top_3 = torch.where(torch_vmap(lambda t1, t2: torch.isin(t1, t2))(gt_flattened_i, pred_top_3), gt_flattened_i, pred_top_1)
+        
+        
+        # torchmetric
+        step_f1_top1 = self.f1_top1(pred_top_1, gt_flattened_i) 
+        step_f1_top3 = self.f1_top3(pred_top_3, gt_flattened_i)
+
+        self.conf_mat_top1(pred_top_1, gt_flattened_i)
+        self.conf_mat_top3(pred_top_3, gt_flattened_i)
+
+        combine_predictions(self.all_predictions_combined_top1, idxes.numpy(), pred_top_1.cpu(), self.dataset_mapping[mode]["sample"])
+        combine_predictions(self.all_predictions_combined_top3, idxes.numpy(), pred_top_3.cpu().argmax(-1), self.dataset_mapping[mode]["sample"])
+
+        
+
+
+
+    def compute(self, seg_save_dir, use_weighted_mv):
+
+        f1_at_10, f1_at_25, f1_at_50, f1_top1_once = calc_metrics_at_once(self.all_predictions_combined_top1, 
+                                                                          self.dataset_mapping[self.mode]["vid"], 
+                                                                          num_classes=len(ACTIONS), 
+                                                                          temporal_length=self.temporal_length,
+                                                                          use_weighted_mv=use_weighted_mv,
+                                                                          save_dir=seg_save_dir)
+
+        ret = {
+            "f1_top1": self.f1_top1.compute().item(),
+            "f1_top3": self.f1_top3.compute().item(),
+            "conf_mat_top1": self.conf_mat_top1.compute().cpu().numpy(),
+            "conf_mat_top3": self.conf_mat_top3.compute().cpu().numpy(),
+            "f1_top1_mv": self.all_predictions_combined_top1,
+            "f1_top3_mv": self.all_predictions_combined_top3
+        }
+
+        return ret 
 
 
