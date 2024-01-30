@@ -186,6 +186,16 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                    "f1@25": f1_at_25,
                    "f1@50": f1_at_50,
                    "f1_top1_once": f1_top1_once}
+    
+    # FIXME: adapt for floats
+    assert metric_dict["f1@10"] == return_dict["f1@10"]
+    assert metric_dict["f1@25"] == return_dict["f1@25"]
+    assert metric_dict["f1@50"] == return_dict["f1@50"]
+    assert metric_dict["f1_top1"] == return_dict["f1_top1"]
+    assert metric_dict["f1_top3"] == return_dict["f1_top3"]
+    assert metric_dict["cm_top1"] == return_dict["cm_top1"]
+    assert metric_dict["cm_top3"] == return_dict["cm_top3"]
+    assert metric_dict["f1_top1_once"] == return_dict["f1_top1_once"]
 
     return return_dict
 
