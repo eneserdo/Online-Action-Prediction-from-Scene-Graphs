@@ -9,17 +9,9 @@ import warnings
 import numpy as np
 import torch
 
-try: 
-    torch_vmap = torch.vmap
-except AttributeError:
-    import functorch
-    torch_vmap = functorch.vmap
 
 from torch_geometric.loader import DataLoader
 # from torch_geometric.explain import Explainer, AttentionExplainer, ModelConfig
-
-from torchmetrics.classification import (MulticlassConfusionMatrix,
-                                         MulticlassF1Score)
 
 import matplotlib.pyplot as pyplot
 
@@ -29,8 +21,6 @@ from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits)
 from utils import (F1_at_k, Metrics, VisIndividualPreds, almost_equal, arg_parser, calc_metrics_at_once, combine_predictions, get_loss_weights, get_minutes, metrics_to_str, plot_conf_mat, seed_worker, 
                    visualize_incorrect_preds, create_ground_truth_segments, assign_seg_labels, flatten_seq)
 
-# from tslearn.metrics import SoftDTWLossPyTorch
-import cProfile
 
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
@@ -331,7 +321,7 @@ if __name__ == "__main__":
 
     # TEST
     print("Starts test...")
-    # f_top1_test, f_top3_test, conf_mat_top1_test, conf_mat_top3_test = run_one_epoch(model, test_loader, 'test', epoch=-1)
+
     test_metrics = test_for_all_saved_weights(model, test_loader)
 
 
