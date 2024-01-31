@@ -150,7 +150,10 @@ def get_minutes(elapsed) -> str:
 
 
 def plot_conf_mat(mat, name, do_save=False, do_return_plot=False):
-    mat_long = torch.round(mat * 100).long()
+    if isinstance(mat, torch.Tensor):
+        mat = mat.cpu().numpy()
+    
+    mat_long = np.round(mat * 100).astype(int)
 
     plt.figure(figsize=(14, 12))
     sns.heatmap(mat_long, square=True, annot=True, cmap='Blues', cbar=False, xticklabels=ACTIONS, yticklabels=ACTIONS,
@@ -805,29 +808,42 @@ class Metrics:
 
 
 
-    def update(self, pred, gt, idxes):
+    def update(self, pred, gt_ohe, idxes):
 
+        gt = gt_ohe.argmax(dim=-1)
         gt_flattened = gt.flatten(start_dim=0, end_dim=1)
-        pred_flattened = pred.flatten(start_dim=0, end_dim=1)
 
+        pred_flattened = pred.flatten(start_dim=0, end_dim=1)
         pred_top_3 = torch.argsort(pred_flattened, dim=-1, descending=True)[:, :3]
         pred_top_1 = pred_top_3[:,0]
-        gt_flattened_i = gt_flattened.argmax(dim=-1)
-        pred_top_3 = torch.where(torch_vmap(lambda t1, t2: torch.isin(t1, t2))(gt_flattened_i, pred_top_3), gt_flattened_i, pred_top_1)
+
+
+        # This magical function ...
+        pred_top_3 = torch.where(torch_vmap(lambda t1, t2: torch.isin(t1, t2))(gt_flattened, pred_top_3), gt_flattened, pred_top_1)
         
         
         # torchmetric
-        step_f1_top1 = self.f1_top1(pred_top_1, gt_flattened_i) 
-        step_f1_top3 = self.f1_top3(pred_top_3, gt_flattened_i)
+        step_f1_top1 = self.f1_top1(pred_top_1, gt_flattened) 
+        step_f1_top3 = self.f1_top3(pred_top_3, gt_flattened)
 
-        self.conf_mat_top1(pred_top_1, gt_flattened_i)
-        self.conf_mat_top3(pred_top_3, gt_flattened_i)
+        self.conf_mat_top1(pred_top_1, gt_flattened)
+        self.conf_mat_top3(pred_top_3, gt_flattened)
 
-        combine_predictions(self.all_predictions_combined_top1, idxes.numpy(), pred_top_1.cpu(), self.dataset_mapping[self.mode]["sample"])
-        combine_predictions(self.all_predictions_combined_top3, idxes.numpy(), pred_top_3.cpu().argmax(-1), self.dataset_mapping[self.mode]["sample"])
+        pred_top_1_unf = pred_top_1.unflatten(0, (self.temporal_length, -1))
+        pred_top_3_unf = pred_top_3.unflatten(0, (self.temporal_length, -1))
+
+
+        # Window-location-sensitive metrics
+        for i in range(self.temporal_length):
+            self.win_f1_calc_top1[i](pred_top_1_unf[i, :], gt[i])
+            self.win_f1_calc_top3[i](pred_top_3_unf[i, :], gt[i])
+
+        # These are expects non-flattened tensors
+        combine_predictions(self.all_predictions_combined_top1, idxes.numpy(), pred_top_1_unf.cpu(), self.dataset_mapping[self.mode]["sample"])
+        combine_predictions(self.all_predictions_combined_top3, idxes.numpy(), pred_top_3_unf.cpu(), self.dataset_mapping[self.mode]["sample"])
 
         # Only these are matters (actually they don't but whatever)
-        return step_f1_top1, step_f1_top3
+        return step_f1_top1.cpu().item(), step_f1_top3.cpu().item()
 
 
     def compute(self):
@@ -846,11 +862,14 @@ class Metrics:
                                                                           use_weighted_mv=self.use_weighted_mv,
                                                                           save_dir=None)
 
+        self.win_f1_calc_top1_results = [f1_calc.compute().item() for f1_calc in self.win_f1_calc_top1]
+        self.win_f1_calc_top3_results = [f1_calc.compute().item() for f1_calc in self.win_f1_calc_top3]
+
         ret = {
             "f1_top1": self.f1_top1.compute().item(),
             "f1_top3": self.f1_top3.compute().item(),
-            "cm_top1": self.conf_mat_top1.compute().cpu().numpy(),
-            "cm_top3": self.conf_mat_top3.compute().cpu().numpy(),
+            "cm_top1": self.conf_mat_top1.compute().cpu(),
+            "cm_top3": self.conf_mat_top3.compute().cpu(),
             "f1_top1_once": f1_top1_mv,
             "f1_top3_once": f1_top3_mv,
             "cm_top1_once": cm_top1_mv,
@@ -858,8 +877,12 @@ class Metrics:
             "f1@10": f1_at_10,
             "f1@25": f1_at_25,
             "f1@50": f1_at_50,
+            "win_f1_top1": self.win_f1_calc_top1_results,
+            "win_f1_top3": self.win_f1_calc_top3_results,
         }
 
         return ret 
 
 
+def almost_equal(a, b, eps=1e-6):
+    return np.abs(a-b) < eps
