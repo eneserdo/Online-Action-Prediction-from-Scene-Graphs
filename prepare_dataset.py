@@ -1,39 +1,39 @@
 import argparse
-from dataset import BimanualDataset
+import os
+from dataset import download_bimanual_dataset, process_bimanual_dataset
 
 
 def arg_parser_dataset():
     ap = argparse.ArgumentParser()
 
     # Dataset
-    ap.add_argument("-rt", "--root", type=str, default='.', help="Root directory of dataset.")
-    ap.add_argument("-contact", "--contact_only", action="store_true", help="...")
-    ap.add_argument("--fix_fps", action="store_true", help="...")
+    ap.add_argument("-rt", "--root", type=str, default=".", help="Root directory of dataset.")
+    ap.add_argument("-d", "--download", action="store_true", help="download dataset")
+    ap.add_argument("--fix_fps", action="store_true", help="Fix fps of the videos to 30 fps")
     ap.add_argument("--fix_null", action="store_true", help="Fix null actions in the video of subject_6-task_4-take_1")
-    ap.add_argument("-tl", "--temporal_length", type=int, default=20, help="...")
-    ap.add_argument("--pred_length", type=int, default=10, help="...")
-    ap.add_argument("-ts", "--test_subject", type=int, default=1, choices=[1, 2, 3, 4, 5, 6], help="...")
-    ap.add_argument("-vt", "--validation_take", type=int, default=7, choices=[i for i in range(10)], help="...")
+    ap.add_argument("-tl", "--temporal_length", type=int, required=True, help="Temporal length of the input")
 
     return ap.parse_args()
 
 
 def main():
-    args=arg_parser_dataset()
+    args = arg_parser_dataset()
 
-    # Initiating a single instance will download and process the dataset
-    _ = BimanualDataset(root=args.root, 
-                        is_processed=False,
-                        split="train",
-                        test_subject=args.test_subject, 
-                        validation_take=args.validation_take,
-                        temporal_length=args.temporal_length,
-                        contact_only=args.contact_only,
-                        fix_fps=args.fix_fps,
-                        fix_null=args.fix_null)
+    if args.fix_fps:
+        raise NotImplementedError("Fix fps may be broken")
 
-    print("Dataset preparation is done! You can now train your model")
-    
+    raw_dir = os.path.join(args.root, "raw")
+
+    if args.download:
+        if not os.path.exists(raw_dir):
+            os.makedirs(raw_dir)
+        download_bimanual_dataset(raw_dir, args.fix_null)
+        print("Dataset downloaded!")
+
+    process_bimanual_dataset(args.root, args.temporal_length, args.fix_fps)
+    print("Dataset processed!")
+    print("You can now train your model!")
+
 
 if __name__ == "__main__":
-    main()    
+    main()
