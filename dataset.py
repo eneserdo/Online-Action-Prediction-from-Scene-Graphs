@@ -527,7 +527,7 @@ def create_mappings(processed_dir: str, temporal_length: int, test_subject: int,
 
         if subject_int == test_subject:
             dataset_mapping["test"]["vid"][id] = act_list
-        elif subject_int == validation_take:
+        elif take_int == validation_take:
             dataset_mapping["val"]["vid"][id] = act_list
         else:
             dataset_mapping["train"]["vid"][id] = act_list
@@ -546,7 +546,7 @@ def create_mappings(processed_dir: str, temporal_length: int, test_subject: int,
             path_mapping["test"][test_idx] = opj("subject_"+str(sub), f"data_{idx}.pt")
             test_idx+=1
         
-        elif sub == validation_take:
+        elif take == validation_take:
             dataset_mapping["val"]["sample"][idx] = (sub, task, take, start, end, mirrored)
             path_mapping["val"][val_idx] = opj("subject_"+str(sub), f"data_{idx}.pt")
             val_idx+=1
@@ -594,26 +594,25 @@ def print_data_point(data: Data):
     print("Graph id: ", data.y[0,-1].item())
 
 
-def get_bimanual_dataset_splits(*, root: str, process_it_anyway: bool, test_subject: int, validation_take: int , temporal_length: int, contact_only: bool, fix_fps: bool, fix_null: bool) -> Tuple[Dataset, Dataset, Dataset]:
+def get_bimanual_dataset_splits(*, root: str, process_it_anyway: bool, test_subject: int, validation_take: int , temporal_length: int) -> Tuple[Dataset, Dataset, Dataset]:
     # dataset_mapping = {"train":{"vid":{}, "sample":{}},
     #                    "test":{"vid":{}, "sample":{}},
     #                    "val":{"vid":{}, "sample":{}}}
     
     # path_mapping = {"train": {}, "test": {}, "val": {}} # [split]: idx -> path
-    
-    assert os.path.isfile(opj(processed_dir, "dataset_mapping_master.json")), "Dataset is not preprocessed yet"
-    assert os.path.isfile(opj(processed_dir, "config_info_master.json")), "Dataset is not preprocessed yet"
 
     processed_dir = opj(root, "processed"+str(temporal_length))
+    
+    assert os.path.isfile(opj(processed_dir, "dataset_mapping_master.pickle")), "Dataset is not preprocessed yet"
+    assert os.path.isfile(opj(processed_dir, "config_info_master.json")), "Dataset is not preprocessed yet"
 
-
-    if os.path.exists(opj(processed_dir, f"dataset_mapping_fold{test_subject}.json")) and (not process_it_anyway):
+    if os.path.exists(opj(processed_dir, f"dataset_mapping_fold{test_subject}.pickle")) and (not process_it_anyway):
         # read from folder
         print("Reading dataset mappings...")
-        with open(opj(processed_dir, f"dataset_mapping_fold{test_subject}.json"), "r") as f:
+        with open(opj(processed_dir, f"dataset_mapping_fold{test_subject}.pickle"), "rb") as f:
             dataset_mapping = pickle.load(f)
         
-        with open(opj(processed_dir, f"path_mapping_fold{test_subject}.json"), "r") as f:
+        with open(opj(processed_dir, f"path_mapping_fold{test_subject}.pickle"), "rb") as f:
             path_mapping = pickle.load(f)
 
     
@@ -629,10 +628,9 @@ def get_bimanual_dataset_splits(*, root: str, process_it_anyway: bool, test_subj
             pickle.dump(path_mapping, f)
 
 
-    train_set=BimanualDataset(root, path_mapping["train"])
-    test_set=BimanualDataset(root, path_mapping["test"])
-    val_set=BimanualDataset(root, path_mapping["val"])
+    train_set=BimanualDataset(root, temporal_length, path_mapping["train"])
+    test_set=BimanualDataset(root, temporal_length, path_mapping["test"])
+    val_set=BimanualDataset(root, temporal_length, path_mapping["val"])
     
 
-    print("Splits are ready")
     return train_set, test_set, val_set

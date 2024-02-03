@@ -17,6 +17,7 @@ def arg_parser_dataset():
 
 
 def main():
+    print("Preparing dataset...")
     args = arg_parser_dataset()
 
     if args.fix_fps:

@@ -181,13 +181,11 @@ if __name__ == "__main__":
                mode="disabled" if args.disable_wandb else "online")
 
 
-    train_set, test_set, val_set = get_bimanual_dataset_splits(root=args.root, is_processed=not args.process_it,
+    train_set, test_set, val_set = get_bimanual_dataset_splits(root=args.root, 
+                                                               process_it_anyway=args.process_it,
                                                                test_subject=args.test_subject,
                                                                validation_take=args.validation_take,
-                                                               temporal_length=args.temporal_length,
-                                                               contact_only=args.contact_only,
-                                                               fix_fps=args.fix_fps,
-                                                               fix_null=args.fix_null)
+                                                               temporal_length=args.temporal_length)
 
     train_loader = DataLoader(train_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker, generator=torch_generator)
     
@@ -276,7 +274,8 @@ if __name__ == "__main__":
     
     # dataset_mapping contains mapping for each sample to its location in the videos. 
     # Also, a mapping from video to ground truth action labels
-    with open(opj(train_set.processed_dir, "dataset_mapping.pickle"), "rb") as f:
+    dataset_mapping_dir = opj(train_set.processed_dir, f"dataset_mapping_fold{args.test_subject}.pickle")
+    with open(dataset_mapping_dir, "rb") as f:
         dataset_mapping = pickle.load(f)
         
     if args.save_individual:
