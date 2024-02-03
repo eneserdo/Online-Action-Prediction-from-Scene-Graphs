@@ -645,7 +645,7 @@ def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, use_wei
         y_pred_MR_all = all_arr[f"{video_id}MR"]
 
         for y_pred_ in [y_pred__L_all, y_pred__R_all, y_pred_ML_all, y_pred_MR_all]:
-            assert -1 not in y_pred_, "Not filled appropriately. There should be -1 in y_pred"
+            assert -1 not in y_pred_, "Not filled appropriately. There should not be -1 in y_pred"
 
         y_pred__L, conf_L = majority_voting(y_pred__L_all, total_len=y_true_L.shape[0], buffer_len=temporal_length, use_weights=use_weighted_mv)
         y_pred__R, conf_R = majority_voting(y_pred__R_all, total_len=y_true_R.shape[0], buffer_len=temporal_length, use_weights=use_weighted_mv)

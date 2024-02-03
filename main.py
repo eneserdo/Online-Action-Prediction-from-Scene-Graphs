@@ -53,60 +53,59 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     #               explanation_type="model")
     
 
-    # To ignore warnings about functorch and nan values in confusion matrix
-    with warnings.catch_warnings():
-        warnings.filterwarnings('ignore', '.*There is a performance drop.*|.*NaN values found in confusion matrix.*', UserWarning)
+    for idxes, data in loader:
+        step += 1
 
-        for idxes, data in loader:
-            step += 1
+        if mode == "train":
+            optimizer.zero_grad()
 
-            if mode == "train":
-                optimizer.zero_grad()
+        data = [d.to(device) for d in data]
 
-            data = [d.to(device) for d in data]
+        gt_reordered = torch.stack([torch.cat([d.y[::2], d.y[1::2]]) for d in data], dim=0)
+        # gt_reordered: [temporal_length, 2*batch_size(left, ..., left, right, ..., right) , num_classes]
 
-            gt_reordered = torch.stack([torch.cat([d.y[::2], d.y[1::2]]) for d in data], dim=0)
-            # gt_reordered: [temporal_length, 2*batch_size(left, ..., left, right, ..., right) , num_classes]
+        batch_size = gt_reordered.shape[1] // 2
 
-            batch_size = gt_reordered.shape[1] // 2
-
-            pred = model(data)
-            
-            pred_flattened = pred.flatten(0, 1)
-            gt_flattened = gt_reordered.flatten(0, 1)
-            
-            label_loss = label_criterion(pred_flattened, gt_flattened)
-            
-            # Segmentation is currently removed
-            loss = label_loss
-            
-            if mode == "train":
-                loss.backward()
-                optimizer.step()
+        pred = model(data)
+        
+        pred_flattened = pred.flatten(0, 1)
+        gt_flattened = gt_reordered.flatten(0, 1)
+        
+        label_loss = label_criterion(pred_flattened, gt_flattened)
+        
+        # Segmentation is currently removed
+        loss = label_loss
+        
+        if mode == "train":
+            loss.backward()
+            optimizer.step()
 
 
-            if mode != "test" and args.save_individual:
-                # Visualize individiual predictions
-                VIP.pick_samples(y_true=gt_reordered.cpu().argmax(2), y_pred=pred.detach().cpu(), idx=idxes, epoch=epoch, mode=mode)
+        if mode != "test" and args.save_individual:
+            # Visualize individiual predictions
+            raise NotImplementedError("save_individual may be broken due to global idx, please check it")
+            VIP.pick_samples(y_true=gt_reordered.cpu().argmax(2), y_pred=pred.detach().cpu(), idx=idxes, epoch=epoch, mode=mode)
 
-
+        # To ignore warnings about nan values in confusion matrix and functorch's performance drop
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', '.*There is a performance drop.*|.*NaN values found in confusion matrix.*', UserWarning)
             step_f1_top1, step_f1_top3 = metrics.update(pred.detach(), gt_reordered, idxes)
 
 
-            if mode != "test":
-                wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()}, 'batch': step})
+        if mode != "test":
+            wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()}, 'batch': step})
 
-            if mode == "test" and args.save_incorrects:
-                raise NotImplementedError("save_incorrects may be broken, please check it")
-                visualize_incorrect_preds(pred_top_1, ground_truth, idxes, num_of_samples=4, 
-                                          test_idx_sample_mapping=dataset_mapping["test"]["sample"])
-            # if (step+1)%20==0:
-            #     print("20 BATCH ÇALIŞIYOR SADECE")
-            #     break
+        if mode == "test" and args.save_incorrects:
+            raise NotImplementedError("save_incorrects may be broken, please check it")
+            visualize_incorrect_preds(pred_top_1, ground_truth, idxes, num_of_samples=4, 
+                                        test_idx_sample_mapping=dataset_mapping["test"]["sample"])
+        # if (step+1)%20==0:
+        #     print("20 BATCH ÇALIŞIYOR SADECE")
+        #     break
 
+    # End of for loop
     
-        metric_dict = metrics.compute()
-    # End of with warnings.catch_warnings():
+    metric_dict = metrics.compute()
 
     # TODO: Fix all wandb logs to be consistent with each other. use same dict
     if mode != "test":

@@ -497,15 +497,17 @@ class BimanualDataset(Dataset):
 
     def get(self, idx: int) -> Data:
 
-        data = torch.load(opj(self.processed_dir, self.mapping[idx]))
+        path, global_idx = self.mapping[idx]
+        data = torch.load(opj(self.processed_dir, path))
 
-        return idx, data 
+        # TODO maybe return both global_idx and local_idx
+        return global_idx, data 
 
 
 
 def create_mappings(processed_dir: str, temporal_length: int, test_subject: int, validation_take: int) -> [dict, dict]:
     
-    path_mapping = {"train": {}, "test": {}, "val": {}} # [split]: idx -> path
+    path_mapping = {"train": {}, "test": {}, "val": {}} # [split]: local idx -> path, global idx 
 
     dataset_mapping = {"train":{"vid":{}, "sample":{}},
                        "test":{"vid":{}, "sample":{}},
@@ -543,17 +545,17 @@ def create_mappings(processed_dir: str, temporal_length: int, test_subject: int,
         
         if sub == test_subject:
             dataset_mapping["test"]["sample"][idx] = (sub, task, take, start, end, mirrored)
-            path_mapping["test"][test_idx] = opj("subject_"+str(sub), f"data_{idx}.pt")
+            path_mapping["test"][test_idx] = (opj("subject_"+str(sub), f"data_{idx}.pt"), idx)
             test_idx+=1
         
         elif take == validation_take:
             dataset_mapping["val"]["sample"][idx] = (sub, task, take, start, end, mirrored)
-            path_mapping["val"][val_idx] = opj("subject_"+str(sub), f"data_{idx}.pt")
+            path_mapping["val"][val_idx] = (opj("subject_"+str(sub), f"data_{idx}.pt"), idx)
             val_idx+=1
 
         else:
             dataset_mapping["train"]["sample"][idx] = (sub, task, take, start, end, mirrored)
-            path_mapping["train"][train_idx] = opj("subject_"+str(sub), f"data_{idx}.pt")
+            path_mapping["train"][train_idx] = (opj("subject_"+str(sub), f"data_{idx}.pt"), idx)
             train_idx+=1
 
     
