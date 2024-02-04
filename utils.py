@@ -170,6 +170,29 @@ def plot_conf_mat(mat, name, do_save=False, do_return_plot=False):
     else:
         plt.close()
 
+def plot_line(line, name, do_save=False, do_return_plot=False):
+    
+    # assert len(line.shape)==1, "Line must be 1D"
+
+    if isinstance(line, torch.Tensor):
+        line = line.cpu().numpy()
+    
+    line_long = np.round(line * 100).astype(int)
+
+    plt.figure(figsize=(14, 12))
+    plt.plot(line_long)
+    plt.yticks(rotation=0)
+    plt.title(name)
+    plt.xlabel('t')
+    plt.ylabel('F1')
+    if do_save:
+        raise NotImplementedError("conf_mat diye bir klasor yok artik")
+        plt.savefig(opj("conf_mat", f'{name}.png'))
+    if do_return_plot:
+        return plt
+    else:
+        plt.close()
+
 
 def create_ground_truth_segments(label_series):
     change_occurring = torch.concat([label_series[1:] - label_series[:-1], torch.zeros(size=(1, label_series.shape[-1]), device=label_series.device)], dim=0)
@@ -685,7 +708,10 @@ def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, use_wei
 
 
 def metrics_to_str(metrics):
-    return " ".join([f"{k}: {v:.4f}" for k, v in metrics.items() if "cm" not in k])
+    selected=["f1_top1", "f1_top3", "f1_top1_once", "f1_top3_once", "f1@10", "f1@25", "f1@50"]
+    return " ".join([f"{k}: {v:.4f}" for k, v in metrics.items() if k in selected])
+    # return " ".join([f"{k}: {v:.4f}" for k, v in metrics.items() if "cm" not in k])
+
     
 
 class VisIndividualPreds:
@@ -792,8 +818,9 @@ class Metrics:
         self.f1_top1 = MulticlassF1Score(num_classes=num_classes, top_k=1, average="macro").to(device)
         self.f1_top3 = MulticlassF1Score(num_classes=num_classes, top_k=1, average="macro").to(device) # top_k is intentionally 1
 
-        self.conf_mat_top1 = MulticlassConfusionMatrix(num_classes=num_classes, normalize="true").to(device)
-        self.conf_mat_top3 = MulticlassConfusionMatrix(num_classes=num_classes, normalize="true").to(device)
+        # These are not really necessary
+        # self.conf_mat_top1 = MulticlassConfusionMatrix(num_classes=num_classes, normalize="true").to(device)
+        # self.conf_mat_top3 = MulticlassConfusionMatrix(num_classes=num_classes, normalize="true").to(device)
         
         # Window-location-sensitive
         self.win_f1_calc_top1 = [MulticlassF1Score(num_classes=num_classes, top_k=1, average="macro").to(device) for _ in range(temporal_length)]
@@ -826,8 +853,8 @@ class Metrics:
         step_f1_top1 = self.f1_top1(pred_top_1, gt_flattened) 
         step_f1_top3 = self.f1_top3(pred_top_3, gt_flattened)
 
-        self.conf_mat_top1(pred_top_1, gt_flattened)
-        self.conf_mat_top3(pred_top_3, gt_flattened)
+        # self.conf_mat_top1(pred_top_1, gt_flattened)
+        # self.conf_mat_top3(pred_top_3, gt_flattened)
 
         pred_top_1_unf = pred_top_1.unflatten(0, (self.temporal_length, -1))
         pred_top_3_unf = pred_top_3.unflatten(0, (self.temporal_length, -1))
@@ -868,8 +895,8 @@ class Metrics:
         ret = {
             "f1_top1": self.f1_top1.compute().item(),
             "f1_top3": self.f1_top3.compute().item(),
-            "cm_top1": self.conf_mat_top1.compute().cpu(),
-            "cm_top3": self.conf_mat_top3.compute().cpu(),
+            # "cm_top1": self.conf_mat_top1.compute().cpu(),
+            # "cm_top3": self.conf_mat_top3.compute().cpu(),
             "f1_top1_once": f1_top1_mv,
             "f1_top3_once": f1_top3_mv,
             "cm_top1_once": cm_top1_mv,
@@ -886,3 +913,47 @@ class Metrics:
 
 def almost_equal(a, b, eps=1e-6):
     return np.abs(a-b) < eps
+
+
+def wandb_logging(wandb, metric_dict, epoch, mode):
+    # Gathered all wandb logs here (except batch logs)
+    # I think wabdb kind a have state, so I take it as an argument. But not tested otherwise.
+
+
+    # Window-location-sensitive metrics: line plots
+    lplt1=plot_line(metric_dict["win_f1_top1"], f"{mode}_f1_top1_by_t", do_return_plot=True)
+    wandb.log({f"{mode}/f1_by_t": {'top1': wandb.Image(lplt1)}})
+    lplt1.close()
+
+    lplt3=plot_line(metric_dict["win_f1_top3"], f"{mode}_f1_top3_by_t", do_return_plot=True)
+    wandb.log({f"{mode}/f1_by_t": {'top3': wandb.Image(lplt3)}})
+    lplt3.close()
+
+    
+    wandb.log({f"{mode}/epoch": {"f1@10": metric_dict["f1@10"], 
+                                  "f1@25": metric_dict["f1@25"], 
+                                  "f1@50": metric_dict["f1@50"], 
+                                  "f1_top1_once": metric_dict["f1_top1_once"], 
+                                  "f1_top3_once": metric_dict["f1_top3_once"],
+                                  "f1_top1": metric_dict["f1_top1"],
+                                  "f1_top3": metric_dict["f1_top3"]},
+                "epoch": epoch})
+
+    # Confusion matrices (only for test and val)
+    if mode in ["val", "test"]:
+        plt = plot_conf_mat(metric_dict["cm_top1_once"], f"{mode}_CM_top1_e{epoch:0>4}", do_return_plot=True)
+        wandb.log({f"{mode}/confusion_matrix": {'top1': wandb.Image(plt)}})
+        plt.close()
+
+        plt3 = plot_conf_mat(metric_dict["cm_top3_once"], f"{mode}_CM_top3_e{epoch:0>4}", do_return_plot=True)
+        wandb.log({f"{mode}/confusion_matrix": {'top3': wandb.Image(plt3)}})
+        plt3.close()
+        
+        # Following is not working
+        # wandb.log({f"{mode}/confusion_matrix": {"top1": wandb.Image(plt), 
+        #                                          "top3": wandb.Image(plt3)},
+        #             "epoch": epoch})
+                                                 
+    
+    # if 
+    # wandb.log({"test_top1": round(test_metrics["f1_top1"], 4), "test_top3": round(test_metrics["f1_top3"], 4), "f1_top1_once": round(test_metrics["f1_top1_once"], 4), "f1@10": round(test_metrics["f1@10"], 4), "f1@25": round(test_metrics["f1@25"], 4), "f1@50": round(test_metrics["f1@50"], 4)})

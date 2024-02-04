@@ -19,7 +19,7 @@ import models
 import wandb
 from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits)
 from utils import (F1_at_k, Metrics, VisIndividualPreds, almost_equal, arg_parser, calc_metrics_at_once, combine_predictions, get_loss_weights, get_minutes, metrics_to_str, plot_conf_mat, seed_worker, 
-                   visualize_incorrect_preds, create_ground_truth_segments, assign_seg_labels, flatten_seq)
+                   visualize_incorrect_preds, create_ground_truth_segments, assign_seg_labels, flatten_seq, wandb_logging)
 
 
 torch.backends.cudnn.deterministic = True
@@ -92,8 +92,8 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             step_f1_top1, step_f1_top3 = metrics.update(pred.detach(), gt_reordered, idxes)
 
 
-        if mode != "test":
-            wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()}, 'batch': step})
+        # if mode != "test":
+        #     wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()}, 'batch': step})
 
         if mode == "test" and args.save_incorrects:
             raise NotImplementedError("save_incorrects may be broken, please check it")
@@ -107,22 +107,27 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     
     metric_dict = metrics.compute()
 
-    # TODO: Fix all wandb logs to be consistent with each other. use same dict
-    if mode != "test":
-        wandb.log({f"{mode}/epoch/": {'top1_F1': metric_dict["f1_top1"], 'top3_F1': metric_dict["f1_top3"]}, 'epoch': epoch})
+
+
+    # # TODO: Fix all wandb logs to be consistent with each other. use same dict
+    # if mode != "test":
+    #     wandb.log({f"{mode}/epoch/": {'top1_F1': metric_dict["f1_top1"], 'top3_F1': metric_dict["f1_top3"]}, 'epoch': epoch})
 
     
-    wandb.log({f"{mode}/epoch/": {'f1@10': metric_dict["f1@10"], 'f1@25': metric_dict["f1@25"], 'f1@50': metric_dict["f1@50"], "f1_top1_once": metric_dict["f1_top1_once"]}, 'epoch': epoch})
+    # wandb.log({f"{mode}/epoch/": {'f1@10': metric_dict["f1@10"], 'f1@25': metric_dict["f1@25"], 'f1@50': metric_dict["f1@50"], "f1_top1_once": metric_dict["f1_top1_once"]}, 'epoch': epoch})
 
 
     return metric_dict
 
 
-def test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of="f1_top1"):
+def test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of):
     
     comparison_metric=choose_best_in_terms_of
     
     weight_list=sorted(glob.glob(opj(save_dir, "*.pt")))
+
+    if len(weight_list) == 0:
+        return None
     
     best_metric = 0    
     results = []
@@ -133,7 +138,7 @@ def test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of="f1_t
         model.load_state_dict(checkpoint["model_state_dict"])
         returned_dict = run_one_epoch(model, test_loader, 'test', epoch=int((w_name[-7:-3])))
         
-        print(f'### [F1] TEST: ', metrics_to_str(returned_dict))
+        print(f'### TEST: ', metrics_to_str(returned_dict))
 
         results.append(returned_dict)        
         if best_metric < returned_dict[comparison_metric]:
@@ -174,7 +179,8 @@ if __name__ == "__main__":
     torch_generator.manual_seed(0)
 
     # assert args.gpu_id < torch.cuda.device_count(), f"gpu_id:{args.gpu_id} not found. Total gpu count: {torch.cuda.device_count()}"
-    device = torch.device('cuda:' + str(args.gpu_id) if torch.cuda.is_available() else 'cpu')
+    # device = torch.device('cuda:' + str(args.gpu_id) if torch.cuda.is_available() else 'cpu')
+    device = "cpu"
 
     wandb.init(project="rt-action-segmentation-from-scene-graphs", name=args.name, config=args.__dict__,
                mode="disabled" if args.disable_wandb else "online")
@@ -229,15 +235,16 @@ if __name__ == "__main__":
 
 
     wandb.watch(model, log='all')
-    wandb.define_metric("epoch")
-    wandb.define_metric("train/epoch/*", step_metric="epoch")
-    wandb.define_metric("val/epoch/*", step_metric="epoch", summary="max")
-    wandb.define_metric("val/confusion_matrix/*", step_metric="epoch")
-    wandb.define_metric("batch")
-    wandb.define_metric("train/batch/*", step_metric="batch")
-    wandb.define_metric("val/batch/*", step_metric="batch")
-    wandb.define_metric("test_top1")
-    wandb.define_metric("test_top3")
+    # wandb.define_metric("epoch")
+    # wandb.define_metric("train/epoch/*", step_metric="epoch")
+    # wandb.define_metric("val/epoch/*", step_metric="epoch", summary="max")
+    # wandb.define_metric("val/confusion_matrix/*", step_metric="epoch")
+    # wandb.define_metric("batch")
+    # wandb.define_metric("train/batch/*", step_metric="batch")
+    # wandb.define_metric("val/batch/*", step_metric="batch")
+    # wandb.define_metric("test_top1")
+    # wandb.define_metric("test_top3")
+
 
 
     if args.optimizer_type == 'SGD':
@@ -289,23 +296,25 @@ if __name__ == "__main__":
         start = time.perf_counter()
 
         train_metrics = run_one_epoch(model, train_loader, 'train', epoch)
-
+        wandb_logging(wandb, train_metrics, epoch, "train")
+        
         val_metrics = run_one_epoch(model, val_loader, 'val', epoch)
+        wandb_logging(wandb, val_metrics, epoch, "val")
 
         # Save model
         if epoch % args.saving_freq == 0 or epoch == start + args.max_epochs - 1:
             torch.save({"model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(),
                         "scheduler_state_dict": scheduler.state_dict()},
-                       opj(save_dir, f"model_epoch{epoch:0>4}.pt"))
+                        opj(save_dir, f"model_epoch{epoch:0>4}.pt"))
 
         # VALIDATION
         # save confusion matrices
-        plt = plot_conf_mat(val_metrics["cm_top1"], f"conf_mat_top1_e{epoch:0>4}", do_return_plot=True)
-        wandb.log({'val/confusion_matrix/': {'top1': wandb.Image(plt)}})
-        plt3 = plot_conf_mat(val_metrics["cm_top3"], f"conf_mat_top3_e{epoch:0>4}", do_return_plot=True)
-        wandb.log({'val/confusion_matrix/': {'top3': wandb.Image(plt3)}})
-        plt.close()
-        plt3.close()
+        # plt = plot_conf_mat(val_metrics["cm_top1_once"], f"cm_top1_e{epoch:0>4}", do_return_plot=True)
+        # wandb.log({'val/confusion_matrix/': {'top1': wandb.Image(plt)}})
+        # plt3 = plot_conf_mat(val_metrics["cm_top3_once"], f"cm_top3_e{epoch:0>4}", do_return_plot=True)
+        # wandb.log({'val/confusion_matrix/': {'top3': wandb.Image(plt3)}})
+        # plt.close()
+        # plt3.close()
 
         scheduler.step()
         stop = time.perf_counter()
@@ -320,19 +329,11 @@ if __name__ == "__main__":
     # TEST
     print("Starts test...")
 
-    test_metrics = test_for_all_saved_weights(model, test_loader)
-
-
-    plt = plot_conf_mat(test_metrics["cm_top1"], f"TEST_conf_mat_top1_e{epoch:0>4}", do_return_plot=True)
-    wandb.log({'test/confusion_matrix/': {'top1': wandb.Image(plt)}})
-    plt3 = plot_conf_mat(test_metrics["cm_top3"], f"TEST_conf_mat_top3_e{epoch:0>4}", do_return_plot=True)
-    wandb.log({'test/confusion_matrix/': {'top3': wandb.Image(plt3)}})
+    test_metrics = test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of="f1_top1_once")
+    if test_metrics is None:
+        print("[WARN] No weights found to test")
+    else:
+        wandb_logging(wandb, test_metrics, epoch, "test")
     
-
-    print(f'### [F1] TEST: ', metrics_to_str(test_metrics))
-    wandb.log({"test_top1": round(test_metrics["f1_top1"], 4), "test_top3": round(test_metrics["f1_top3"], 4), "f1_top1_once": round(test_metrics["f1_top1_once"], 4), "f1@10": round(test_metrics["f1@10"], 4), "f1@25": round(test_metrics["f1@25"], 4), "f1@50": round(test_metrics["f1@50"], 4)})
-
-    plt.close()
-    plt3.close()
     torch.cuda.empty_cache()
     wandb.finish()
