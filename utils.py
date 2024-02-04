@@ -5,6 +5,7 @@ import os
 from os.path import join as opj
 import random
 import shutil
+import warnings
 
 
 import matplotlib.pyplot as plt
@@ -697,10 +698,14 @@ def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, weighte
         f1_classic(torch.tensor(y_pred_MR), torch.tensor(y_true_L))
 
         # Conf mat
-        conf_mat(torch.tensor(y_pred__L), torch.tensor(y_true_L))
-        conf_mat(torch.tensor(y_pred__R), torch.tensor(y_true_R))
-        conf_mat(torch.tensor(y_pred_ML), torch.tensor(y_true_R))
-        conf_mat(torch.tensor(y_pred_MR), torch.tensor(y_true_L))
+        # To ignore warnings about nan values in confusion matrix and functorch's performance drop
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', '.*NaN values found in confusion matrix.*', UserWarning)
+
+            conf_mat(torch.tensor(y_pred__L), torch.tensor(y_true_L))
+            conf_mat(torch.tensor(y_pred__R), torch.tensor(y_true_R))
+            conf_mat(torch.tensor(y_pred_ML), torch.tensor(y_true_R))
+            conf_mat(torch.tensor(y_pred_MR), torch.tensor(y_true_L))
         
         
         # Visualization
@@ -849,9 +854,13 @@ class Metrics:
         pred_top_3 = torch.argsort(pred_flattened, dim=-1, descending=True)[:, :3]
         pred_top_1 = pred_top_3[:,0]
 
+        # CHECKME: pred_top_1 = pred_top_3[:,0]
+        # Make sure they are not the same tensor
 
         # This magical function ...
-        pred_top_3 = torch.where(torch_vmap(lambda t1, t2: torch.isin(t1, t2))(gt_flattened, pred_top_3), gt_flattened, pred_top_1)
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', '.*There is a performance drop.*', UserWarning)
+            pred_top_3 = torch.where(torch_vmap(lambda t1, t2: torch.isin(t1, t2))(gt_flattened, pred_top_3), gt_flattened, pred_top_1)
         
         
         # torchmetric
@@ -935,7 +944,7 @@ def wandb_logging(wandb, metric_dict, epoch, mode):
     lplt3.close()
 
     
-    wandb.log({f"{mode}/epoch": {"f1@10": metric_dict["f1@10"], 
+    wandb.log({f"{mode}/epoch/": {"f1@10": metric_dict["f1@10"], 
                                   "f1@25": metric_dict["f1@25"], 
                                   "f1@50": metric_dict["f1@50"], 
                                   "f1_top1_once": metric_dict["f1_top1_once"], 

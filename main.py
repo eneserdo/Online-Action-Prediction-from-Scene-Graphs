@@ -86,10 +86,8 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             raise NotImplementedError("save_individual may be broken due to global idx, please check it")
             VIP.pick_samples(y_true=gt_reordered.cpu().argmax(2), y_pred=pred.detach().cpu(), idx=idxes, epoch=epoch, mode=mode)
 
-        # To ignore warnings about nan values in confusion matrix and functorch's performance drop
-        with warnings.catch_warnings():
-            warnings.filterwarnings('ignore', '.*There is a performance drop.*|.*NaN values found in confusion matrix.*', UserWarning)
-            step_f1_top1, step_f1_top3 = metrics.update(pred.detach(), gt_reordered, idxes)
+
+        step_f1_top1, step_f1_top3 = metrics.update(pred.detach(), gt_reordered, idxes)
 
 
         # if mode != "test":
@@ -234,10 +232,13 @@ if __name__ == "__main__":
 
 
     wandb.watch(model, log='all')
-    # wandb.define_metric("epoch")
-    # wandb.define_metric("train/epoch/*", step_metric="epoch")
+    wandb.define_metric("epoch")
+    wandb.define_metric("train/epoch*", step_metric="epoch")
+    wandb.define_metric("val/epoch*", step_metric="epoch")
+    # wandb.define_metric("test/epoch*", step_metric="epoch")
     # wandb.define_metric("val/epoch/*", step_metric="epoch", summary="max")
-    # wandb.define_metric("val/confusion_matrix/*", step_metric="epoch")
+    wandb.define_metric("val/confusion_matrix*", step_metric="epoch")
+    wandb.define_metric("test/confusion_matrix*", step_metric="epoch")
     # wandb.define_metric("batch")
     # wandb.define_metric("train/batch/*", step_metric="batch")
     # wandb.define_metric("val/batch/*", step_metric="batch")
