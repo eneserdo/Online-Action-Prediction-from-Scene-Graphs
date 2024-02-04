@@ -45,7 +45,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
 
     seg_save_dir = opj(save_dir, f"test_results_{epoch}") if (mode == "test" and args.save_segments) else None
-    metrics = Metrics(len(ACTIONS), args.temporal_length, device, dataset_mapping, mode, seg_save_dir, args.use_weighted_mv)
+    metrics = Metrics(len(ACTIONS), args.temporal_length, device, dataset_mapping, mode, seg_save_dir, args.weighted_mv)
 
     # exp=Explainer(model.gnn, 
     #               algorithm=AttentionExplainer(), 

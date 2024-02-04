@@ -98,7 +98,7 @@ def arg_parser():
     
 
     ap.add_argument("--disable_seg", action="store_true", help="...")
-    ap.add_argument("--use_weighted_mv", action="store_true", help="...")
+    ap.add_argument("--weighted_mv", type=str, default="none", choices=["none", "w1", "w2"], help="...")
 
     # Training
     ap.add_argument("-me", "--max_epochs", type=int, default=20, help="Max number of epochs")
@@ -563,7 +563,7 @@ class F1_at_k:
         return np.mean(self.k_10), np.mean(self.k_25), np.mean(self.k_50)
 
 
-def majority_voting(arr, total_len, buffer_len, use_weights):
+def majority_voting(arr, total_len, buffer_len, weighted):
     # TODO: add asserts
     # majority voting for overlapping windows for single sample
     # arr: [T,]
@@ -580,9 +580,14 @@ def majority_voting(arr, total_len, buffer_len, use_weights):
     confidences = np.zeros((total_len))
     shift = buffer_len - 1
 
-    if use_weights:
-        # vote_weights = np.array([0]*1 + [1]*1 + [2]*1 + [5]*2 + [6]*3 + [7]*4 + [8]*6 +[7]*4 + [6]*3 + [5]*2 + [2]*1 + [1]*1 + [0]*1)
-        vote_weights = np.array([0]*3 + [4]*2 + [5]*3 + [6]*3 + [7]*3 + [8]*2 + [7]*3 +[6]*3 + [5]*3 + [4]*2 + [0]*3)
+    if weighted != "none":
+
+        if weighted == "w1":
+            vote_weights = np.array([0]*1 + [1]*1 + [2]*1 + [5]*2 + [6]*3 + [7]*4 + [8]*6 +[7]*4 + [6]*3 + [5]*2 + [2]*1 + [1]*1 + [0]*1)
+        elif weighted == "w2":
+            vote_weights = np.array([0]*3 + [4]*2 + [5]*3 + [6]*3 + [7]*3 + [8]*2 + [7]*3 +[6]*3 + [5]*3 + [4]*2 + [0]*3)
+        else:
+            raise ValueError("weighted must be one of 'none', 'w1', 'w2'")
 
         assert (vote_weights[:buffer_len//2] == vote_weights[-buffer_len//2:][::-1]).all(), "vote_weights is supposed to be symmetric"
         assert vote_weights.shape[0] == 30, "vote_weights must have length 30"
@@ -606,7 +611,7 @@ def majority_voting(arr, total_len, buffer_len, use_weights):
 
         assert sub_arr.shape[0] == repeat
 
-        if use_weights:
+        if weighted != "none":
             if sub_arr.shape[0] == vote_weights.shape[0]: 
                 sub_arr = np.repeat(sub_arr, vote_weights)
 
@@ -643,7 +648,7 @@ def combine_predictions(all_arr, idx, sub_arr, mapping):
     
     return all_arr
 
-def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, use_weighted_mv, save_dir=None):
+def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, weighted_mv, save_dir=None):
     # Applies majority voting, calculates metrics, visualizes and saves the all predictions
     
     # In mapping there is no mirrored data, since it is redundant
@@ -670,10 +675,10 @@ def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, use_wei
         for y_pred_ in [y_pred__L_all, y_pred__R_all, y_pred_ML_all, y_pred_MR_all]:
             assert -1 not in y_pred_, "Not filled appropriately. There should not be -1 in y_pred"
 
-        y_pred__L, conf_L = majority_voting(y_pred__L_all, total_len=y_true_L.shape[0], buffer_len=temporal_length, use_weights=use_weighted_mv)
-        y_pred__R, conf_R = majority_voting(y_pred__R_all, total_len=y_true_R.shape[0], buffer_len=temporal_length, use_weights=use_weighted_mv)
-        y_pred_ML, conf_ML = majority_voting(y_pred_ML_all, total_len=y_true_L.shape[0], buffer_len=temporal_length, use_weights=use_weighted_mv)
-        y_pred_MR, conf_MR = majority_voting(y_pred_MR_all, total_len=y_true_R.shape[0], buffer_len=temporal_length, use_weights=use_weighted_mv)
+        y_pred__L, conf_L = majority_voting(y_pred__L_all, total_len=y_true_L.shape[0], buffer_len=temporal_length, weighted=weighted_mv)
+        y_pred__R, conf_R = majority_voting(y_pred__R_all, total_len=y_true_R.shape[0], buffer_len=temporal_length, weighted=weighted_mv)
+        y_pred_ML, conf_ML = majority_voting(y_pred_ML_all, total_len=y_true_L.shape[0], buffer_len=temporal_length, weighted=weighted_mv)
+        y_pred_MR, conf_MR = majority_voting(y_pred_MR_all, total_len=y_true_R.shape[0], buffer_len=temporal_length, weighted=weighted_mv)
         
         
         # Notice that the convention is (y_true, y_pred)
@@ -806,13 +811,13 @@ def get_loss_weights(weighted_loss_type, distribution):
 
 
 class Metrics:
-    def __init__(self, num_classes, temporal_length, device, dataset_mapping, mode, seg_save_dir, use_weighted_mv) -> None:
+    def __init__(self, num_classes, temporal_length, device, dataset_mapping, mode, seg_save_dir, weighted_mv) -> None:
         
         self.dataset_mapping = dataset_mapping
         self.mode = mode
         self.temporal_length = temporal_length
         self.seg_save_dir = seg_save_dir 
-        self.use_weighted_mv = use_weighted_mv 
+        self.weighted_mv = weighted_mv 
 
         # Window-based
         self.f1_top1 = MulticlassF1Score(num_classes=num_classes, top_k=1, average="macro").to(device)
@@ -879,14 +884,14 @@ class Metrics:
                                                                           self.dataset_mapping[self.mode]["vid"], 
                                                                           num_classes=len(ACTIONS), 
                                                                           temporal_length=self.temporal_length,
-                                                                          use_weighted_mv=self.use_weighted_mv,
+                                                                          weighted_mv=self.weighted_mv,
                                                                           save_dir=self.seg_save_dir)
 
         _, _, _, f1_top3_mv, cm_top3_mv = calc_metrics_at_once(self.all_predictions_combined_top3, 
                                                                           self.dataset_mapping[self.mode]["vid"], 
                                                                           num_classes=len(ACTIONS), 
                                                                           temporal_length=self.temporal_length,
-                                                                          use_weighted_mv=self.use_weighted_mv,
+                                                                          weighted_mv=self.weighted_mv,
                                                                           save_dir=None)
 
         self.win_f1_calc_top1_results = [f1_calc.compute().item() for f1_calc in self.win_f1_calc_top1]
