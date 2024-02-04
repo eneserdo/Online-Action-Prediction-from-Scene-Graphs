@@ -179,8 +179,7 @@ if __name__ == "__main__":
     torch_generator.manual_seed(0)
 
     # assert args.gpu_id < torch.cuda.device_count(), f"gpu_id:{args.gpu_id} not found. Total gpu count: {torch.cuda.device_count()}"
-    # device = torch.device('cuda:' + str(args.gpu_id) if torch.cuda.is_available() else 'cpu')
-    device = "cpu"
+    device = torch.device('cuda:' + str(args.gpu_id) if torch.cuda.is_available() else 'cpu')
 
     wandb.init(project="rt-action-segmentation-from-scene-graphs", name=args.name, config=args.__dict__,
                mode="disabled" if args.disable_wandb else "online")
