@@ -119,7 +119,11 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
 
 def test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of):
-    
+    # Log everything for cross-validation 
+
+    cv_file = opj(save_dir, "cross_validation_fold" + str(args.test_subject) + ".pickle")
+    cv_list = []
+
     comparison_metric=choose_best_in_terms_of
     
     weight_list=sorted(glob.glob(opj(save_dir, "*.pt")))
@@ -135,6 +139,7 @@ def test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of):
         checkpoint = torch.load(w_name)
         model.load_state_dict(checkpoint["model_state_dict"])
         returned_dict = run_one_epoch(model, test_loader, 'test', epoch=int((w_name[-7:-3])))
+        cv_list.append(returned_dict)
         
         print(f'### TEST: ', metrics_to_str(returned_dict))
 
@@ -142,6 +147,9 @@ def test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of):
         if best_metric < returned_dict[comparison_metric]:
             best_metric = returned_dict[comparison_metric]
             best_i = i
+
+    with open(cv_file, "wb") as f:
+        pickle.dump(cv_list, f)
 
     return results[best_i]
 
