@@ -40,7 +40,7 @@ class PositionalEncoding(Module):
         >>> pos_encoder = PositionalEncoding(d_model)
     """
 
-    def __init__(self, d_model, dropout=0.1, max_len=5000, use_library=False):
+    def __init__(self, d_model, dropout=0, max_len=5000, use_library=False):
         super(PositionalEncoding, self).__init__()
         # FIXME: dropout ??
         self.dropout = Dropout(p=dropout)
@@ -154,6 +154,7 @@ class ActionRecognition(torch.nn.Module):
                  use_hand_pooling,
                  edge_dropout,
                  dropout,
+                 dropout_tr,
                  task,
                  merged_pred,
                  norm_layer,
@@ -238,7 +239,7 @@ class ActionRecognition(torch.nn.Module):
 
         elif temporal_type == "tr":
             # Default dropout is 0.1
-            self.temporal_layer = TransformerEncoder(TransformerEncoderLayer(effective_out_ch2, 4, lstm_hidden_size // 4 * 3, norm_first=norm_first), 2)
+            self.temporal_layer = TransformerEncoder(TransformerEncoderLayer(effective_out_ch2, 4, lstm_hidden_size // 4 * 3, norm_first=norm_first, dropout=dropout_tr), 2)
             self.PE_coef = math.sqrt(effective_out_ch2)
 
             if pos_enc == "original":
