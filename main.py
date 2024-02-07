@@ -121,7 +121,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 def test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of):
     # Log everything for cross-validation 
 
-    cv_file = opj(save_dir, "cross_validation_fold" + str(args.test_subject) + ".pickle")
+    cv_file = opj(save_dir, f"cross_validation_fold{args.test_subject}.pickle")
     cv_list = []
 
     comparison_metric=choose_best_in_terms_of
@@ -151,6 +151,7 @@ def test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of):
     with open(cv_file, "wb") as f:
         pickle.dump(cv_list, f)
 
+    print(f'### BEST: ', metrics_to_str(returned_dict))
     return results[best_i]
 
 
@@ -163,15 +164,9 @@ if __name__ == "__main__":
     if args.task != "onetoone":
         raise NotImplementedError("Currently only onetoone task is supported")
 
-    if args.perfect_seg:
-        raise KeyError("perfect_seg is deprecated. Use --task seg instead.")
-    
     if args.task in ["labelonly", "both", "onetoone"] and args.label_loss_weight == 0:
         raise ValueError(f"task {args.task} requires label_loss_weight to be non-zero")
     
-    if not args.disable_seg:
-        raise NotImplementedError("Segmentation may be broken, please check it")
-
     assert args.merged_pred in ["none", "late", "attention"], f"merged_pred must be one of [none, late, attention]. Given: {args.merged_pred}"
 
     # Make sure it is reproducible
@@ -182,7 +177,7 @@ if __name__ == "__main__":
     torch.cuda.manual_seed(args.seed)
     # torch.use_deterministic_algorithms(mode=True, warn_only=True) # This throws an error
     torch_generator = torch.Generator()
-    torch_generator.manual_seed(0)
+    torch_generator.manual_seed(args.seed)
 
     # assert args.gpu_id < torch.cuda.device_count(), f"gpu_id:{args.gpu_id} not found. Total gpu count: {torch.cuda.device_count()}"
     device = torch.device('cuda:' + str(args.gpu_id) if torch.cuda.is_available() else 'cpu')
@@ -223,19 +218,18 @@ if __name__ == "__main__":
                                      task=args.task,
                                      merged_pred=args.merged_pred,
                                      norm_layer=args.norm_layer,
-                                     DISABLE_SEGMENTATION=args.disable_seg,
                                      norm_first=args.norm_first,
                                      pos_enc=args.pos_enc,
                                      temporal_length=args.temporal_length).to(device=device)
 
-    print(model)
+    # print(model)
     rnn_params = sum(p.numel() for p in model.temporal_layer.parameters() if p.requires_grad)
     gnn_params = sum(p.numel() for p in model.gnn.parameters() if p.requires_grad)
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-    print(f"Total trainable params: {total_params:_}")
-    print(f"RNN: {rnn_params:_}")
-    print(f"GNN: {gnn_params:_}")
+    # print(f"Total trainable params: {total_params:_}")
+    # print(f"RNN: {rnn_params:_}")
+    # print(f"GNN: {gnn_params:_}")
     wandb.log({"total_params": total_params, "rnn_params": rnn_params, "gnn_params": gnn_params})
 
 
@@ -243,7 +237,7 @@ if __name__ == "__main__":
     wandb.define_metric("epoch")
     wandb.define_metric("train/epoch*", step_metric="epoch")
     wandb.define_metric("val/epoch*", step_metric="epoch")
-    # wandb.define_metric("test/epoch*", step_metric="epoch")
+    wandb.define_metric("test*", step_metric="epoch")
     # wandb.define_metric("val/epoch/*", step_metric="epoch", summary="max")
     wandb.define_metric("val/confusion_matrix*", step_metric="epoch")
     wandb.define_metric("test/confusion_matrix*", step_metric="epoch")
