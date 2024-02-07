@@ -39,7 +39,6 @@ def arg_parser():
     # Dataset
     ap.add_argument("-rt", "--root", type=str, default='.', help="Root directory of dataset.")
     ap.add_argument("-p", "--process_it", action="store_true", help="...")
-    ap.add_argument("-contact", "--contact_only", action="store_true", help="...")
     ap.add_argument("--fix_fps", action="store_true", help="...")
     ap.add_argument("--fix_null", action="store_true", help="Fix null actions in the video of subject_6-task_4-take_1")
     ap.add_argument("-bs", "--batch_size", type=int, default=256, help="...")
@@ -67,11 +66,6 @@ def arg_parser():
     ap.add_argument("--pos_enc", type=str, default="original", choices=["original", "learnable", "none"], help="Type of positional encoding")
     
 
-    # Segmentation task
-    ap.add_argument("--sdtw_gamma", type=float, default=1.0, help="Gamma parameter for soft-DTW")
-    ap.add_argument("--seg_loss", type=str, default="BCELoss", choices=["sDTW", "BCELoss"], help="Loss function for segmentation task")
-    ap.add_argument("--perfect_seg", action="store_true", help="Use ground truth segment ending info")
-    
     # Task
     ap.add_argument("--task", type=str, default="both", choices=["segonly", "labelonly", "both", "onetoone"], help="There are two tasks: segmentation and action label prediction")
     # "labelonly" is the new "perfect_seg" 
@@ -97,8 +91,6 @@ def arg_parser():
     
     ap.add_argument("--smoothing", type=float, default=0.0, help="Label smoothing weight")
     
-
-    ap.add_argument("--disable_seg", action="store_true", help="...")
     ap.add_argument("--weighted_mv", type=str, default="none", choices=["none", "w1", "w2"], help="...")
 
     # Training
@@ -175,13 +167,10 @@ def plot_line(line, name, do_save=False, do_return_plot=False):
     
     # assert len(line.shape)==1, "Line must be 1D"
 
-    if isinstance(line, torch.Tensor):
-        line = line.cpu().numpy()
-    
-    line_long = np.round(line * 100).astype(int)
+    line = np.array(line)*100
 
     plt.figure(figsize=(14, 12))
-    plt.plot(line_long)
+    plt.plot(line)
     plt.yticks(rotation=0)
     plt.title(name)
     plt.xlabel('t')
@@ -846,16 +835,14 @@ class Metrics:
 
 
     def update(self, pred, gt_ohe, idxes):
-
+        # gt_ohe: [T, B, C] (one hot encoded)
+        # pred: [T, B, C]
         gt = gt_ohe.argmax(dim=-1)
         gt_flattened = gt.flatten(start_dim=0, end_dim=1)
 
         pred_flattened = pred.flatten(start_dim=0, end_dim=1)
         pred_top_3 = torch.argsort(pred_flattened, dim=-1, descending=True)[:, :3]
         pred_top_1 = pred_top_3[:,0]
-
-        # CHECKME: pred_top_1 = pred_top_3[:,0]
-        # Make sure they are not the same tensor
 
         # This magical function ...
         with warnings.catch_warnings():
@@ -936,15 +923,16 @@ def wandb_logging(wandb, metric_dict, epoch, mode):
 
     # Window-location-sensitive metrics: line plots
     lplt1=plot_line(metric_dict["win_f1_top1"], f"{mode}_f1_top1_by_t", do_return_plot=True)
-    wandb.log({f"{mode}/f1_by_t": {'top1': wandb.Image(lplt1)}})
+    log_name = f"{mode}/f1_by_t" if mode in ["train", "val"] else "test_f1_by_t"
+    wandb.log({log_name: {'top1': wandb.Image(lplt1)}})
     lplt1.close()
 
     lplt3=plot_line(metric_dict["win_f1_top3"], f"{mode}_f1_top3_by_t", do_return_plot=True)
-    wandb.log({f"{mode}/f1_by_t": {'top3': wandb.Image(lplt3)}})
+    wandb.log({log_name: {'top3': wandb.Image(lplt3)}})
     lplt3.close()
 
-    
-    wandb.log({f"{mode}/epoch/": {"f1@10": metric_dict["f1@10"], 
+    log_name = f"{mode}/epoch" if mode in ["train", "val"] else "epoch"
+    wandb.log({log_name: {"f1@10": metric_dict["f1@10"], 
                                   "f1@25": metric_dict["f1@25"], 
                                   "f1@50": metric_dict["f1@50"], 
                                   "f1_top1_once": metric_dict["f1_top1_once"], 
@@ -962,12 +950,3 @@ def wandb_logging(wandb, metric_dict, epoch, mode):
         plt3 = plot_conf_mat(metric_dict["cm_top3_once"], f"{mode}_CM_top3_e{epoch:0>4}", do_return_plot=True)
         wandb.log({f"{mode}/confusion_matrix": {'top3': wandb.Image(plt3)}})
         plt3.close()
-        
-        # Following is not working
-        # wandb.log({f"{mode}/confusion_matrix": {"top1": wandb.Image(plt), 
-        #                                          "top3": wandb.Image(plt3)},
-        #             "epoch": epoch})
-                                                 
-    
-    # if 
-    # wandb.log({"test_top1": round(test_metrics["f1_top1"], 4), "test_top3": round(test_metrics["f1_top3"], 4), "f1_top1_once": round(test_metrics["f1_top1_once"], 4), "f1@10": round(test_metrics["f1@10"], 4), "f1@25": round(test_metrics["f1@25"], 4), "f1@50": round(test_metrics["f1@50"], 4)})

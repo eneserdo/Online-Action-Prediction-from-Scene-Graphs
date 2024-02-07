@@ -157,18 +157,12 @@ class ActionRecognition(torch.nn.Module):
                  task,
                  merged_pred,
                  norm_layer,
-                 DISABLE_SEGMENTATION,
                  norm_first,
                  pos_enc,
                  temporal_length,
                  **kwargs):
         """ Accepts kwargs for non-general params of gnns """
         super().__init__()
-
-        self.DISABLE_SEGMENTATION = DISABLE_SEGMENTATION
-
-        if self.DISABLE_SEGMENTATION:
-            print("[WARN] Segmentation is disabled\n"*5)
 
         self.filter_it = filter_it
         self.use_hand_pooling = use_hand_pooling
