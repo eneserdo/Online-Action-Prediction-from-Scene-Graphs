@@ -176,7 +176,7 @@ def plot_line(line, name, do_save=False, do_return_plot=False):
 
     plt.figure(figsize=(14, 12))
     plt.plot(line)
-    plt.yticks(rotation=0)
+    plt.yticks(np.arange(min(line)-1, max(line)+1, 1.0))
     plt.title(name)
     plt.axhline(y = np.max(line), linestyle = '--') 
     plt.xlabel('t')
