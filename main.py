@@ -338,5 +338,12 @@ if __name__ == "__main__":
     else:
         wandb_logging(wandb, test_metrics, epoch, "test")
     
-    torch.cuda.empty_cache()
     wandb.finish()
+    
+    try:
+        torch.cuda.empty_cache()
+    except RuntimeError as e:
+        if "CUDA out of memory" in str(e):
+            time.sleep(5)
+        else:
+            raise e
