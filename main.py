@@ -151,7 +151,7 @@ def test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of):
     with open(cv_file, "wb") as f:
         pickle.dump(cv_list, f)
 
-    print(f'### BEST: ', metrics_to_str(returned_dict))
+    print(f'### BEST: ', metrics_to_str(results[best_i]))
     return results[best_i]
 
 
