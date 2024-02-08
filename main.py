@@ -344,7 +344,7 @@ if __name__ == "__main__":
     try:
         torch.cuda.empty_cache()
     except RuntimeError as e:
-        if "CUDA out of memory" in str(e):
+        if "out of memory" in str(e):
             time.sleep(5)
         else:
             raise e
