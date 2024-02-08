@@ -112,6 +112,9 @@ def arg_parser():
     # Others
     ap.add_argument("--gpu_id", type=int, default=0, help="...")
     ap.add_argument("--seed", type=int, default=34, help="...")
+    
+    ap.add_argument("--num_folds", type=int, default=6, help="This argument only meaningful for cross_validation.py")
+
 
     return ap.parse_args()
 
@@ -174,6 +177,7 @@ def plot_line(line, name, do_save=False, do_return_plot=False):
     plt.plot(line)
     plt.yticks(rotation=0)
     plt.title(name)
+    plt.axhline(y = np.max(line), linestyle = '--') 
     plt.xlabel('t')
     plt.ylabel('F1')
     if do_save:
