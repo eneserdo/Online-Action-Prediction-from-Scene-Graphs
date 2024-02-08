@@ -161,6 +161,7 @@ class ActionRecognition(torch.nn.Module):
                  norm_first,
                  pos_enc,
                  temporal_length,
+                 num_of_temp_layers,
                  **kwargs):
         """ Accepts kwargs for non-general params of gnns """
         super().__init__()
@@ -227,6 +228,8 @@ class ActionRecognition(torch.nn.Module):
             effective_out_ch2 *= 2
 
         if temporal_type in ["lstm", "bi"]:
+            if num_of_temp_layers != 1:
+                raise NotImplementedError("args.num_of_temp_layers is not 1 as used to be. Are you sure?")
             num_rnn_layers = 1  # Lets make it constant
             is_bidirectional = ("bi" == temporal_type)
 
@@ -239,7 +242,7 @@ class ActionRecognition(torch.nn.Module):
 
         elif temporal_type == "tr":
             # Default dropout is 0.1
-            self.temporal_layer = TransformerEncoder(TransformerEncoderLayer(effective_out_ch2, 4, lstm_hidden_size // 4 * 3, norm_first=norm_first, dropout=dropout_tr), 2)
+            self.temporal_layer = TransformerEncoder(TransformerEncoderLayer(effective_out_ch2, 4, lstm_hidden_size // 4 * 3, norm_first=norm_first, dropout=dropout_tr), num_of_temp_layers)
             self.PE_coef = math.sqrt(effective_out_ch2)
 
             if pos_enc == "original":

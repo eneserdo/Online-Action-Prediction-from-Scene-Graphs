@@ -65,6 +65,7 @@ def arg_parser():
     ap.add_argument("--norm_first", action="store_true", help="To make norm_first=true in TransformerEncoderLayer")
     
     ap.add_argument("--pos_enc", type=str, default="original", choices=["original", "learnable", "none"], help="Type of positional encoding")
+    ap.add_argument("--num_of_temp_layers", type=int, default=2, help="...")
     
 
     # Task

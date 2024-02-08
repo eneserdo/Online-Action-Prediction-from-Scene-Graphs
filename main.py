@@ -221,7 +221,8 @@ if __name__ == "__main__":
                                      norm_layer=args.norm_layer,
                                      norm_first=args.norm_first,
                                      pos_enc=args.pos_enc,
-                                     temporal_length=args.temporal_length).to(device=device)
+                                     temporal_length=args.temporal_length,
+                                     num_of_temp_layers=args.num_of_temp_layers).to(device=device)
 
     # print(model)
     rnn_params = sum(p.numel() for p in model.temporal_layer.parameters() if p.requires_grad)
