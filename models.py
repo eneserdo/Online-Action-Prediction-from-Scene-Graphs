@@ -140,6 +140,52 @@ class LearnablePositionalEncoding(Module):
         return self.dropout(x)
 
 
+# Borrowed from https://pytorch.org/tutorials/beginner/translation_transformer.html#seq2seq-network-using-transformer
+class Seq2SeqTransformer(torch.nn.Module):
+    def __init__(self,
+                 num_encoder_layers: int,
+                 num_decoder_layers: int,
+                 emb_size: int,
+                 nhead: int,
+                 dim_feedforward: int,
+                 dropout: float = 0.1):
+        super(Seq2SeqTransformer, self).__init__()
+        self.transformer = torch.nn.Transformer(d_model=emb_size,
+                                       nhead=nhead,
+                                       num_encoder_layers=num_encoder_layers,
+                                       num_decoder_layers=num_decoder_layers,
+                                       dim_feedforward=dim_feedforward,
+                                       dropout=dropout)
+        # self.generator = nn.Linear(emb_size, tgt_vocab_size)
+        # self.src_tok_emb = TokenEmbedding(src_vocab_size, emb_size)
+        # self.tgt_tok_emb = TokenEmbedding(tgt_vocab_size, emb_size)
+        self.positional_encoding = PositionalEncoding(emb_size, dropout=dropout)
+
+    def forward(self,
+                src: torch.Tensor,
+                trg: torch.Tensor,
+                src_mask: torch.Tensor,
+                tgt_mask: torch.Tensor,
+                src_padding_mask: torch.Tensor = None,
+                tgt_padding_mask: torch.Tensor = None,
+                memory_key_padding_mask: torch.Tensor = None):
+        
+        embedding_size = src.shape[-1]
+        scale = math.sqrt(embedding_size)
+        src_emb = self.positional_encoding(src*scale)
+        tgt_emb = self.positional_encoding(trg*scale)
+        outs = self.transformer(src_emb, tgt_emb, src_mask, tgt_mask, None,
+                                src_padding_mask, tgt_padding_mask, memory_key_padding_mask)
+        # return self.generator(outs)
+        return outs
+
+    def encode(self, src: torch.Tensor, src_mask: torch.Tensor):
+        return self.transformer.encoder(self.positional_encoding(src), src_mask)
+
+    def decode(self, tgt: torch.Tensor, memory: torch.Tensor, tgt_mask: torch.Tensor):
+        return self.transformer.decoder(self.positional_encoding(tgt), memory, tgt_mask)
+
+
 class ActionRecognition(torch.nn.Module):
     def __init__(self, *, gnn_type,
                  temporal_type,
@@ -271,6 +317,11 @@ class ActionRecognition(torch.nn.Module):
 
             lstm_hidden_size = effective_out_ch2
 
+        elif temporal_type == "edtr":
+            # Encoder-Decoder Transformer
+            self.temporal_layer = Seq2SeqTransformer(num_of_temp_layers, num_of_temp_layers, effective_out_ch2, 4, lstm_hidden_size // 4 * 3, dropout_tr)
+            self.decoder_mask = torch.nn.Transformer.generate_square_subsequent_mask(temporal_length)
+        
         def build_mlp(in_feat,out_feat, hid_feat=None):
             # hid_feat = (in_feat+out_feat)//2 if hid_feat == None else hid_feat
             # return Sequential(Linear(in_feat, hid_feat), SELU(), Linear(hid_feat, out_feat))
@@ -462,12 +513,16 @@ class ActionRecognition(torch.nn.Module):
             both_out, _ = self.temporal_layer(both_sequencial_embeddings)
             """_, (both_hn, _) = self.temporal_layer(both_sequencial_embeddings)
             both_hn = torch.cat([both_hn[0], both_hn[1]], dim=1)"""
-        else:
+        elif self.temporal_type == "lstm":
             both_out, _ = self.temporal_layer(both_sequencial_embeddings)
             """_, (both_hn, _) = self.temporal_layer(both_sequencial_embeddings)
             # assert both_hn.shape[0]==1
             both_hn = both_hn.squeeze()"""
         
+        elif self.temporal_type == "edtr":
+            # Encoder-Decoder Transformer, mask the decoder part 
+            both_out = self.temporal_layer(both_sequencial_embeddings, both_sequencial_embeddings, None, self.decoder_mask)
+            
         
 
         #### Segmentation part ####
