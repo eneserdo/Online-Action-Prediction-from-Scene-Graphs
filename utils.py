@@ -46,27 +46,30 @@ def arg_parser():
     ap.add_argument("-ts", "--test_subject", type=int, default=1, choices=[1, 2, 3, 4, 5, 6], help="...")
     ap.add_argument("-vt", "--validation_take", type=int, default=7, choices=[i for i in range(10)], help="...")
 
-    # Model
+    # Model - GNN part
     ap.add_argument("-g", "--gnn_type", type=str, required=True,
                     choices=["NNConv", "GATConv", "TransformerConv", "GATv2Conv"], help="...")
-    ap.add_argument("--temporal_type", type=str, default="lstm", choices=["lstm", "bi", "tr", "edtr"], help="...")
     ap.add_argument("-hc", "--hidden_channels", type=int, default=64, help="...")
     ap.add_argument("-oc", "--out_channels", type=int, default=64, help="...")
-    ap.add_argument("-hs", "--lstm_hidden_size", type=int, default=128, help="...")
     ap.add_argument("-nh", "--num_heads", type=int, default=2, help="...")
     ap.add_argument("--saving_freq", type=int, default=5, help="...")
     ap.add_argument("-nbn", "--no_bn", action="store_true", help="...")
     ap.add_argument("--use_global_pooling", action="store_true", help="...")    # :(
     ap.add_argument("--edge_dropout", type=float, default=0.0, help="...")
     ap.add_argument("--dropout", type=float, default=0.0, help="...")
+
+    # Model - Temporal part
     ap.add_argument("--dropout_tr", type=float, default=0.1, help="...")
-    ap.add_argument("--merged_pred", type=str, default="none", choices=["early", "late", "none", "attention"], help="Merge hands predictions")
-    
+    ap.add_argument("-hs", "--lstm_hidden_size", type=int, default=128, help="...")
+    ap.add_argument("--temporal_type", type=str, default="lstm", choices=["lstm", "bi", "tr", "edtr"], help="...")
     ap.add_argument("--norm_first", action="store_true", help="To make norm_first=true in TransformerEncoderLayer")
-    
     ap.add_argument("--pos_enc", type=str, default="original", choices=["original", "learnable", "none"], help="Type of positional encoding")
+    ap.add_argument("--num_heads_tr", type=int, default=4, help="...")
     ap.add_argument("--num_of_temp_layers", type=int, default=2, help="...")
     
+    # Model - Others
+    ap.add_argument("--dim_feedforward", type=int, default=0, help="transformer encoder layer's dim_feedforward, if 0, it is set to lstm_hidden_size//4*3")
+    ap.add_argument("--merged_pred", type=str, default="none", choices=["early", "late", "none", "attention"], help="Merge hands predictions")
 
     # Task
     ap.add_argument("--task", type=str, default="both", choices=["segonly", "labelonly", "both", "onetoone"], help="There are two tasks: segmentation and action label prediction")

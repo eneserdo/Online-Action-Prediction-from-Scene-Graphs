@@ -208,6 +208,8 @@ class ActionRecognition(torch.nn.Module):
                  pos_enc,
                  temporal_length,
                  num_of_temp_layers,
+                 dim_feedforward,
+                 num_heads_tr,
                  **kwargs):
         """ Accepts kwargs for non-general params of gnns """
         super().__init__()
@@ -273,6 +275,11 @@ class ActionRecognition(torch.nn.Module):
         if self.merged_pred == "early":
             effective_out_ch2 *= 2
 
+        if dim_feedforward == 0:
+            # This is was the previous default value, so I am keeping it
+            # But this makes the embedding size > dim_feedforward, which is not good
+            dim_feedforward = lstm_hidden_size // 4 * 3
+
         if temporal_type in ["lstm", "bi"]:
             if num_of_temp_layers != 1:
                 raise NotImplementedError("args.num_of_temp_layers is not 1 as used to be. Are you sure?")
@@ -288,7 +295,8 @@ class ActionRecognition(torch.nn.Module):
 
         elif temporal_type == "tr":
             # Default dropout is 0.1
-            self.temporal_layer = TransformerEncoder(TransformerEncoderLayer(effective_out_ch2, 4, lstm_hidden_size // 4 * 3, norm_first=norm_first, dropout=dropout_tr), num_of_temp_layers)
+
+            self.temporal_layer = TransformerEncoder(TransformerEncoderLayer(effective_out_ch2, num_heads_tr, dim_feedforward, norm_first=norm_first, dropout=dropout_tr), num_of_temp_layers)
             self.PE_coef = math.sqrt(effective_out_ch2)
 
             if pos_enc == "original":
@@ -319,7 +327,7 @@ class ActionRecognition(torch.nn.Module):
 
         elif temporal_type == "edtr":
             # Encoder-Decoder Transformer
-            self.temporal_layer = Seq2SeqTransformer(num_of_temp_layers, num_of_temp_layers, effective_out_ch2, 4, lstm_hidden_size // 4 * 3, dropout_tr)
+            self.temporal_layer = Seq2SeqTransformer(num_of_temp_layers, num_of_temp_layers, effective_out_ch2, num_heads_tr, dim_feedforward, dropout_tr)
             self.decoder_mask = torch.nn.Transformer.generate_square_subsequent_mask(temporal_length)
         
         def build_mlp(in_feat,out_feat, hid_feat=None):
