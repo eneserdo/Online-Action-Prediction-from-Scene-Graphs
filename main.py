@@ -34,6 +34,9 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 # XIO:  fatal IO error 25 (Inappropriate ioctl for device) on X server "localhost:10.0" after 2627 requests (2627 known processed) with 8 events remaining.
 pyplot.ioff()
 
+# To check for NaNs in the gradients
+torch.autograd.set_detect_anomaly(True)
+
 
 def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: int):
     global step
@@ -90,8 +93,8 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
         step_f1_top1, step_f1_top3 = metrics.update(pred.detach(), gt_reordered, idxes)
 
 
-        # if mode != "test":
-        #     wandb.log({f"{mode}/batch/": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()}, 'batch': step})
+        if mode != "test":
+            wandb.log({f"{mode}/batch": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()}, 'batch': step})
 
         if mode == "test" and args.save_incorrects:
             raise NotImplementedError("save_incorrects may be broken, please check it")
@@ -245,9 +248,9 @@ if __name__ == "__main__":
     # wandb.define_metric("val/epoch/*", step_metric="epoch", summary="max")
     wandb.define_metric("val/confusion_matrix*", step_metric="epoch")
     wandb.define_metric("test/confusion_matrix*", step_metric="epoch")
-    # wandb.define_metric("batch")
-    # wandb.define_metric("train/batch/*", step_metric="batch")
-    # wandb.define_metric("val/batch/*", step_metric="batch")
+    wandb.define_metric("batch")
+    wandb.define_metric("train/batch*", step_metric="batch")
+    wandb.define_metric("val/batch*", step_metric="batch")
     # wandb.define_metric("test_top1")
     # wandb.define_metric("test_top3")
 
