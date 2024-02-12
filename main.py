@@ -35,7 +35,7 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 pyplot.ioff()
 
 # To check for NaNs in the gradients
-torch.autograd.set_detect_anomaly(True)
+# torch.autograd.set_detect_anomaly(True)
 
 
 def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: int):
@@ -107,15 +107,6 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     # End of for loop
     
     metric_dict = metrics.compute()
-
-
-
-    # # TODO: Fix all wandb logs to be consistent with each other. use same dict
-    # if mode != "test":
-    #     wandb.log({f"{mode}/epoch/": {'top1_F1': metric_dict["f1_top1"], 'top3_F1': metric_dict["f1_top3"]}, 'epoch': epoch})
-
-    
-    # wandb.log({f"{mode}/epoch/": {'f1@10': metric_dict["f1@10"], 'f1@25': metric_dict["f1@25"], 'f1@50': metric_dict["f1@50"], "f1_top1_once": metric_dict["f1_top1_once"]}, 'epoch': epoch})
 
 
     return metric_dict
@@ -193,7 +184,8 @@ if __name__ == "__main__":
                                                                process_it_anyway=args.process_it,
                                                                test_subject=args.test_subject,
                                                                validation_take=args.validation_take,
-                                                               temporal_length=args.temporal_length)
+                                                               temporal_length=args.temporal_length,
+                                                               downsample=args.downsample)
 
     train_loader = DataLoader(train_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker, generator=torch_generator)
     
