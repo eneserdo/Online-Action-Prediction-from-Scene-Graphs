@@ -349,6 +349,7 @@ def _pad_sequence(data_list: List[Data], target_length: int) -> List[Data]:
 
 def process_bimanual_dataset(root: str, temporal_length: int, fix_fps: bool=False, downsample: int = 1) -> None:
     global TOTAL_FRAME_COUNT
+    # temporal_length defines the number of frames in a sample regardless of the downsampling rate
 
     ds_append=f"_d{downsample}" if downsample > 1 else ""
     
@@ -356,7 +357,7 @@ def process_bimanual_dataset(root: str, temporal_length: int, fix_fps: bool=Fals
         # whole video as one sample
         processed_dir = opj(root, "processed" + "Whole" + ds_append)
         process_whole_video = True
-        MAX_VID_LENGTH = _get_max_length(root, downsample)
+        MAX_VID_LENGTH = _get_max_length(root, downsample) 
     else:
         processed_dir = opj(root, "processed"+str(temporal_length) + ds_append)
         process_whole_video = False
@@ -408,6 +409,11 @@ def process_bimanual_dataset(root: str, temporal_length: int, fix_fps: bool=Fals
         gt_action_json = opj(gt_dir, subject, task, f"{take}.json")
         act_list=_get_actions_list(gt_action_json, len(relation_json_list))
 
+        # Downsample
+        relation_json_list = relation_json_list[::downsample]
+        object_json_list = object_json_list[::downsample]
+        act_list = act_list[::downsample]
+
         assert len(relation_json_list) == len(object_json_list)
         assert len(relation_json_list) == len(act_list)
 
@@ -419,9 +425,8 @@ def process_bimanual_dataset(root: str, temporal_length: int, fix_fps: bool=Fals
             is_padding_needed = False
 
 
-        ds_act_list = act_list[::downsample]
-        dataset_mapping_master["vid"][str(subject_int)+str(task_int)+str(take_int)] = ds_act_list
-        sample_count = sample_count + len(ds_act_list) - temporal_length + 1 # This is redundant for whole video processing   
+        dataset_mapping_master["vid"][str(subject_int)+str(task_int)+str(take_int)] = act_list
+        sample_count = sample_count + len(act_list) - temporal_length + 1 # This is redundant for whole video processing   
 
         for frame, (relation_json, object_json) in enumerate(zip(relation_json_list, object_json_list)):
 
@@ -473,9 +478,9 @@ def process_bimanual_dataset(root: str, temporal_length: int, fix_fps: bool=Fals
             # if the sequence is complete, saves it
             if len(data_list) == temporal_length:
                 
-                # Am i genius or what
-                data_list = data_list[::downsample]
-                data_list_mirrored = data_list_mirrored[::downsample]
+                # # Am i genius or what
+                # data_list = data_list[::downsample]
+                # data_list_mirrored = data_list_mirrored[::downsample]
 
                 # There is already a collate function for DataLoader in pyg, 
                 # so it is not trivial to use DataLoader for this purpose. Instead, 
@@ -521,6 +526,8 @@ def process_bimanual_dataset(root: str, temporal_length: int, fix_fps: bool=Fals
                 
         if not successful_save:
             raise ValueError("WTF")
+
+        assert 2*sample_count == sample_idx, f"{sample_count=}, {sample_idx=}"
 
         ticks.update()
 
