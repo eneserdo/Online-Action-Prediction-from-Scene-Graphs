@@ -17,7 +17,7 @@ import matplotlib.pyplot as pyplot
 
 import models
 import wandb
-from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits)
+from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits, get_processing_dir)
 from utils import (F1_at_k, Metrics, VisIndividualPreds, almost_equal, arg_parser, calc_metrics_at_once, combine_predictions, get_loss_weights, get_minutes, metrics_to_str, plot_conf_mat, seed_worker, 
                    visualize_incorrect_preds, create_ground_truth_segments, assign_seg_labels, flatten_seq, wandb_logging)
 
@@ -282,7 +282,8 @@ if __name__ == "__main__":
     
     # dataset_mapping contains mapping for each sample to its location in the videos. 
     # Also, a mapping from video to ground truth action labels
-    dataset_mapping_dir = opj(train_set.processed_dir, f"dataset_mapping_fold{args.test_subject}.pickle")
+    processed_dir = get_processing_dir(args.root, args.temporal_length, args.downsample)
+    dataset_mapping_dir = opj(processed_dir, f"dataset_mapping_fold{args.test_subject}.pickle")
     with open(dataset_mapping_dir, "rb") as f:
         dataset_mapping = pickle.load(f)
         

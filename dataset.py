@@ -347,6 +347,17 @@ def _pad_sequence(data_list: List[Data], target_length: int) -> List[Data]:
         for _ in range(target_length - len(data_list)):
             data_list.append(__get_padding_graph())
 
+
+def get_processing_dir(root: str, temporal_length: int, downsample: int) -> str:
+    # Naming convention for the processed directory
+     
+    ds_append=f"_d{downsample}" if downsample > 1 else ""
+    if temporal_length == -1:
+        return opj(root, "processed" + "Whole" + ds_append)
+    else:
+        return opj(root, "processed"+str(temporal_length) + ds_append)
+
+
 def process_bimanual_dataset(root: str, temporal_length: int, fix_fps: bool=False, downsample: int = 1) -> None:
     global TOTAL_FRAME_COUNT
     # temporal_length defines the number of frames in a sample regardless of the downsampling rate
@@ -355,13 +366,13 @@ def process_bimanual_dataset(root: str, temporal_length: int, fix_fps: bool=Fals
     
     if temporal_length == -1:
         # whole video as one sample
-        processed_dir = opj(root, "processed" + "Whole" + ds_append)
         process_whole_video = True
         MAX_VID_LENGTH = _get_max_length(root, downsample) 
     else:
-        processed_dir = opj(root, "processed"+str(temporal_length) + ds_append)
+
         process_whole_video = False
 
+    processed_dir = get_processing_dir(root, temporal_length, downsample)
     
     os.mkdir(processed_dir)
 
@@ -556,11 +567,11 @@ def process_bimanual_dataset(root: str, temporal_length: int, fix_fps: bool=Fals
 
 
 class BimanualDataset(Dataset):
-    def __init__(self, root, temporal_length, mapping):
+    def __init__(self, root, temporal_length, downsample, mapping):
 
         self.temporal_length = temporal_length
 
-        self.pdir = opj(root, "processed"+str(temporal_length))
+        self.pdir = get_processing_dir(root, temporal_length, downsample)
         
         self.mapping = mapping
 
@@ -571,7 +582,7 @@ class BimanualDataset(Dataset):
         transform, pre_transform, pre_filter = None, None, None
         super().__init__(root, transform, pre_transform, pre_filter)
 
-
+    # This is weird
     @property
     def processed_dir(self) -> str:
         return self.pdir
@@ -699,11 +710,7 @@ def get_bimanual_dataset_splits(*, root: str, process_it_anyway: bool, test_subj
 
     ds_append=f"_d{downsample}" if downsample > 1 else ""
 
-    if temporal_length == -1:
-        # whole video as one sample
-        processed_dir = opj(root, "processed" + "Whole" + ds_append)
-    else:
-        processed_dir = opj(root, "processed"+str(temporal_length) + ds_append)
+    processed_dir = get_processing_dir(root, temporal_length, downsample)
 
     
     assert os.path.isfile(opj(processed_dir, "dataset_mapping_master.pickle")), "Dataset is not preprocessed yet"
@@ -730,9 +737,9 @@ def get_bimanual_dataset_splits(*, root: str, process_it_anyway: bool, test_subj
             pickle.dump(path_mapping, f)
 
 
-    train_set=BimanualDataset(root, temporal_length, path_mapping["train"])
-    test_set=BimanualDataset(root, temporal_length, path_mapping["test"])
-    val_set=BimanualDataset(root, temporal_length, path_mapping["val"])
+    train_set=BimanualDataset(root, temporal_length, downsample, path_mapping["train"])
+    test_set=BimanualDataset(root, temporal_length, downsample, path_mapping["test"])
+    val_set=BimanualDataset(root, temporal_length, downsample, path_mapping["val"])
     
 
     return train_set, test_set, val_set
