@@ -259,6 +259,7 @@ def _impute_with_previous(graph: Data, previous_graph: Data, validity: str) -> D
 def download_bimanual_dataset(raw_dir: str, fix_null=True) -> None:
     # Downloads and unzip the Bimanual dataset to raw_dir.
     # Also fixes the null actions if fix_null is True (kind of a preprocessing)
+    # TODO: move fix_fps to here
 
     urls = ["https://bimanual-actions.humanoids.kit.edu/download/bimacs_derived_data_3d_objects.zip",
             "https://bimanual-actions.humanoids.kit.edu/download/bimacs_derived_data_spatial_relations.zip",
@@ -318,16 +319,17 @@ def download_bimanual_dataset(raw_dir: str, fix_null=True) -> None:
 
         print("# Replaced null actions by manually detected labels (This is directly done on the raw data!)")
 
-def _get_max_length(root: str) -> int:
+def _get_max_length(root: str, downsample) -> int:
     # Returns the maximum length of the videos (used for padding)
     max_length = 0
     for subject, task, take in crawl_dataset():
         relation_dir = opj(root, "raw", "bimacs_derived_data", subject, task, take, "spatial_relations")
-        curr_length = len(glob.glob(opj(relation_dir, "*.json")))
+        curr_list = glob.glob(opj(relation_dir, "*.json"))[::downsample]
+        curr_length = len(curr_list)
         max_length = max(max_length, curr_length)
     return max_length
 
-def _get_padding_graph() -> Data:
+def __get_padding_graph() -> Data:
     # Returns a dummy graph for padding
     # To separate dummy from real check x.sum() == -1 or y.sum() == -1
     x = - torch.ones((1, 1), dtype=torch.float)
@@ -337,6 +339,13 @@ def _get_padding_graph() -> Data:
     y[0, 0] = -1
     return Data(x=x, edge_index=edge_index.t().contiguous(), edge_attr=edge_attr, y=y)
 
+def _pad_sequence(data_list: List[Data], target_length: int) -> List[Data]:
+    # Pads the sequence to target_length
+    # If the sequence is already longer than target_length, it is not padded
+    # If the sequence is shorter than target_length, it is padded with a dummy graph
+    if len(data_list) < target_length:
+        for _ in range(target_length - len(data_list)):
+            data_list.append(__get_padding_graph())
 
 def process_bimanual_dataset(root: str, temporal_length: int, fix_fps: bool=False, downsample: int = 1) -> None:
     global TOTAL_FRAME_COUNT
@@ -347,7 +356,7 @@ def process_bimanual_dataset(root: str, temporal_length: int, fix_fps: bool=Fals
         # whole video as one sample
         processed_dir = opj(root, "processed" + "Whole" + ds_append)
         process_whole_video = True
-        MAX_VID_LENGTH = _get_max_length(root)
+        MAX_VID_LENGTH = _get_max_length(root, downsample)
     else:
         processed_dir = opj(root, "processed"+str(temporal_length) + ds_append)
         process_whole_video = False
@@ -400,22 +409,26 @@ def process_bimanual_dataset(root: str, temporal_length: int, fix_fps: bool=Fals
         act_list=_get_actions_list(gt_action_json, len(relation_json_list))
 
         assert len(relation_json_list) == len(object_json_list)
+        assert len(relation_json_list) == len(act_list)
 
+        # Just to make sure at least one sample is saved per video. 
+        # Mostly used for debugging whole video processing
         successful_save = False
         if process_whole_video:
-            temporal_length = len(object_json_list)
+            temporal_length = len(object_json_list[::downsample])
             is_padding_needed = False
 
 
-        sample_count = sample_count + len(relation_json_list) - temporal_length + 1
-        dataset_mapping_master["vid"][str(subject_int)+str(task_int)+str(take_int)] = act_list[::downsample]
-                    
+        ds_act_list = act_list[::downsample]
+        dataset_mapping_master["vid"][str(subject_int)+str(task_int)+str(take_int)] = ds_act_list
+        sample_count = sample_count + len(ds_act_list) - temporal_length + 1 # This is redundant for whole video processing   
 
         for frame, (relation_json, object_json) in enumerate(zip(relation_json_list, object_json_list)):
 
             TOTAL_FRAME_COUNT += 1
             graph, graph_mirrored = _get_graph(relation_json, object_json, act_list[frame], frame, subject, task, take)
 
+            ### Prepending and imputation ###
             # If the graph is not valid, try to fix it (impute maybe). 
             # If it is not possible resets the sequence and continues
             validity = _check_validity(graph)
@@ -448,32 +461,38 @@ def process_bimanual_dataset(root: str, temporal_length: int, fix_fps: bool=Fals
                     data_list_mirrored.append(graph_mirrored.clone())
                 assert len(data_list) == prepend_count+1
                 prepend_count=0
+            ##################################
+
 
             # TODO: we pop only one graph, but when fix_fps is true, we need to pop two of them
             # Check if fps need to be fixed. If so, add same graph again  
-            if fix_fps and fps_info[subject+"-"+task+"-"+take] == 15:
-                data_list.append(graph)
-                data_list_mirrored.append(graph_mirrored)
+            # if fix_fps and fps_info[subject+"-"+task+"-"+take] == 15:
+            #     data_list.append(graph)
+            #     data_list_mirrored.append(graph_mirrored)
                 
             # if the sequence is complete, saves it
             if len(data_list) == temporal_length:
                 
-                # There is already a collate function for DataLoader in pyg, 
-                # so it is not trivial to use DataLoader for this purpose. Instead, 
-                # I padded manually.
-                # Padding
-                if MAX_VID_LENGTH - len(data_list) > 0:
-                    is_padding_needed = True
-                    for _ in range(MAX_VID_LENGTH - len(data_list)):
-                        data_list.append(_get_padding_graph())
-                        data_list_mirrored.append(_get_padding_graph())
-
-
                 # Am i genius or what
                 data_list = data_list[::downsample]
                 data_list_mirrored = data_list_mirrored[::downsample]
 
-                # To make sure no padding goes into training
+                # There is already a collate function for DataLoader in pyg, 
+                # so it is not trivial to use DataLoader for this purpose. Instead, 
+                # I padded manually.
+                # Padding
+                if process_whole_video:
+                    # if MAX_VID_LENGTH - len(data_list) > 0:
+                    #     is_padding_needed = True
+                    #     for _ in range(MAX_VID_LENGTH - len(data_list)):
+                    #         data_list.append(_get_padding_graph())
+                    #         data_list_mirrored.append(_get_padding_graph())
+                    _pad_sequence(data_list, MAX_VID_LENGTH)
+                    _pad_sequence(data_list_mirrored, MAX_VID_LENGTH)
+
+
+                # To make sure no padding goes into training 
+                # TODO: will be removed
                 if process_whole_video:
                     last_element_idx = len(dataset_mapping_master["vid"][str(subject_int)+str(task_int)+str(take_int)]) - 1
                     assert data_list[last_element_idx].y.sum() == 2, "WTF"
@@ -499,6 +518,7 @@ def process_bimanual_dataset(root: str, temporal_length: int, fix_fps: bool=Fals
                 data_list.pop(0)
                 data_list_mirrored.pop(0)
         # End of for loop (frame)
+                
         if not successful_save:
             raise ValueError("WTF")
 
