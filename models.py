@@ -195,13 +195,11 @@ class ActionRecognition(torch.nn.Module):
                  num_edge_feat,
                  num_action_classes,
                  lstm_hidden_size,
-                 use_bn,
                  filter_it,
                  use_hand_pooling,
                  edge_dropout,
                  dropout,
                  dropout_tr,
-                 task,
                  merged_pred,
                  norm_layer,
                  norm_first,
@@ -218,7 +216,6 @@ class ActionRecognition(torch.nn.Module):
         self.use_hand_pooling = use_hand_pooling
         self.edge_dropout = edge_dropout
         self.temporal_type = temporal_type
-        self.task = task
         self.merged_pred = merged_pred
 
         # Sets Graph Network
@@ -244,7 +241,7 @@ class ActionRecognition(torch.nn.Module):
         self.act1 = SELU()
         self.act2 = SELU()
 
-        if use_bn:
+        if norm_layer != "none":
             NormLayerType = getattr(geometric_nn, norm_layer)
             
             if norm_layer == "BatchNorm":

@@ -48,21 +48,21 @@ def arg_parser():
     ap.add_argument("--downsample", type=int, default=1, help="Downsampling ratio")
 
     # Model - GNN part
-    ap.add_argument("-g", "--gnn_type", type=str, required=True,
+    ap.add_argument("-g", "--gnn_type", type=str, default="TransformerConv",
                     choices=["NNConv", "GATConv", "TransformerConv", "GATv2Conv"], help="...")
     ap.add_argument("-hc", "--hidden_channels", type=int, default=64, help="...")
     ap.add_argument("-oc", "--out_channels", type=int, default=64, help="...")
     ap.add_argument("-nh", "--num_heads", type=int, default=2, help="...")
-    ap.add_argument("--saving_freq", type=int, default=5, help="...")
-    ap.add_argument("-nbn", "--no_bn", action="store_true", help="...")
+    ap.add_argument("--saving_freq", type=int, default=4, help="...")
     ap.add_argument("--use_global_pooling", action="store_true", help="...")    # :(
     ap.add_argument("--edge_dropout", type=float, default=0.0, help="...")
     ap.add_argument("--dropout", type=float, default=0.0, help="...")
+    ap.add_argument("--norm_layer", type=str, default="LayerNorm", choices=["BatchNorm", "InstanceNorm", "LayerNorm", "GraphNorm", "PairNorm", "none"], help="Normalization  for GNN layer")
 
     # Model - Temporal part
     ap.add_argument("--dropout_tr", type=float, default=0.1, help="...")
     ap.add_argument("-hs", "--lstm_hidden_size", type=int, default=128, help="...")
-    ap.add_argument("--temporal_type", type=str, default="lstm", choices=["lstm", "bi", "tr", "edtr"], help="...")
+    ap.add_argument("--temporal_type", type=str, default="tr", choices=["lstm", "bi", "tr", "edtr"], help="...")
     ap.add_argument("--norm_first", action="store_true", help="To make norm_first=true in TransformerEncoderLayer")
     ap.add_argument("--pos_enc", type=str, default="original", choices=["original", "learnable", "none"], help="Type of positional encoding")
     ap.add_argument("--num_heads_tr", type=int, default=4, help="...")
@@ -72,31 +72,23 @@ def arg_parser():
     ap.add_argument("--dim_feedforward", type=int, default=0, help="transformer encoder layer's dim_feedforward, if 0, it is set to lstm_hidden_size//4*3")
     ap.add_argument("--merged_pred", type=str, default="none", choices=["early", "late", "none", "attention"], help="Merge hands predictions")
 
-    # Task
-    ap.add_argument("--task", type=str, default="both", choices=["segonly", "labelonly", "both", "onetoone"], help="There are two tasks: segmentation and action label prediction")
-    # "labelonly" is the new "perfect_seg" 
-
-    # Normalization Layer
-    ap.add_argument("--norm_layer", type=str, default="BatchNorm", choices=["BatchNorm", "InstanceNorm", "LayerNorm", "GraphNorm", "PairNorm"], help="Normalization  for GNN layer")
-
 
     # Optimizer
     ap.add_argument("-o", "--optimizer_type", type=str, required=True,
                     choices=["Adam", "AdamW", "NAdam", "RMSprop", "SGD"],
                     help="Type of optimizer to be used  from torch.optim", default='Adam')
-    ap.add_argument("-lr", "--learning_rate", type=float, default=0.001, help="...")
+    ap.add_argument("-lr", "--learning_rate", type=float, default=0.0005, help="...")
     ap.add_argument("-mn", "--momentum", type=float, default=0.9, help="...")
-    ap.add_argument("-wd", "--weight_decay", type=float, default=0.0, help="...")
+    ap.add_argument("-wd", "--weight_decay", type=float, default=0.0005, help="...")
     ap.add_argument("--scheduler_step_size", type=int, default=10, help="...")
     ap.add_argument("--scheduler_gamma", type=float, default=0.5, help="...")
     ap.add_argument("--weighted_loss", type=str, default="none", choices=["none", "inv", "sqrt_inv", "effective"],
                     help="Use class frequencies as weight for loss function")       # :(
     ap.add_argument("--label_loss_weight", type=float, default=1.0,
                     help="Weight upon action label prediction task loss")
-
-    
     ap.add_argument("--smoothing", type=float, default=0.0, help="Label smoothing weight")
-    
+
+    # Metrics
     ap.add_argument("--weighted_mv", type=str, default="none", choices=["none", "w1", "w2"], help="...")
 
     # Training
@@ -112,14 +104,12 @@ def arg_parser():
     ap.add_argument("--save_individual",action="store_true", help="Visualize individual segment predictions")
     ap.add_argument("--save_segments",action="store_true", help="Visualize final predictions for whole video")
 
-
-
     # Others
     ap.add_argument("--gpu_id", type=int, default=0, help="...")
     ap.add_argument("--seed", type=int, default=34, help="...")
-    
-    ap.add_argument("--num_folds", type=int, default=6, help="This argument only meaningful for cross_validation.py")
 
+    # Cross validation 
+    ap.add_argument("--num_folds", type=int, default=6, help="This argument only meaningful for cross_validation.py")
 
     return ap.parse_args()
 

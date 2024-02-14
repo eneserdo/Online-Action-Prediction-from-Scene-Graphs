@@ -154,12 +154,6 @@ if __name__ == "__main__":
     print("ARGS:\n", args)
 
     #### asserts about args:
-
-    if args.task != "onetoone":
-        raise NotImplementedError("Currently only onetoone task is supported")
-
-    if args.task in ["labelonly", "both", "onetoone"] and args.label_loss_weight == 0:
-        raise ValueError(f"task {args.task} requires label_loss_weight to be non-zero")
     
     assert args.merged_pred in ["none", "late", "attention"], f"merged_pred must be one of [none, late, attention]. Given: {args.merged_pred}"
 
@@ -205,13 +199,11 @@ if __name__ == "__main__":
                                      num_action_classes=len(ACTIONS),
                                      lstm_hidden_size=args.lstm_hidden_size,
                                      heads=args.num_heads,
-                                     use_bn=not args.no_bn,
                                      filter_it=args.filter_idle_hold,
                                      use_hand_pooling=not args.use_global_pooling,
                                      edge_dropout=args.edge_dropout,
                                      dropout=args.dropout,
                                      dropout_tr=args.dropout_tr,
-                                     task=args.task,
                                      merged_pred=args.merged_pred,
                                      norm_layer=args.norm_layer,
                                      norm_first=args.norm_first,
