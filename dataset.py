@@ -331,12 +331,21 @@ def _get_max_length(root: str, downsample) -> int:
 
 def __get_padding_graph() -> Data:
     # Returns a dummy graph for padding
-    # To separate dummy from real check x.sum() == -1 or y.sum() == -1
-    x = - torch.ones((1, 1), dtype=torch.float)
-    edge_index = torch.tensor([[0, 0]], dtype=torch.long)
-    edge_attr = torch.zeros((1, 1), dtype=torch.float)
+    # To separate dummy from real check y.sum() == -1
+
+    # To make hand_pooling keep working, this should have left and right hand 
+    x = torch.zeros((2, len(OBJECTS)), dtype=torch.float)
+    x[0, OBJECTS.index("LeftHand")] = 1
+    x[1, OBJECTS.index("RightHand")] = 1
+    
+    edge_index = torch.tensor([[0, 1], [1, 0]], dtype=torch.long)
+    edge_attr = torch.zeros((2, len(RELATIONS)), dtype=torch.float)
+    edge_attr[0, RELATIONS.index("contact")] = 1
+    edge_attr[1, RELATIONS.index("contact")] = 1
+    
     y = torch.zeros((2, len(ACTIONS)), dtype=torch.float)
-    y[0, 0] = -1
+    y[0, 0] = -0.5
+    y[1, 0] = -0.5
     return Data(x=x, edge_index=edge_index.t().contiguous(), edge_attr=edge_attr, y=y)
 
 def _pad_sequence(data_list: List[Data], target_length: int) -> List[Data]:
@@ -393,6 +402,9 @@ def process_bimanual_dataset(root: str, temporal_length: int, fix_fps: bool=Fals
     prepended_things_count=0
 
     dataset_mapping_master = {"sample":{}, "vid":{}}
+
+    if process_whole_video:
+        vid_len_info = {} # idx -> video length
 
     # To double check
     sample_count = 0
@@ -519,13 +531,16 @@ def process_bimanual_dataset(root: str, temporal_length: int, fix_fps: bool=Fals
                         assert data_list[last_element_idx + 1].y.sum() == -1, "WTF"
                         assert data_list_mirrored[last_element_idx + 1].y.sum() == -1, "WTF"
 
+                assert len(data_list) == len(data_list_mirrored), f"{len(data_list)=}, {len(data_list_mirrored)=}"
     
                 torch.save(data_list, opj(processed_dir, subject, f'data_{sample_idx}.pt'))
                 dataset_mapping_master["sample"][sample_idx] = (subject_int, task_int, take_int, frame-temporal_length + 1, frame + 1, "_")
+                vid_len_info[sample_idx] = temporal_length
                 sample_idx+=1
 
                 dataset_mapping_master["sample"][sample_idx] = (subject_int, task_int, take_int, frame-temporal_length + 1, frame + 1, "M")
                 torch.save(data_list_mirrored, opj(processed_dir, subject, f'data_{sample_idx}.pt'))
+                vid_len_info[sample_idx] = temporal_length
                 sample_idx+=1
 
                 successful_save = True
@@ -565,6 +580,9 @@ def process_bimanual_dataset(root: str, temporal_length: int, fix_fps: bool=Fals
     with open(opj(processed_dir, "dataset_mapping_master.pickle"), "wb") as f:
         pickle.dump(dataset_mapping_master, f)
 
+    if process_whole_video:
+        with open(opj(processed_dir, "vid_len_info.json"), "w") as f:
+            json.dump(vid_len_info, f)
 
 class BimanualDataset(Dataset):
     def __init__(self, root, temporal_length, downsample, mapping):
@@ -572,6 +590,10 @@ class BimanualDataset(Dataset):
         self.temporal_length = temporal_length
 
         self.pdir = get_processing_dir(root, temporal_length, downsample)
+
+        if temporal_length == -1:
+            with open(opj(self.pdir, "vid_len_info.json"), "r") as f:
+                self.vid_len_info = json.load(f)
         
         self.mapping = mapping
 
@@ -606,13 +628,17 @@ class BimanualDataset(Dataset):
         data = torch.load(opj(self.processed_dir, path))
 
         # TODO maybe return both global_idx and local_idx
-        return global_idx, data 
+
+        if self.temporal_length == -1:
+            return self.vid_len_info[str(global_idx)], global_idx, data
+        else:
+            return global_idx, data 
 
 
 
 def create_mappings(processed_dir: str, temporal_length: int, test_subject: int, validation_take: int) -> [dict, dict]:
     
-    path_mapping = {"train": {}, "test": {}, "val": {}} # [split]: local idx -> path, global idx 
+    path_mapping = {"train": {}, "test": {}, "val": {}} # [split]: local idx -> path, global idx (i.e. idx = local; train_idx,val_idx,test_idx = global)
 
     dataset_mapping = {"train":{"vid":{}, "sample":{}},
                        "test":{"vid":{}, "sample":{}},

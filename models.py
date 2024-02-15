@@ -428,7 +428,7 @@ class ActionRecognition(torch.nn.Module):
         
         return out_s, mask
 
-    def forward(self, dataBatchList: List[Batch]):
+    def forward(self, dataBatchList: List[Batch], padding_mask=None):
 
         left_embedding_list = []
         right_embedding_list = []
@@ -458,10 +458,8 @@ class ActionRecognition(torch.nn.Module):
 
             # assert graph_embedding.shape[0]==self.batch_size and graph_embedding.shape[1]==self.conv_out
 
-
         left_sequencial_embeddings = torch.stack(left_embedding_list) # Shape: (T, N, F)
         right_sequencial_embeddings = torch.stack(right_embedding_list) # Shape: (T, N, F)
-
 
 
         # Filtering imbalanced data only during training
@@ -479,19 +477,27 @@ class ActionRecognition(torch.nn.Module):
             right_sequencial_embeddings = align_embeddings_to_right(right_sequencial_embeddings, right_filter)
             left_sequencial_embeddings = align_embeddings_to_right(left_sequencial_embeddings, left_filter)
 
+        # padding_mask: (N, T) 
 
         # Enabling the information flow between hands
         if self.merged_pred == "early": # concat in feature dim
             both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=-1)
             # shape = (T, N, F*2)
+            if padding_mask is not None:
+                pass
 
         elif self.merged_pred == "attention": # concat in time dim
             both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=0)
             # shape = (T*2, N, F)
+            # May not work due to weird mask
+            if padding_mask is not None:
+                padding_mask = torch.concat([padding_mask, padding_mask], dim=1)
 
         elif self.merged_pred in ["late", "none"]: # concat in batch dim
             both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=1) 
             # shape = (T, N*2, F)
+            if padding_mask is not None:
+                padding_mask = torch.concat([padding_mask, padding_mask], dim=0)
         else:
             raise NotImplementedError(f"merged_pred: {self.merged_pred} is not implemented")
         
@@ -500,18 +506,8 @@ class ActionRecognition(torch.nn.Module):
         if self.temporal_type == "tr":
 
             both_sequencial_embeddings = self.pos_encoder(both_sequencial_embeddings * self.PE_coef)
-            # if self.merged_pred == "attention":
-            #     ...
-            # else:
-            #     ...
 
-            both_hn = self.temporal_layer(both_sequencial_embeddings)
-
-            both_out = both_hn
-            # if self.use_cls_token:
-            #     both_out = both_hn[0]
-            # else:
-            #     both_out = both_hn.mean(dim=0)  # FIXME: It is dim=1 in the original code ?
+            both_out = self.temporal_layer(both_sequencial_embeddings, src_key_padding_mask=padding_mask)
 
 
         elif self.temporal_type == "bi":

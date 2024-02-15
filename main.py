@@ -17,7 +17,7 @@ import matplotlib.pyplot as pyplot
 
 import models
 import wandb
-from dataset import (ACTIONS, OBJECTS, RELATIONS, get_bimanual_dataset_splits, get_processing_dir)
+from dataset import (ACTIONS, OBJECTS, RELATIONS, _get_max_length, get_bimanual_dataset_splits, get_processing_dir)
 from utils import (F1_at_k, Metrics, VisIndividualPreds, almost_equal, arg_parser, calc_metrics_at_once, combine_predictions, get_loss_weights, get_minutes, metrics_to_str, plot_conf_mat, seed_worker, 
                    visualize_incorrect_preds, create_ground_truth_segments, assign_seg_labels, flatten_seq, wandb_logging)
 
@@ -56,7 +56,20 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     #               explanation_type="model")
     
 
-    for idxes, data in loader:
+    for unpackable in loader:
+        if args.temporal_length == -1:
+            vid_lens, idxes, data = unpackable
+            # Create a padding masks, since the temporal length is not fixed
+            # Am I genius or what? :D
+            padding_mask = torch.arange(0, MAX_VID_LEN).expand(len(idxes), MAX_VID_LEN)
+            padding_mask = padding_mask >= vid_lens.unsqueeze(1)
+            padding_mask = padding_mask.to(device)
+            # mask: [MAX_VID_LEN, batch_size] (even though data is [temporal_length, batch_size, feature_size])
+        else:
+            idxes, data = unpackable
+            padding_mask = None
+            padding_mask_reshaped = None
+
         step += 1
 
         if mode == "train":
@@ -69,10 +82,19 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
         batch_size = gt_reordered.shape[1] // 2
 
-        pred = model(data)
+        pred = model(data, padding_mask)
+
         
         pred_flattened = pred.flatten(0, 1)
         gt_flattened = gt_reordered.flatten(0, 1)
+        
+        if padding_mask is not None:
+            # Arange the padding mask to match the pred_flattened and gt_flattened
+            padding_mask_reshaped=padding_mask.T
+            padding_mask_reshaped= torch.cat([padding_mask_reshaped, padding_mask_reshaped], dim=1)
+            padding_mask_reshaped=padding_mask_reshaped.flatten()
+            pred_flattened = pred_flattened[~padding_mask_reshaped]
+            gt_flattened = gt_flattened[~padding_mask_reshaped]
         
         label_loss = label_criterion(pred_flattened, gt_flattened)
         
@@ -90,7 +112,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             VIP.pick_samples(y_true=gt_reordered.cpu().argmax(2), y_pred=pred.detach().cpu(), idx=idxes, epoch=epoch, mode=mode)
 
 
-        step_f1_top1, step_f1_top3 = metrics.update(pred.detach(), gt_reordered, idxes)
+        step_f1_top1, step_f1_top3 = metrics.update(pred.detach(), gt_reordered, idxes, padding_mask_reshaped)
 
 
         if mode != "test":
@@ -154,7 +176,12 @@ if __name__ == "__main__":
     print("ARGS:\n", args)
 
     #### asserts about args:
-    
+
+    if args.temporal_length ==-1:
+        assert args.norm_layer == "LayerNorm", "When temporal_length is -1, norm_layer must be LayerNorm, otherwise it may break the norm stats"
+        assert args.temporal_type == "tr", "others are not implemented yet"
+
+        
     assert args.merged_pred in ["none", "late", "attention"], f"merged_pred must be one of [none, late, attention]. Given: {args.merged_pred}"
 
     # Make sure it is reproducible
@@ -282,6 +309,9 @@ if __name__ == "__main__":
     if args.save_individual:
         VIP = VisIndividualPreds(20, training_len, val_len, save_dir)
 
+    if args.temporal_length == -1:
+        MAX_VID_LEN = _get_max_length(args.root, args.downsample)
+
     # STARTS TRAINING AND VALIDATION
     step = 0
     print("Starts training...")
@@ -302,14 +332,6 @@ if __name__ == "__main__":
                         "scheduler_state_dict": scheduler.state_dict()},
                         opj(save_dir, f"model_epoch{epoch:0>4}.pt"))
 
-        # VALIDATION
-        # save confusion matrices
-        # plt = plot_conf_mat(val_metrics["cm_top1_once"], f"cm_top1_e{epoch:0>4}", do_return_plot=True)
-        # wandb.log({'val/confusion_matrix/': {'top1': wandb.Image(plt)}})
-        # plt3 = plot_conf_mat(val_metrics["cm_top3_once"], f"cm_top3_e{epoch:0>4}", do_return_plot=True)
-        # wandb.log({'val/confusion_matrix/': {'top3': wandb.Image(plt3)}})
-        # plt.close()
-        # plt3.close()
 
         scheduler.step()
         stop = time.perf_counter()

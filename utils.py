@@ -822,25 +822,33 @@ class Metrics:
         # self.conf_mat_top3 = MulticlassConfusionMatrix(num_classes=num_classes, normalize="true").to(device)
         
         # Window-location-sensitive
-        self.win_f1_calc_top1 = [MulticlassF1Score(num_classes=num_classes, top_k=1, average="macro").to(device) for _ in range(temporal_length)]
-        self.win_f1_calc_top3 = [MulticlassF1Score(num_classes=num_classes, top_k=1, average="macro").to(device) for _ in range(temporal_length)]
+        if temporal_length != -1:
+            self.win_f1_calc_top1 = [MulticlassF1Score(num_classes=num_classes, top_k=1, average="macro").to(device) for _ in range(temporal_length)]
+            self.win_f1_calc_top3 = [MulticlassF1Score(num_classes=num_classes, top_k=1, average="macro").to(device) for _ in range(temporal_length)]
 
 
         # After majority voting
         # Dictionaries to store predictions for each sample
         # We will also calculate F1 and CM after MV
-        self.all_predictions_combined_top1 = {vid + m_and_hand_status: - np.ones((act.shape[0] - temporal_length + 1) * temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
-        self.all_predictions_combined_top3 = {vid + m_and_hand_status: - np.ones((act.shape[0] - temporal_length + 1) * temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
+        if temporal_length != -1:
+            self.all_predictions_combined_top1 = {vid + m_and_hand_status: - np.ones((act.shape[0] - temporal_length + 1) * temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
+            self.all_predictions_combined_top3 = {vid + m_and_hand_status: - np.ones((act.shape[0] - temporal_length + 1) * temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
 
 
 
-    def update(self, pred, gt_ohe, idxes):
+    def update(self, pred, gt_ohe, idxes, mask=None):
         # gt_ohe: [T, B, C] (one hot encoded)
         # pred: [T, B, C]
+
         gt = gt_ohe.argmax(dim=-1)
         gt_flattened = gt.flatten(start_dim=0, end_dim=1)
 
         pred_flattened = pred.flatten(start_dim=0, end_dim=1)
+
+        if mask is not None:
+            gt_flattened = gt_flattened[~mask]
+            pred_flattened = pred_flattened[~mask]
+
         pred_top_3 = torch.argsort(pred_flattened, dim=-1, descending=True)[:, :3]
         pred_top_1 = pred_top_3[:,0]
 
@@ -851,24 +859,25 @@ class Metrics:
         
         
         # torchmetric
-        step_f1_top1 = self.f1_top1(pred_top_1, gt_flattened) 
+        step_f1_top1 = self.f1_top1(pred_top_1, gt_flattened)
         step_f1_top3 = self.f1_top3(pred_top_3, gt_flattened)
 
         # self.conf_mat_top1(pred_top_1, gt_flattened)
         # self.conf_mat_top3(pred_top_3, gt_flattened)
 
-        pred_top_1_unf = pred_top_1.unflatten(0, (self.temporal_length, -1))
-        pred_top_3_unf = pred_top_3.unflatten(0, (self.temporal_length, -1))
 
+        if self.temporal_length != -1:
+            pred_top_1_unf = pred_top_1.unflatten(0, (self.temporal_length, -1))
+            pred_top_3_unf = pred_top_3.unflatten(0, (self.temporal_length, -1))
 
-        # Window-location-sensitive metrics
-        for i in range(self.temporal_length):
-            self.win_f1_calc_top1[i](pred_top_1_unf[i, :], gt[i])
-            self.win_f1_calc_top3[i](pred_top_3_unf[i, :], gt[i])
+            # Window-location-sensitive metrics
+            for i in range(self.temporal_length):
+                self.win_f1_calc_top1[i](pred_top_1_unf[i, :], gt[i])
+                self.win_f1_calc_top3[i](pred_top_3_unf[i, :], gt[i])
 
-        # These are expects non-flattened tensors
-        combine_predictions(self.all_predictions_combined_top1, idxes.numpy(), pred_top_1_unf.cpu(), self.dataset_mapping[self.mode]["sample"])
-        combine_predictions(self.all_predictions_combined_top3, idxes.numpy(), pred_top_3_unf.cpu(), self.dataset_mapping[self.mode]["sample"])
+            # These are expects non-flattened tensors
+            combine_predictions(self.all_predictions_combined_top1, idxes.numpy(), pred_top_1_unf.cpu(), self.dataset_mapping[self.mode]["sample"])
+            combine_predictions(self.all_predictions_combined_top3, idxes.numpy(), pred_top_3_unf.cpu(), self.dataset_mapping[self.mode]["sample"])
 
         # Only these are matters (actually they don't but whatever)
         return step_f1_top1.cpu().item(), step_f1_top3.cpu().item()
@@ -876,39 +885,45 @@ class Metrics:
 
     def compute(self):
 
-        f1_at_10, f1_at_25, f1_at_50, f1_top1_mv, cm_top1_mv = calc_metrics_at_once(self.all_predictions_combined_top1, 
-                                                                          self.dataset_mapping[self.mode]["vid"], 
-                                                                          num_classes=len(ACTIONS), 
-                                                                          temporal_length=self.temporal_length,
-                                                                          weighted_mv=self.weighted_mv,
-                                                                          save_dir=self.seg_save_dir)
+        if self.temporal_length != -1:
+            f1_at_10, f1_at_25, f1_at_50, f1_top1_mv, cm_top1_mv = calc_metrics_at_once(self.all_predictions_combined_top1, 
+                                                                            self.dataset_mapping[self.mode]["vid"], 
+                                                                            num_classes=len(ACTIONS), 
+                                                                            temporal_length=self.temporal_length,
+                                                                            weighted_mv=self.weighted_mv,
+                                                                            save_dir=self.seg_save_dir)
 
-        _, _, _, f1_top3_mv, cm_top3_mv = calc_metrics_at_once(self.all_predictions_combined_top3, 
-                                                                          self.dataset_mapping[self.mode]["vid"], 
-                                                                          num_classes=len(ACTIONS), 
-                                                                          temporal_length=self.temporal_length,
-                                                                          weighted_mv=self.weighted_mv,
-                                                                          save_dir=None)
+            _, _, _, f1_top3_mv, cm_top3_mv = calc_metrics_at_once(self.all_predictions_combined_top3, 
+                                                                            self.dataset_mapping[self.mode]["vid"], 
+                                                                            num_classes=len(ACTIONS), 
+                                                                            temporal_length=self.temporal_length,
+                                                                            weighted_mv=self.weighted_mv,
+                                                                            save_dir=None)
 
-        self.win_f1_calc_top1_results = [f1_calc.compute().item() for f1_calc in self.win_f1_calc_top1]
-        self.win_f1_calc_top3_results = [f1_calc.compute().item() for f1_calc in self.win_f1_calc_top3]
+            self.win_f1_calc_top1_results = [f1_calc.compute().item() for f1_calc in self.win_f1_calc_top1]
+            self.win_f1_calc_top3_results = [f1_calc.compute().item() for f1_calc in self.win_f1_calc_top3]
 
-        ret = {
-            "f1_top1": self.f1_top1.compute().item(),
-            "f1_top3": self.f1_top3.compute().item(),
-            # "cm_top1": self.conf_mat_top1.compute().cpu(),
-            # "cm_top3": self.conf_mat_top3.compute().cpu(),
-            "f1_top1_once": f1_top1_mv,
-            "f1_top3_once": f1_top3_mv,
-            "cm_top1_once": cm_top1_mv,
-            "cm_top3_once": cm_top3_mv,
-            "f1@10": f1_at_10,
-            "f1@25": f1_at_25,
-            "f1@50": f1_at_50,
-            "win_f1_top1": self.win_f1_calc_top1_results,
-            "win_f1_top3": self.win_f1_calc_top3_results,
-        }
-
+            ret = {
+                "f1_top1": self.f1_top1.compute().item(),
+                "f1_top3": self.f1_top3.compute().item(),
+                # "cm_top1": self.conf_mat_top1.compute().cpu(),
+                # "cm_top3": self.conf_mat_top3.compute().cpu(),
+                "f1_top1_once": f1_top1_mv,
+                "f1_top3_once": f1_top3_mv,
+                "cm_top1_once": cm_top1_mv,
+                "cm_top3_once": cm_top3_mv,
+                "f1@10": f1_at_10,
+                "f1@25": f1_at_25,
+                "f1@50": f1_at_50,
+                "win_f1_top1": self.win_f1_calc_top1_results,
+                "win_f1_top3": self.win_f1_calc_top3_results,
+            }
+        else:
+            ret = {
+                "f1_top1": self.f1_top1.compute().item(),
+                "f1_top3": self.f1_top3.compute().item(),
+            }
+        
         return ret 
 
 
