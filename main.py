@@ -293,10 +293,13 @@ if __name__ == "__main__":
     if args.restore is not None:
         assert args.restored_name is not None, "restored_name must be provided if restore is not None"
         checkpoint = torch.load(opj(f"saved_{args.restored_name}", f"model_epoch{args.restore:0>4}.pt"))
-        # optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         model.load_state_dict(checkpoint["model_state_dict"])
-        # scheduler.load_state_dict(checkpoint["scheduler_state_dict"]) # FIXME: It overrides the scheduler. Is it desired?
-        print("model and optimizer parameters are restored successfully!")
+        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+        print(f"Model is restored successfully from epoch {args.restore}!")
+        
+        # FIXME: It overrides the scheduler. Is it desired?
+        print("Optimizer and scheduler are overwritten with the restored ones")
 
     
     # dataset_mapping contains mapping for each sample to its location in the videos. 
@@ -321,10 +324,10 @@ if __name__ == "__main__":
         start = time.perf_counter()
 
         train_metrics = run_one_epoch(model, train_loader, 'train', epoch)
-        wandb_logging(wandb, train_metrics, epoch, "train")
+        wandb_logging(wandb, train_metrics, epoch, "train", whole_mode=args.temporal_length == -1)
         
         val_metrics = run_one_epoch(model, val_loader, 'val', epoch)
-        wandb_logging(wandb, val_metrics, epoch, "val")
+        wandb_logging(wandb, val_metrics, epoch, "val", whole_mode=args.temporal_length == -1)
 
         # Save model
         if epoch % args.saving_freq == 0 or epoch == start + args.max_epochs - 1:
@@ -346,11 +349,13 @@ if __name__ == "__main__":
     # TEST
     print("Starts test...")
 
-    test_metrics = test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of="f1_top1_once")
+    choose_best_in_terms_of = "f1_top1_once" if args.temporal_length != -1 else "f1_top1"
+    test_metrics = test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of=choose_best_in_terms_of)
+    
     if test_metrics is None:
         print("[WARN] No weights found to test")
     else:
-        wandb_logging(wandb, test_metrics, epoch, "test")
+        wandb_logging(wandb, test_metrics, epoch, "test", whole_mode=args.temporal_length == -1)
     
     wandb.finish()
     

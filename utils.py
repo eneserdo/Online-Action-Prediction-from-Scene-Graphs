@@ -818,8 +818,9 @@ class Metrics:
         self.f1_top3 = MulticlassF1Score(num_classes=num_classes, top_k=1, average="macro").to(device) # top_k is intentionally 1
 
         # These are not really necessary
-        # self.conf_mat_top1 = MulticlassConfusionMatrix(num_classes=num_classes, normalize="true").to(device)
-        # self.conf_mat_top3 = MulticlassConfusionMatrix(num_classes=num_classes, normalize="true").to(device)
+        if temporal_length == -1:
+            self.conf_mat_top1_whole = MulticlassConfusionMatrix(num_classes=num_classes, normalize="true").to(device)
+            self.conf_mat_top3_whole = MulticlassConfusionMatrix(num_classes=num_classes, normalize="true").to(device)
         
         # Window-location-sensitive
         if temporal_length != -1:
@@ -833,7 +834,8 @@ class Metrics:
         if temporal_length != -1:
             self.all_predictions_combined_top1 = {vid + m_and_hand_status: - np.ones((act.shape[0] - temporal_length + 1) * temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
             self.all_predictions_combined_top3 = {vid + m_and_hand_status: - np.ones((act.shape[0] - temporal_length + 1) * temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
-
+        else:
+            self.f1_at_k = F1_at_k(num_classes=num_classes)
 
 
     def update(self, pred, gt_ohe, idxes, mask=None):
@@ -862,8 +864,14 @@ class Metrics:
         step_f1_top1 = self.f1_top1(pred_top_1, gt_flattened)
         step_f1_top3 = self.f1_top3(pred_top_3, gt_flattened)
 
-        # self.conf_mat_top1(pred_top_1, gt_flattened)
-        # self.conf_mat_top3(pred_top_3, gt_flattened)
+        if self.temporal_length == -1:
+            with warnings.catch_warnings():
+                warnings.filterwarnings('ignore', '.*NaN values found in confusion matrix have been replaced with zeros.*', UserWarning)
+                self.conf_mat_top1_whole(pred_top_1, gt_flattened)
+                self.conf_mat_top3_whole(pred_top_3, gt_flattened)
+            # for _ in range(idxes.shape[0]):
+            #     self.f1_at_k(, , segment_name="top1")
+            
 
 
         if self.temporal_length != -1:
@@ -922,6 +930,8 @@ class Metrics:
             ret = {
                 "f1_top1": self.f1_top1.compute().item(),
                 "f1_top3": self.f1_top3.compute().item(),
+                "cm_top1_once": self.conf_mat_top1_whole.compute().cpu(),
+                "cm_top3_once": self.conf_mat_top3_whole.compute().cpu(),
             }
         
         return ret 
@@ -931,30 +941,38 @@ def almost_equal(a, b, eps=1e-6):
     return np.abs(a-b) < eps
 
 
-def wandb_logging(wandb, metric_dict, epoch, mode):
+def wandb_logging(wandb, metric_dict, epoch, mode, whole_mode=False):
     # Gathered all wandb logs here (except batch logs)
     # I think wabdb kind a have state, so I take it as an argument. But not tested otherwise.
 
+    if not whole_mode:
+        # Window-location-sensitive metrics: line plots
+        lplt1=plot_line(metric_dict["win_f1_top1"], f"{mode}_f1_top1_by_t", do_return_plot=True)
+        log_name = f"{mode}/f1_by_t" if mode in ["train", "val"] else "test_f1_by_t"
+        wandb.log({log_name: {'top1': wandb.Image(lplt1)}})
+        lplt1.close()
 
-    # Window-location-sensitive metrics: line plots
-    lplt1=plot_line(metric_dict["win_f1_top1"], f"{mode}_f1_top1_by_t", do_return_plot=True)
-    log_name = f"{mode}/f1_by_t" if mode in ["train", "val"] else "test_f1_by_t"
-    wandb.log({log_name: {'top1': wandb.Image(lplt1)}})
-    lplt1.close()
+        lplt3=plot_line(metric_dict["win_f1_top3"], f"{mode}_f1_top3_by_t", do_return_plot=True)
+        wandb.log({log_name: {'top3': wandb.Image(lplt3)}})
+        lplt3.close()
 
-    lplt3=plot_line(metric_dict["win_f1_top3"], f"{mode}_f1_top3_by_t", do_return_plot=True)
-    wandb.log({log_name: {'top3': wandb.Image(lplt3)}})
-    lplt3.close()
+        log_name = f"{mode}/epoch" if mode in ["train", "val"] else "test"
+        wandb.log({log_name: {"f1@10": metric_dict["f1@10"], 
+                              "f1@25": metric_dict["f1@25"], 
+                              "f1@50": metric_dict["f1@50"], 
+                              "f1_top1_once": metric_dict["f1_top1_once"], 
+                              "f1_top3_once": metric_dict["f1_top3_once"],
+                              "f1_top1": metric_dict["f1_top1"],
+                              "f1_top3": metric_dict["f1_top3"]},
+                    "epoch": epoch})
+    else:
+        # TODO: add f1@k
+        log_name = f"{mode}/epoch" if mode in ["train", "val"] else "test"
+        wandb.log({log_name: {"f1_top1": metric_dict["f1_top1"],
+                              "f1_top3": metric_dict["f1_top3"]},
+                   "epoch": epoch})
 
-    log_name = f"{mode}/epoch" if mode in ["train", "val"] else "epoch"
-    wandb.log({log_name: {"f1@10": metric_dict["f1@10"], 
-                                  "f1@25": metric_dict["f1@25"], 
-                                  "f1@50": metric_dict["f1@50"], 
-                                  "f1_top1_once": metric_dict["f1_top1_once"], 
-                                  "f1_top3_once": metric_dict["f1_top3_once"],
-                                  "f1_top1": metric_dict["f1_top1"],
-                                  "f1_top3": metric_dict["f1_top3"]},
-                "epoch": epoch})
+
 
     # Confusion matrices (only for test and val)
     if mode in ["val", "test"]:
