@@ -195,6 +195,8 @@ class ActionRecognition(torch.nn.Module):
                  num_edge_feat,
                  num_action_classes,
                  lstm_hidden_size,
+                 num_heads1,
+                 num_heads2,
                  filter_it,
                  use_hand_pooling,
                  edge_dropout,
@@ -207,8 +209,7 @@ class ActionRecognition(torch.nn.Module):
                  temporal_length,
                  num_of_temp_layers,
                  dim_feedforward,
-                 num_heads_tr,
-                 **kwargs):
+                 num_heads_tr):
         """ Accepts kwargs for non-general params of gnns """
         super().__init__()
 
@@ -228,12 +229,12 @@ class ActionRecognition(torch.nn.Module):
             effective_out_ch2 = out_channels
 
         elif gnn_type in ["GATv2Conv", "TransformerConv", "GATConv"]:
-            self.conv1 = getattr(geometric_nn, gnn_type)(in_channels, hidden_channels, heads=kwargs["heads"],
+            self.conv1 = getattr(geometric_nn, gnn_type)(in_channels, hidden_channels, heads=num_heads1,
                                                          edge_dim=num_edge_feat, dropout=dropout)
-            self.conv2 = getattr(geometric_nn, gnn_type)(hidden_channels * kwargs["heads"], out_channels,
-                                                         heads=kwargs["heads"], edge_dim=num_edge_feat, dropout=dropout)
-            effective_out_ch1 = hidden_channels * kwargs["heads"]
-            effective_out_ch2 = out_channels * kwargs["heads"]
+            self.conv2 = getattr(geometric_nn, gnn_type)(hidden_channels * num_heads1, out_channels,
+                                                         heads=num_heads2, edge_dim=num_edge_feat, dropout=dropout)
+            effective_out_ch1 = hidden_channels * num_heads1
+            effective_out_ch2 = out_channels * num_heads2
 
         else:
             raise NotImplementedError(f"gnn_type: {gnn_type} is not implemented")
