@@ -535,12 +535,14 @@ def process_bimanual_dataset(root: str, temporal_length: int, fix_fps: bool=Fals
     
                 torch.save(data_list, opj(processed_dir, subject, f'data_{sample_idx}.pt'))
                 dataset_mapping_master["sample"][sample_idx] = (subject_int, task_int, take_int, frame-temporal_length + 1, frame + 1, "_")
-                vid_len_info[sample_idx] = temporal_length
+                if process_whole_video:
+                    vid_len_info[sample_idx] = temporal_length
                 sample_idx+=1
 
                 dataset_mapping_master["sample"][sample_idx] = (subject_int, task_int, take_int, frame-temporal_length + 1, frame + 1, "M")
                 torch.save(data_list_mirrored, opj(processed_dir, subject, f'data_{sample_idx}.pt'))
-                vid_len_info[sample_idx] = temporal_length
+                if process_whole_video:
+                    vid_len_info[sample_idx] = temporal_length
                 sample_idx+=1
 
                 successful_save = True
