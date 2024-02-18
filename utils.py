@@ -949,16 +949,14 @@ def wandb_logging(wandb, metric_dict, epoch, mode, whole_mode=False):
     if not whole_mode:
         # Window-location-sensitive metrics: line plots
         lplt1=plot_line(metric_dict["win_f1_top1"], f"{mode}_f1_top1_by_t", do_return_plot=True)
-        log_name = f"{mode}/f1_by_t" if mode in ["train", "val"] else "test_f1_by_t"
-        wandb.log({log_name: {'top1': wandb.Image(lplt1)}})
+        wandb.log({f"{mode}/f1_by_t": {'top1': wandb.Image(lplt1)}})
         lplt1.close()
 
         lplt3=plot_line(metric_dict["win_f1_top3"], f"{mode}_f1_top3_by_t", do_return_plot=True)
-        wandb.log({log_name: {'top3': wandb.Image(lplt3)}})
+        wandb.log({f"{mode}/f1_by_t": {'top3': wandb.Image(lplt3)}})
         lplt3.close()
 
-        log_name = f"{mode}/epoch" if mode in ["train", "val"] else "test"
-        wandb.log({log_name: {"f1@10": metric_dict["f1@10"], 
+        wandb.log({f"{mode}/epoch": {"f1@10": metric_dict["f1@10"], 
                               "f1@25": metric_dict["f1@25"], 
                               "f1@50": metric_dict["f1@50"], 
                               "f1_top1_once": metric_dict["f1_top1_once"], 
@@ -968,8 +966,7 @@ def wandb_logging(wandb, metric_dict, epoch, mode, whole_mode=False):
                     "epoch": epoch})
     else:
         # TODO: add f1@k
-        log_name = f"{mode}/epoch" if mode in ["train", "val"] else "test"
-        wandb.log({log_name: {"f1_top1": metric_dict["f1_top1"],
+        wandb.log({f"{mode}/epoch": {"f1_top1": metric_dict["f1_top1"],
                               "f1_top3": metric_dict["f1_top3"]},
                    "epoch": epoch})
 
