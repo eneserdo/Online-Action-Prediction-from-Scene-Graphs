@@ -90,7 +90,7 @@ def arg_parser():
     ap.add_argument("--smoothing", type=float, default=0.0, help="Label smoothing weight")
 
     # Metrics
-    ap.add_argument("--weighted_mv", type=str, default="none", choices=["none", "w1", "w2"], help="...")
+    ap.add_argument("--weighted_mv", type=str, default="none", choices=["none", "w1", "w2", "auto"], help="...")
 
     # Training
     ap.add_argument("-me", "--max_epochs", type=int, default=20, help="Max number of epochs")
@@ -572,16 +572,24 @@ def majority_voting(arr, total_len, buffer_len, weighted):
     shift = buffer_len - 1
 
     if weighted != "none":
-
+        # w1 and w2 are only for buffer_len=30
         if weighted == "w1":
             vote_weights = np.array([0]*1 + [1]*1 + [2]*1 + [5]*2 + [6]*3 + [7]*4 + [8]*6 +[7]*4 + [6]*3 + [5]*2 + [2]*1 + [1]*1 + [0]*1)
         elif weighted == "w2":
             vote_weights = np.array([0]*3 + [4]*2 + [5]*3 + [6]*3 + [7]*3 + [8]*2 + [7]*3 +[6]*3 + [5]*3 + [4]*2 + [0]*3)
+        elif weighted == "auto":
+            # 4 ... 8 ... 4
+            half = np.linspace(4, 8, buffer_len//2).round().astype(int)
+            if buffer_len % 2 == 0:
+                vote_weights = np.concatenate([half, half[::-1]])
+            else:
+                vote_weights = np.concatenate([half, [8], half[::-1]]) 
         else:
-            raise ValueError("weighted must be one of 'none', 'w1', 'w2'")
+            raise ValueError("weighted must be one of 'none', 'w1', 'w2', or 'auto'")
 
-        assert (vote_weights[:buffer_len//2] == vote_weights[-buffer_len//2:][::-1]).all(), "vote_weights is supposed to be symmetric"
-        assert vote_weights.shape[0] == 30, "vote_weights must have length 30"
+        # 7//2 -> 3 but -7//2 -> -4
+        assert (vote_weights[:buffer_len//2] == vote_weights[-(buffer_len//2):][::-1]).all(), "vote_weights is supposed to be symmetric"
+        # assert vote_weights.shape[0] == 30, "vote_weights must have length 30"
         assert vote_weights.shape[0] == buffer_len, "vote_weights must have same length as buffer_len"
     
     # First element:
