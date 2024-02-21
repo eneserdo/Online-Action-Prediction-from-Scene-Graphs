@@ -241,14 +241,14 @@ if __name__ == "__main__":
                                      dim_feedforward=args.dim_feedforward,
                                      num_heads_tr=args.num_heads_tr).to(device=device)
 
-    # print(model)
+    print(model)
     rnn_params = sum(p.numel() for p in model.temporal_layer.parameters() if p.requires_grad)
     gnn_params = sum(p.numel() for p in model.gnn.parameters() if p.requires_grad)
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-    # print(f"Total trainable params: {total_params:_}")
-    # print(f"RNN: {rnn_params:_}")
-    # print(f"GNN: {gnn_params:_}")
+    print(f"Total trainable params: {total_params:_}")
+    print(f"RNN: {rnn_params:_}")
+    print(f"GNN: {gnn_params:_}")
     wandb.log({"total_params": total_params, "rnn_params": rnn_params, "gnn_params": gnn_params})
 
 
