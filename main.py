@@ -197,8 +197,13 @@ if __name__ == "__main__":
     # assert args.gpu_id < torch.cuda.device_count(), f"gpu_id:{args.gpu_id} not found. Total gpu count: {torch.cuda.device_count()}"
     device = torch.device('cuda:' + str(args.gpu_id) if torch.cuda.is_available() else 'cpu')
 
+    
+    td_tag = "T" + str(args.temporal_length) if args.temporal_length != -1 else "W"
+    td_tag += "d" + str(args.downsample)
+
     wandb.init(project="rt-action-segmentation-from-scene-graphs", name=args.name, config=args.__dict__,
-               mode="disabled" if args.disable_wandb else "online")
+               mode="disabled" if args.disable_wandb else "online",
+               tags=[td_tag])
 
 
     train_set, test_set, val_set = get_bimanual_dataset_splits(root=args.root, 
