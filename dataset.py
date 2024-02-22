@@ -6,6 +6,7 @@ from os.path import join as opj
 from typing import List, Tuple
 import json
 import gdown
+import pathlib
 
 import enlighten
 import natsort
@@ -256,29 +257,55 @@ def _impute_with_previous(graph: Data, previous_graph: Data, validity: str) -> D
     return previous_graph.clone()
     
 
-def download_bimanual_dataset(raw_dir: str, fix_null=True) -> None:
+def download_bimanual_dataset(raw_dir: str, fix_null, fix_fps, download_anyway) -> None:
     # Downloads and unzip the Bimanual dataset to raw_dir.
     # Also fixes the null actions if fix_null is True (kind of a preprocessing)
-    # TODO: move fix_fps to here
+    
+    # Check if zips are already downloaded
+
+    is_something_missing = False
+    for zipf in ["bimacs_derived_data_3d_objects.zip", 
+                 "bimacs_derived_data_spatial_relations.zip", 
+                 "bimacs_rgbd_data_ground_truth.zip",
+                 "BimanualActions.zip"]:
+        if not os.path.exists(opj(raw_dir, zipf)):
+            print(f"{zipf} is missing, downloading all...")
+            is_something_missing = True
+            # if single file is missing, download all bc it could be corrupted
+            break
 
     urls = ["https://bimanual-actions.humanoids.kit.edu/download/bimacs_derived_data_3d_objects.zip",
             "https://bimanual-actions.humanoids.kit.edu/download/bimacs_derived_data_spatial_relations.zip",
             "https://bimanual-actions.humanoids.kit.edu/download/bimacs_rgbd_data_ground_truth.zip"]
+    
+    # Download
+    if download_anyway or is_something_missing:
+        for url in urls:
+            path = download_url(url, raw_dir)
 
+        # Features https://drive.google.com/drive/folders/1yfwItIoQrAnbnk5GTjbbfN8Ls8Ybl_hr
+        gdown.download(id="1FceipuZMUjp1ES2THqlAmQgPdE18-flk", output=opj(raw_dir, "BimanualActions.zip"))
+    
+    # remove everything except the zips (otherwise it might be corrupted)
+    for f in os.listdir(raw_dir):
+        if f.endswith(".zip"):
+            continue
+        else:
+            print(f"Removing old files: {f}")
+            shutil.rmtree(opj(raw_dir, f))
+
+    # Unzip
     for url in urls:
-        path = download_url(url, raw_dir)
+        path = opj(raw_dir, url.split("/")[-1])
         extract_zip(path, raw_dir)
     
-    # Features https://drive.google.com/drive/folders/1yfwItIoQrAnbnk5GTjbbfN8Ls8Ybl_hr
-
-    gdown.download(id="1FceipuZMUjp1ES2THqlAmQgPdE18-flk", output=opj(raw_dir, "BimanualActions.zip"))
     extract_zip(opj(raw_dir, "BimanualActions.zip"), raw_dir)
 
 
     def read_check_write(sub, task, tk_json, hand, new_vals):
         # An internal function to read, check and write the json file
         # Read
-        the_json_path=opj(save_dir, "bimacs_rgbd_data_ground_truth", sub, task, tk_json)
+        the_json_path=opj(raw_dir, "bimacs_rgbd_data_ground_truth", sub, task, tk_json)
         with open(the_json_path, "r") as f:
             the_dict = json.load(f)
 
@@ -319,6 +346,77 @@ def download_bimanual_dataset(raw_dir: str, fix_null=True) -> None:
 
         print("# Replaced null actions by manually detected labels (This is directly done on the raw data!)")
 
+
+    def double_data(sub, task, tk):
+        # An internal function to double the data (15fps -> 30fps)
+        # just for readibility of the code
+
+        vid_relational_path = opj(sub, task, tk)
+
+        path_to_data = opj(raw_dir, "bimacs_derived_data", vid_relational_path)
+        # we need repeat 
+        # read every spatial_relation and 3d_object json file
+        # save it twice i -> 2*i, 2*i+1
+        # But it must be done in REVERSE order to avoid unintended overwriting
+        
+
+        object_json_list = natsort.natsorted(glob.glob(opj(path_to_data, "3d_objects", "*.json")), reverse=True)
+        relation_json_list = natsort.natsorted(glob.glob(opj(path_to_data, "spatial_relations", "*.json")), reverse=True)
+
+        assert len(object_json_list) == len(relation_json_list)
+
+        for relation_json, object_json in zip(relation_json_list, object_json_list):
+            
+            fname_r=pathlib.Path(relation_json).stem # './.../frame_XXX.json' -> 'frame_XXX'
+            frame_idx = int(fname_r.split("_")[1])
+
+            assert frame_idx == int(pathlib.Path(object_json).stem.split("_")[1])
+
+            # Relation
+            relation_json_new1 = opj(path_to_data, "spatial_relations", f"frame_{2*frame_idx}.json")
+            relation_json_new2 = opj(path_to_data, "spatial_relations", f"frame_{2*frame_idx+1}.json")
+            os.rename(relation_json, relation_json_new1)
+            shutil.copy(relation_json_new1, relation_json_new2) # Copy content and permission
+
+            # Object
+            object_json_new1 = opj(path_to_data, "3d_objects", f"frame_{2*frame_idx}.json")
+            object_json_new2 = opj(path_to_data, "3d_objects", f"frame_{2*frame_idx+1}.json")
+            os.rename(object_json, object_json_new1)
+            shutil.copy(object_json_new1, object_json_new2) # Copy content and permission
+
+
+        # read action json file double the action boundaries
+        
+        the_json_path=opj(raw_dir, "bimacs_rgbd_data_ground_truth", sub, task, f"{tk}.json")
+        with open(the_json_path, "r") as f:
+            the_dict = json.load(f)
+
+        the_dict["left_hand"][::2] = [2*i for i in the_dict["left_hand"][::2]]
+        the_dict["right_hand"][::2] = [2*i for i in the_dict["right_hand"][::2]]
+
+        with open(the_json_path, "w") as f:
+            json.dump(the_dict, f)
+        
+    if fix_fps:
+        # check if it is already fixed
+        path_to_data = opj(raw_dir, "bimacs_derived_data", "subject_1","task_9_w_sawing", "take_0")
+        object_json_list = natsort.natsorted(glob.glob(opj(path_to_data, "3d_objects", "*.json")))
+        
+        if len(object_json_list) == 246*2: # This is hardcoded. 246 is the original length
+            print("# Fps is already fixed")
+        
+
+        with open(opj(raw_dir, "BimanualActions", "bimacs_video_id_to_video_fps.json"), "r") as f:
+            fps_info = json.load(f)
+        
+        for vid_name, fps_value in fps_info.items():
+            # vid_name: "subject_X-task_X-take_X"
+            
+            if fps_value == 15:
+                double_data(*vid_name.split("-"))
+                print(f"# Fps fixed: {vid_name}:  (This is directly done on the raw data!)")
+
+
 def _get_max_length(root: str, downsample) -> int:
     # Returns the maximum length of the videos (used for padding)
     max_length = 0
@@ -328,6 +426,7 @@ def _get_max_length(root: str, downsample) -> int:
         curr_length = len(curr_list)
         max_length = max(max_length, curr_length)
     return max_length
+
 
 def __get_padding_graph() -> Data:
     # Returns a dummy graph for padding
@@ -367,7 +466,7 @@ def get_processing_dir(root: str, temporal_length: int, downsample: int) -> str:
         return opj(root, "processed"+str(temporal_length) + ds_append)
 
 
-def process_bimanual_dataset(root: str, temporal_length: int, fix_fps: bool=False, downsample: int = 1) -> None:
+def process_bimanual_dataset(root: str, temporal_length: int, downsample: int = 1) -> None:
     global TOTAL_FRAME_COUNT
     # temporal_length defines the number of frames in a sample regardless of the downsampling rate
 
@@ -392,9 +491,6 @@ def process_bimanual_dataset(root: str, temporal_length: int, fix_fps: bool=Fals
     raw_dir = opj(root, "raw")
     derived_dir = opj(raw_dir, "bimacs_derived_data")
     gt_dir = opj(raw_dir, "bimacs_rgbd_data_ground_truth")
-
-    with open(opj(raw_dir, "BimanualActions", "bimacs_video_id_to_video_fps.json"), "r") as f:
-        fps_info = json.load(f)
 
     sample_idx=0
 
@@ -431,6 +527,12 @@ def process_bimanual_dataset(root: str, temporal_length: int, fix_fps: bool=Fals
 
         gt_action_json = opj(gt_dir, subject, task, f"{take}.json")
         act_list=_get_actions_list(gt_action_json, len(relation_json_list))
+
+        assert int(pathlib.Path(relation_json_list[0]).stem.split("_")[1]) == 0, f"{relation_json_list[0]=}"
+        assert int(pathlib.Path(relation_json_list[-1]).stem.split("_")[1]) == len(relation_json_list) - 1, f"{relation_json_list[-1]=}, {len(relation_json_list)=}"
+        
+        assert int(pathlib.Path(object_json_list[0]).stem.split("_")[1]) == 0, f"{object_json_list[0]=}"
+        assert int(pathlib.Path(object_json_list[-1]).stem.split("_")[1]) == len(object_json_list) - 1, f"{object_json_list[-1]=}, {len(object_json_list)=}"
 
         # Downsample
         relation_json_list = relation_json_list[::downsample]
@@ -482,7 +584,7 @@ def process_bimanual_dataset(root: str, temporal_length: int, fix_fps: bool=Fals
             data_list.append(graph)    
             data_list_mirrored.append(graph_mirrored)
             
-            # TODO: Fix_fps and prepend_count are not compatible. Fix it
+
             if prepend_count != 0 and len(data_list) == 1:
                 for _ in range(prepend_count):
                     data_list.append(graph.clone())
@@ -491,12 +593,6 @@ def process_bimanual_dataset(root: str, temporal_length: int, fix_fps: bool=Fals
                 prepend_count=0
             ##################################
 
-
-            # TODO: we pop only one graph, but when fix_fps is true, we need to pop two of them
-            # Check if fps need to be fixed. If so, add same graph again  
-            # if fix_fps and fps_info[subject+"-"+task+"-"+take] == 15:
-            #     data_list.append(graph)
-            #     data_list_mirrored.append(graph_mirrored)
                 
             # if the sequence is complete, saves it
             if len(data_list) == temporal_length:
@@ -573,7 +669,6 @@ def process_bimanual_dataset(root: str, temporal_length: int, fix_fps: bool=Fals
 
     config_info = {"sample_count": sample_idx, 
                    "temporal_length": temporal_length,
-                   "fix_fps": fix_fps,
                    "downsample": downsample}
 
     with open(opj(processed_dir, "config_info_master.json"), "w") as f:
