@@ -185,11 +185,23 @@
 # Beta = OTO_30_TR_ML_LN
 
 
-python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name Beta_NoML_ED15 -tl 30 --merged_pred none --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --edge_dropout 0.15
-sleep 5
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name Beta_NoML_ED15 -tl 30 --merged_pred none --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --edge_dropout 0.15
+# sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name Beta_ED15 -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --edge_dropout 0.15
-sleep 5
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name Beta_ED15 -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --edge_dropout 0.15
+# sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name Beta_ED15_MV -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --edge_dropout 0.15 --use_weighted_mv
+# python main.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 4 --name Beta_ED15_MV -tl 30 --merged_pred late --temporal_type tr --norm_layer LayerNorm --task onetoone --disable_seg --edge_dropout 0.15 --use_weighted_mv
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.001 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name Beta1_15d2_L -tl 15 --downsample 2 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.15 --hidden_channels 32 --out_channels 32 --num_heads1 4 --num_heads2 4 --dim_feedforward 192
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.001 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name Beta1_15d2_XL -tl 15 --downsample 2 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.15 --hidden_channels 32 --out_channels 48 --num_heads1 4 --num_heads2 4 --dim_feedforward 192
+# sleep 5
+
+# python main.py -g TransformerConv -o Adam -lr 0.001 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name Beta1_15d2_XXL -tl 15 --downsample 2 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.15 --hidden_channels 48 --out_channels 48 --num_heads1 4 --num_heads2 4 --dim_feedforward 192
+# sleep 5
+
+python main.py -g TransformerConv -o Adam -lr 0.001 -wd 0.0005 -me 30 --scheduler_step_size 8 --saving_freq 4 --name Beta1_15d2_3XL -tl 15 --downsample 2 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.15 --hidden_channels 48 --out_channels 48 --num_heads1 6 --num_heads2 6 --dim_feedforward 256
 sleep 5
