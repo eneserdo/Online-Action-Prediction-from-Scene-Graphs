@@ -3,7 +3,7 @@ import json
 import os
 import shutil
 from os.path import join as opj
-from typing import List, Tuple
+from typing import List, Tuple, Callable
 import json
 import gdown
 import pathlib
@@ -96,8 +96,76 @@ def _get_actions_list(gt_action_json: os.PathLike, act_len: int) -> np.ndarray:
     return actions_list
 
 
-def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, take) -> Tuple[Data, Data]:
-    # returns edge index and edge features
+def __is_list_valid(nums):
+    for num in nums:
+        if np.isnan(num) or np.isinf(num):
+            return False
+    return True
+
+
+def _get_norm_func(root: str) -> Callable:
+    # returns the normalization function for the position
+
+    min_x, min_y, min_z = np.inf, np.inf, np.inf
+    max_x, max_y, max_z = -np.inf, -np.inf, -np.inf
+
+    # first moment
+    first_m_x, first_m_y, first_m_z = 0, 0, 0
+    # second moment
+    second_m_x, second_m_y, second_m_z = 0, 0, 0
+    counter = 0
+
+    for subject, task, take in crawl_dataset():     # among all the videos
+        object_dir = opj(root, "raw", "bimacs_derived_data", subject, task, take, "3d_objects")
+        object_json_list = natsort.natsorted(glob.glob(opj(object_dir, "*.json")))
+        for object_json in object_json_list:        # among all the frames in a video
+            with open(object_json) as f:
+                curr_objects = json.load(f)
+            for obj in curr_objects:                # among all the objects in a frame
+                bbox = obj["bounding_box"]
+                # bbox: {x0, y0, z0, x1, y1, z1}
+                # TODO handle the nans, infs
+
+                if not __is_list_valid(bbox.values()):
+                    continue
+
+                cx = (bbox["x1"] + bbox["x0"]) / 2
+                cy = (bbox["y1"] + bbox["y0"]) / 2
+                cz = (bbox["z1"] + bbox["z0"]) / 2
+                
+                min_x, min_y, min_z = min(min_x, cx), min(min_y, cy), min(min_z, cz)
+                max_x, max_y, max_z = max(max_x, cx), max(max_y, cy), max(max_z, cz)
+
+                counter += 1
+                first_m_x += cx
+                first_m_y += cy
+                first_m_z += cz
+
+                second_m_x += cx**2
+                second_m_y += cy**2
+                second_m_z += cz**2
+    
+    mean_x, mean_y, mean_z = first_m_x / counter, first_m_y / counter, first_m_z / counter
+    std_x = np.sqrt(second_m_x / counter - mean_x**2)
+    std_y = np.sqrt(second_m_y / counter - mean_y**2)
+    std_z = np.sqrt(second_m_z / counter - mean_z**2)
+
+    mean=torch.tensor([mean_x, mean_y, mean_z]).reshape(1, 3)
+    std=torch.tensor([std_x, std_y, std_z]).reshape(1, 3)
+    
+    min_pos = torch.tensor([min_x, min_y, min_z])
+    max_pos = torch.tensor([max_x, max_y, max_z])
+
+    def normalize(pos):
+        assert isinstance(pos, torch.Tensor) and pos.shape[1] == 3
+        return (pos - min_pos) / (max_pos - min_pos)
+        # return (pos - mean) / std
+
+    return normalize
+
+
+def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, take, pos_normalizer) -> Tuple[Data, Data]:
+    # returns the graph and its mirrored version for the given relation and object json files
     
     with open(relation_json) as f:
         curr_relations = json.load(f)
@@ -112,6 +180,9 @@ def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, tak
     y = torch.zeros((2, len(ACTIONS)), dtype=torch.float)
     y_mirrored = torch.zeros((2, len(ACTIONS)), dtype=torch.float)
 
+    pos = torch.zeros((len(curr_objects), 3), dtype=torch.float)
+    pos_mirrored = torch.zeros((len(curr_objects), 3), dtype=torch.float)
+
     # To debug add embed some info
     # y = torch.zeros((2, len(ACTIONS)+1), dtype=torch.float)
     # y_mirrored = torch.zeros((2, len(ACTIONS)+1), dtype=torch.float)
@@ -119,32 +190,53 @@ def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, tak
     edge_index = []
     edge_index_mirrored = []
 
-    num_possible_relations=len(curr_objects)*(len(curr_objects)-1)
+    num_possible_relations = len(curr_objects)*(len(curr_objects)-1)
 
     edge_attr = torch.zeros((int(num_possible_relations), len(RELATIONS)))
     edge_attr_mirrored = torch.zeros((int(num_possible_relations), len(RELATIONS)))
 
     ### Fill them
+    right_hand_index, left_hand_index = -1, -1
 
     for i, obj in enumerate(curr_objects):
         x[i, OBJECTS.index(obj["class_name"])] = 1
 
+        pos[i, 0] = (obj["bounding_box"]["x1"] + obj["bounding_box"]["x0"]) / 2
+        pos[i, 1] = (obj["bounding_box"]["y1"] + obj["bounding_box"]["y0"]) / 2
+        pos[i, 2] = (obj["bounding_box"]["z1"] + obj["bounding_box"]["z0"]) / 2
+
         # # # Mirrorred # # #
         if obj["class_name"]=='LeftHand':
             x_mirrored[i, OBJECTS.index('RightHand')] = 1
+            left_hand_index = i
 
         elif obj["class_name"]=='RightHand':
             x_mirrored[i, OBJECTS.index('LeftHand')] = 1
+            right_hand_index = i
 
         else:
             x_mirrored[i, OBJECTS.index(obj["class_name"])] = 1
         # # # # # # # # # # # #
-    
-    for relation in curr_relations:
+            
+    # # # Mirrorred pos # # #
+    pos_mirrored = pos.clone()
 
-        # if self.contact_only and (relation["relation_name"] != "contact"):
-        #     # Skips the other relations if desired
-        #     continue
+    # mirror the x axis
+    pos_mirrored[:, 0] = -pos_mirrored[:, 0]
+
+    # swap left and right hands
+    temp = pos_mirrored[left_hand_index].clone()
+    pos_mirrored[left_hand_index] = pos_mirrored[right_hand_index]
+    pos_mirrored[right_hand_index] = temp
+    # # # # # # # # # # #
+
+    # Normalize
+    pos = pos_normalizer(pos)
+    pos_mirrored = pos_normalizer(pos_mirrored)
+
+
+    for relation in curr_relations:
+        # edge_index must have unique edges
 
         oi = relation["object_index"]
         si = relation["subject_index"]
@@ -205,11 +297,17 @@ def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, tak
         # y_mirrored[0, -1] = int("2"+graph_str)
     
 
-    data = Data(x=x, edge_index=edge_index.t().contiguous(),
-                edge_attr=edge_attr, y=y)
+    data = Data(x=x,
+                edge_index=edge_index.t().contiguous(),
+                edge_attr=edge_attr, 
+                y=y,
+                pos=pos)
 
-    data_mirrored = Data(x=x_mirrored, edge_index=edge_index_mirrored.t().contiguous(),
-                            edge_attr=edge_attr_mirrored, y=y_mirrored)
+    data_mirrored = Data(x=x_mirrored, 
+                         edge_index=edge_index_mirrored.t().contiguous(),
+                         edge_attr=edge_attr_mirrored, 
+                         y=y_mirrored,
+                         pos=pos_mirrored)
 
     return data, data_mirrored
 
@@ -285,7 +383,8 @@ def download_bimanual_dataset(raw_dir: str, fix_null, fix_fps, download_anyway) 
 
         # Features https://drive.google.com/drive/folders/1yfwItIoQrAnbnk5GTjbbfN8Ls8Ybl_hr
         gdown.download(id="1FceipuZMUjp1ES2THqlAmQgPdE18-flk", output=opj(raw_dir, "BimanualActions.zip"))
-    
+        print("Dataset downloaded!")
+        
     # remove everything except the zips (otherwise it might be corrupted)
     for f in os.listdir(raw_dir):
         if f.endswith(".zip"):
@@ -470,19 +569,17 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int = 
     global TOTAL_FRAME_COUNT
     # temporal_length defines the number of frames in a sample regardless of the downsampling rate
 
-    ds_append=f"_d{downsample}" if downsample > 1 else ""
+    processed_dir = get_processing_dir(root, temporal_length, downsample)
+    os.mkdir(processed_dir)
     
     if temporal_length == -1:
         # whole video as one sample
         process_whole_video = True
         MAX_VID_LENGTH = _get_max_length(root, downsample) 
     else:
-
         process_whole_video = False
 
-    processed_dir = get_processing_dir(root, temporal_length, downsample)
-    
-    os.mkdir(processed_dir)
+    pos_normalizer = _get_norm_func(root)
 
     for subject in ['subject_{}'.format(i) for i in range(1, 7)]:
         os.mkdir(opj(processed_dir, subject))
@@ -556,7 +653,7 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int = 
         for frame, (relation_json, object_json) in enumerate(zip(relation_json_list, object_json_list)):
 
             TOTAL_FRAME_COUNT += 1
-            graph, graph_mirrored = _get_graph(relation_json, object_json, act_list[frame], frame, subject, task, take)
+            graph, graph_mirrored = _get_graph(relation_json, object_json, act_list[frame], frame, subject, task, take, pos_normalizer)
 
             ### Prepending and imputation ###
             # If the graph is not valid, try to fix it (impute maybe). 

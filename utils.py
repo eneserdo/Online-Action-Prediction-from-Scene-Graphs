@@ -57,6 +57,9 @@ def arg_parser():
     ap.add_argument("--edge_dropout", type=float, default=0.0, help="...")
     ap.add_argument("--dropout", type=float, default=0.0, help="...")
     ap.add_argument("--norm_layer", type=str, default="LayerNorm", choices=["BatchNorm", "InstanceNorm", "LayerNorm", "GraphNorm", "PairNorm", "none"], help="Normalization  for GNN layer")
+    ap.add_argument("--use_pos", action="store_true", help="Use positions too as node features")
+    ap.add_argument("--use_embedding", action="store_true", help="Instead of one-hot encoded node features, use embedding layer")
+    
 
     # Model - Temporal part
     ap.add_argument("--dropout_tr", type=float, default=0.1, help="...")
