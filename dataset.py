@@ -1,21 +1,18 @@
 import glob
 import json
 import os
+import pathlib
+import pickle
 import shutil
 from os.path import join as opj
-from typing import List, Tuple, Callable
-import json
-import gdown
-import pathlib
+from typing import Callable, List, Tuple
 
 import enlighten
+import gdown
 import natsort
 import numpy as np
 import torch
 from torch_geometric.data import Data, Dataset, download_url, extract_zip
-from torch_geometric.loader import DataLoader
-import pickle
-
 
 # Global variables
 OBJECTS = ['bowl', 'knife', 'screwdriver', 'cuttingboard', 'whisk', 'hammer', 'bottle', 'cup',

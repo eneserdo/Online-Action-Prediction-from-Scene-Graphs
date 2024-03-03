@@ -1,8 +1,8 @@
 # This file is borrowed from https://github.com/RomeroBarata/human_object_interaction/blob/main/vhoi/visualisation.py
 
 import datetime
-from itertools import groupby
 import os
+from itertools import groupby
 from typing import Dict
 
 import matplotlib as mpl

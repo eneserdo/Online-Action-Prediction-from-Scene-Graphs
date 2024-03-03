@@ -2,18 +2,18 @@ import argparse
 import glob
 import json
 import os
-from os.path import join as opj
 import random
 import shutil
 import warnings
-
+from os.path import join as opj
 
 import matplotlib.pyplot as plt
 import natsort
 import numpy as np
 import seaborn as sns
 import torch
-from torchmetrics.classification import MulticlassF1Score, MulticlassConfusionMatrix
+from torchmetrics.classification import (MulticlassConfusionMatrix,
+                                         MulticlassF1Score)
 
 # functorch was merged into pytorch after certain version. I used try-except to make it compatible with both versions
 try: 
@@ -22,14 +22,15 @@ except AttributeError:
     import functorch
     torch_vmap = functorch.vmap
 
+from collections import Counter
+
 from scipy.optimize import linear_sum_assignment
 
 from dataset import ACTIONS
-
-from collections import Counter
-
 from metrics import f1_at_k_single_example
-from visualization_utils import plot_segmentation, plot_segmentation_partial, plot_segmentation_v2
+from visualization_utils import (plot_segmentation, plot_segmentation_partial,
+                                 plot_segmentation_v2)
+
 plt.ioff()
 
 

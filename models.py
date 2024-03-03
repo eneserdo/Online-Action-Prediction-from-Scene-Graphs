@@ -7,24 +7,26 @@ Shape abbreviations:
     F: feature dimension
 """
 
-from typing import List
-import warnings
-import torch
-from torch.nn import Sequential, Dropout, Linear, ReLU, SELU, LSTM, TransformerEncoder, \
-    TransformerEncoderLayer, Module, functional as F
-import torch_geometric.nn as geometric_nn
-from torch_geometric.data import Data, Batch
-from torch_geometric.utils import dropout_edge
 import math
+import warnings
+from typing import List
+
+import torch
+import torch.nn as nn
+import torch_geometric.nn as geometric_nn
+from positional_encodings.torch_encodings import (PositionalEncoding1D,
+                                                  PositionalEncoding2D)
+from torch.nn import functional as F
+from torch_geometric.data import Batch, Data
+from torch_geometric.utils import dropout_edge
 
 from dataset import OBJECTS
-from utils import get_filters_for_imbalance, align_embeddings_to_right, flatten_seq, print_warning
-
-from positional_encodings.torch_encodings import PositionalEncoding1D, PositionalEncoding2D
+from utils import (align_embeddings_to_right, flatten_seq,
+                   get_filters_for_imbalance, print_warning)
 
 
 # Borrowed from https://github.com/pytorch/examples/blob/main/word_language_model/model.py
-class PositionalEncoding(Module):
+class PositionalEncoding(nn.Module):
     r"""Inject some information about the relative or absolute position of the tokens in the sequence.
         The positional encodings have the same dimension as the embeddings, so that the two can be summed.
         Here, we use sine and cosine functions of different frequencies.
@@ -43,7 +45,7 @@ class PositionalEncoding(Module):
     def __init__(self, d_model, dropout=0, max_len=5000, use_library=False):
         super(PositionalEncoding, self).__init__()
         # FIXME: dropout ??
-        self.dropout = Dropout(p=dropout)
+        self.dropout = nn.Dropout(p=dropout)
 
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
@@ -68,7 +70,7 @@ class PositionalEncoding(Module):
         x = x + self.pe[:x.size(0), :]
         return self.dropout(x)
     
-class PositionalEncodingPseudo2D(Module):
+class PositionalEncodingPseudo2D(nn.Module):
     """
     Same as previous but with pseudo 2D positional encoding. Instead of (T, 2), it is ([T1, T2])
     """
@@ -76,7 +78,7 @@ class PositionalEncodingPseudo2D(Module):
     def __init__(self, d_model, dropout=0.1):
         super(PositionalEncodingPseudo2D, self).__init__()
         # FIXME: dropout ??
-        self.dropout = Dropout(p=dropout)
+        self.dropout = nn.Dropout(p=dropout)
         self.pe_ = PositionalEncoding2D(d_model)
         self.is_set = False
         
@@ -120,7 +122,7 @@ class PositionalEncodingPseudo2D(Module):
         return self.dropout(x)
 
 
-class LearnablePositionalEncoding(Module):
+class LearnablePositionalEncoding(nn.Module):
     """
     Learnable positional encoding
     """
@@ -128,7 +130,7 @@ class LearnablePositionalEncoding(Module):
     def __init__(self, seg_len, d_model, dropout=0.1):
         super(LearnablePositionalEncoding, self).__init__()
 
-        self.dropout = Dropout(p=dropout)
+        self.dropout = nn.Dropout(p=dropout)
         self.pe = torch.nn.Parameter(torch.zeros(seg_len, 1, d_model), requires_grad=True)
         self._reset_parameters()
 
@@ -141,7 +143,7 @@ class LearnablePositionalEncoding(Module):
 
 
 # Borrowed from https://pytorch.org/tutorials/beginner/translation_transformer.html#seq2seq-network-using-transformer
-class Seq2SeqTransformer(torch.nn.Module):
+class Seq2SeqTransformer(nn.Module):
     def __init__(self,
                  num_encoder_layers: int,
                  num_decoder_layers: int,
@@ -156,7 +158,7 @@ class Seq2SeqTransformer(torch.nn.Module):
                                        num_decoder_layers=num_decoder_layers,
                                        dim_feedforward=dim_feedforward,
                                        dropout=dropout)
-        # self.generator = nn.Linear(emb_size, tgt_vocab_size)
+        # self.generator = nn.nn.Linear(emb_size, tgt_vocab_size)
         # self.src_tok_emb = TokenEmbedding(src_vocab_size, emb_size)
         # self.tgt_tok_emb = TokenEmbedding(tgt_vocab_size, emb_size)
         self.positional_encoding = PositionalEncoding(emb_size, dropout=dropout)
@@ -186,7 +188,7 @@ class Seq2SeqTransformer(torch.nn.Module):
         return self.transformer.decoder(self.positional_encoding(tgt), memory, tgt_mask)
 
 
-class ActionRecognition(torch.nn.Module):
+class ActionRecognition(nn.Module):
     def __init__(self, *, gnn_type,
                  temporal_type,
                  in_channels,
@@ -228,9 +230,9 @@ class ActionRecognition(torch.nn.Module):
 
         # Sets Graph Network
         if gnn_type == "NNConv":
-            nn1 = Sequential(Linear(num_edge_feat, in_channels * hidden_channels), ReLU())
+            nn1 = nn.Sequential(nn.Linear(num_edge_feat, in_channels * hidden_channels), nn.ReLU())
             self.conv1 = geometric_nn.NNConv(in_channels, hidden_channels, nn1, aggr='mean')
-            nn2 = Sequential(Linear(num_edge_feat, hidden_channels * out_channels), ReLU())
+            nn2 = nn.Sequential(nn.Linear(num_edge_feat, hidden_channels * out_channels), nn.ReLU())
             self.conv2 = geometric_nn.NNConv(hidden_channels, out_channels, nn2, aggr='mean')
             effective_out_ch1 = hidden_channels
             effective_out_ch2 = out_channels
@@ -246,8 +248,8 @@ class ActionRecognition(torch.nn.Module):
         else:
             raise NotImplementedError(f"gnn_type: {gnn_type} is not implemented")
 
-        self.act1 = SELU()
-        self.act2 = SELU()
+        self.act1 = nn.SELU()
+        self.act2 = nn.SELU()
 
         if norm_layer != "none":
             NormLayerType = getattr(geometric_nn, norm_layer)
@@ -294,14 +296,14 @@ class ActionRecognition(torch.nn.Module):
             # To have approx same number of parameters
             lstm_hidden_size = lstm_hidden_size * 2 // 3 if is_bidirectional else lstm_hidden_size
 
-            self.temporal_layer = LSTM(effective_out_ch2, lstm_hidden_size, num_rnn_layers,
+            self.temporal_layer = nn.LSTM(effective_out_ch2, lstm_hidden_size, num_rnn_layers,
                                        bidirectional=is_bidirectional, dropout=dropout)
             lstm_hidden_size = lstm_hidden_size * 2 if is_bidirectional else lstm_hidden_size
 
         elif temporal_type == "tr":
             # Default dropout is 0.1
 
-            self.temporal_layer = TransformerEncoder(TransformerEncoderLayer(effective_out_ch2, num_heads_tr, dim_feedforward, norm_first=norm_first, dropout=dropout_tr), num_of_temp_layers)
+            self.temporal_layer = nn.TransformerEncoder(nn.TransformerEncoderLayer(effective_out_ch2, num_heads_tr, dim_feedforward, norm_first=norm_first, dropout=dropout_tr), num_of_temp_layers)
             self.PE_coef = math.sqrt(effective_out_ch2)
 
             if pos_enc == "original":
@@ -337,8 +339,8 @@ class ActionRecognition(torch.nn.Module):
         
         def build_mlp(in_feat,out_feat, hid_feat=None):
             # hid_feat = (in_feat+out_feat)//2 if hid_feat == None else hid_feat
-            # return Sequential(Linear(in_feat, hid_feat), SELU(), Linear(hid_feat, out_feat))
-            return Linear(in_feat,out_feat)
+            # return Sequential(nn.Linear(in_feat, hid_feat), nn.SELU(), nn.Linear(hid_feat, out_feat))
+            return nn.Linear(in_feat,out_feat)
 
         if self.merged_pred == "late":
             # Can this run in parallel? :smile:

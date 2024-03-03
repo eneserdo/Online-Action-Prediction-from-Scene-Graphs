@@ -1,7 +1,9 @@
 import argparse
 import os
 import pathlib
-from dataset import download_bimanual_dataset, get_processing_dir, process_bimanual_dataset
+
+from dataset import (download_bimanual_dataset, get_processing_dir,
+                     process_bimanual_dataset)
 
 
 def arg_parser_dataset():
