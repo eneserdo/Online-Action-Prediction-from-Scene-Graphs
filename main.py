@@ -222,10 +222,12 @@ if __name__ == "__main__":
     training_len = len(train_set)
     val_len = len(val_set)
 
+    in_channels = len(OBJECTS) + 3 if args.use_pos else len(OBJECTS)
+
     model = models.ActionRecognition(gnn_type=args.gnn_type,
                                      temporal_type=args.temporal_type,
                                      num_edge_feat=len(RELATIONS),
-                                     in_channels=len(OBJECTS),
+                                     in_channels=in_channels,
                                      hidden_channels=args.hidden_channels,
                                      out_channels=args.out_channels,
                                      num_action_classes=len(ACTIONS),
@@ -244,7 +246,9 @@ if __name__ == "__main__":
                                      temporal_length=args.temporal_length,
                                      num_of_temp_layers=args.num_of_temp_layers,
                                      dim_feedforward=args.dim_feedforward,
-                                     num_heads_tr=args.num_heads_tr).to(device=device)
+                                     num_heads_tr=args.num_heads_tr,
+                                     use_pos=args.use_pos,
+                                     use_embedding=args.use_embedding).to(device=device)
 
     print(model)
     rnn_params = sum(p.numel() for p in model.temporal_layer.parameters() if p.requires_grad)

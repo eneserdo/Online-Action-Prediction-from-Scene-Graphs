@@ -209,7 +209,9 @@ class ActionRecognition(torch.nn.Module):
                  temporal_length,
                  num_of_temp_layers,
                  dim_feedforward,
-                 num_heads_tr):
+                 num_heads_tr,
+                 use_pos,
+                 use_embedding):
         """ Accepts kwargs for non-general params of gnns """
         super().__init__()
 
@@ -218,6 +220,11 @@ class ActionRecognition(torch.nn.Module):
         self.edge_dropout = edge_dropout
         self.temporal_type = temporal_type
         self.merged_pred = merged_pred
+        self.use_embedding = use_embedding
+        self.use_pos = use_pos
+
+        if use_embedding:
+            self.embedding = torch.nn.Embedding(in_channels, in_channels)
 
         # Sets Graph Network
         if gnn_type == "NNConv":
@@ -438,13 +445,21 @@ class ActionRecognition(torch.nn.Module):
 
         # processes each frame time-independently
         for databatch in dataBatchList:  
-            x, edge_attr, edge_index, batch = databatch.x, databatch.edge_attr, databatch.edge_index, databatch.batch
+            x, pos_3d, edge_attr, edge_index, batch = databatch.x, databatch.pos, databatch.edge_attr, databatch.edge_index, databatch.batch
 
             if self.edge_dropout != 0.0:
                 edge_index, edge_mask = dropout_edge(edge_index, p=self.edge_dropout)
                 edge_attr = edge_attr[edge_mask]
 
-            H = self.gnn(x, edge_index, edge_attr, batch)
+            if self.use_embedding:
+                x_ = self.embedding(x.argmax(dim=1).long())
+            else:
+                x_ = x
+            
+            if self.use_pos:
+                x_ = torch.cat([x_, pos_3d], dim=-1)
+
+            H = self.gnn(x_, edge_index, edge_attr, batch)
 
             if self.use_hand_pooling:
                 left_embeddings, right_embeddings = self._hands_pooling(x, H, batch)

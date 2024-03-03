@@ -42,7 +42,7 @@ def main():
         if not os.path.exists(raw_dir):
             os.makedirs(raw_dir)
         download_bimanual_dataset(raw_dir, args.fix_null, args.fix_fps, args.download_anyway)
-        print("Dataset downloaded!")
+        
 
     process_bimanual_dataset(args.root, args.temporal_length, args.downsample)
     print("Dataset processed!")
