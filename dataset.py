@@ -1,3 +1,4 @@
+import copy
 import glob
 import json
 import os
@@ -32,6 +33,7 @@ TOTAL_FRAME_COUNT=0
 EMPTY_COUNT=0
 NO_EDGE_COUNT=0
 
+# CERTAINITY_THRESHOLD = 0.10 # out of 1
 
 
 def crawl_dataset_FULL():
@@ -161,6 +163,47 @@ def _get_norm_func(root: str) -> Callable:
     return normalize
 
 
+
+# def __filter_low_certainty_objects(curr_objects, curr_relations):
+#     black_list = []
+#     init_len = len(curr_objects)
+
+#     for idx, obj in enumerate(curr_objects):
+#         if obj["certainty"] < CERTAINITY_THRESHOLD:
+#             black_list.append(idx)
+
+#     if len(black_list) == 0:
+#         return
+#     print("+", end="",  flush=True)
+
+#     curr_objects = [obj for idx, obj in enumerate(curr_objects) if idx not in black_list]
+
+#     index_map = {}
+#     curr_idx = 0
+#     for idx in range(init_len):
+#         if idx in black_list:
+#             index_map[idx] = -1
+#         else:
+#             index_map[idx] = curr_idx
+#             curr_idx += 1
+
+
+#     rel_idx = 0
+#     for _ in range(len(curr_relations)):
+
+#         new_obj_idx = index_map[curr_relations[rel_idx]["object_index"]]
+#         new_sub_idx = index_map[curr_relations[rel_idx]["subject_index"]]
+
+#         if new_obj_idx == -1 or new_sub_idx == -1:
+#             curr_relations.pop(rel_idx)
+#         else:
+#             curr_relations[rel_idx]["object_index"] = new_obj_idx
+#             curr_relations[rel_idx]["subject_index"] = new_sub_idx
+#             rel_idx += 1
+    
+#     # return curr_objects, curr_relations, len(black_list)==0
+
+
 def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, take, pos_normalizer) -> Tuple[Data, Data]:
     # returns the graph and its mirrored version for the given relation and object json files
     
@@ -169,6 +212,19 @@ def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, tak
 
     with open(object_json) as f:
         curr_objects = json.load(f)
+
+    if len(curr_relations) == 0 or len(curr_objects) == 0:
+        # Normally, invalid graphs are handled afterwards, 
+        # but this is a special case, since pos depends on non-empty graphs
+        print("Empty: ", subject, task, take, "f", frame)
+        return None, None
+
+
+    # __filter_low_certainty_objects(curr_objects, curr_relations)
+    # curr_objects, curr_relations, filter_flag =__filter_low_certainty_objects(copy.deepcopy(curr_objects_), copy.deepcopy(curr_relations_))
+    # if filter_flag:
+    #     assert curr_objects == curr_objects_ and curr_relations == curr_relations_
+
 
     # initialize "Data" params
     x = torch.zeros((len(curr_objects), len(OBJECTS)), dtype=torch.float)
@@ -258,7 +314,9 @@ def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, tak
         else:
             edge_attr_mirrored[edge_index_mirrored.index(edge), RELATIONS.index(relation["relation_name"])] = 1
         # # # # # # # # # # # #
-        
+
+
+    assert len(edge_index) <= num_possible_relations
 
     edge_attr=edge_attr[:len(edge_index)]
     edge_index=torch.tensor(edge_index, dtype=torch.long)
@@ -313,6 +371,10 @@ def _check_validity(data: Data) -> str:
     # Checks: both hands exists, action != null, has edge, not empty 
     
     global MISSING_HAND_COUNT, NULL_COUNT, EMPTY_COUNT, NO_EDGE_COUNT
+
+    if data is None:
+        EMPTY_COUNT+=1
+        return "empty"
 
     Lhand, Rhand=False, False
     # null
