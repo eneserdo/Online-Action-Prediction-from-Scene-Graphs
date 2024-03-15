@@ -433,7 +433,8 @@ def download_bimanual_dataset(raw_dir: str, fix_null, fix_fps, download_anyway) 
 
     urls = ["https://bimanual-actions.humanoids.kit.edu/download/bimacs_derived_data_3d_objects.zip",
             "https://bimanual-actions.humanoids.kit.edu/download/bimacs_derived_data_spatial_relations.zip",
-            "https://bimanual-actions.humanoids.kit.edu/download/bimacs_rgbd_data_ground_truth.zip"]
+            "https://bimanual-actions.humanoids.kit.edu/download/bimacs_rgbd_data_ground_truth.zip",
+            "https://bimanual-actions.humanoids.kit.edu/download/bimacs_derived_data_2d_objects.zip"]
     
     # Download
     if download_anyway or is_something_missing:

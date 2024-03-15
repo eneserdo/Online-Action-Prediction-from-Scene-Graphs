@@ -6,9 +6,9 @@ import os
 import sys
 from os.path import join as opj
 
+
 import natsort
 
-import detectron2
 import numpy as np
 import torch
 from detectron2 import model_zoo
@@ -16,20 +16,24 @@ from detectron2.config import get_cfg
 from detectron2.engine import DefaultPredictor
 # from detectron2.utils.visualizer import Visualizer
 # from detectron2.data import MetadataCatalog, DatasetCatalog
+# from detectron2.structures.instances import Instances
 from detectron2.structures.boxes import Boxes
 
 from dataset import OBJECTS, crawl_dataset
 
-import cv2
-
-# from detectron2.utils.logger import setup_logger
-# setup_logger()
+from PIL import Image
 
 
+# Camera intrinsics
+IMG_WIDTH=640
+IMG_HEIGHT=480
+FOV_X=54 / 180 * np.pi 
+FOV_Y=45 / 180 * np.pi 
 
-
-# from detectron2.structures.instances import Instances
-
+FX= IMG_WIDTH / (2 * np.tan(FOV_X/2)) # 628.035
+FY= IMG_HEIGHT / (2 * np.tan(FOV_Y/2)) # 579.411
+CX=IMG_WIDTH/2
+CY=IMG_HEIGHT/2
 
 
 class ObjectFeatureExtractor:
@@ -89,12 +93,178 @@ class ObjectFeatureExtractor:
             return roi_features
 
 
-def get_bbox_from_3d(bbox_3d):
-    # Hands do not have 2d bboxes, so we need to convert 3d bboxes to 2d bboxes
-    ...
+def getRotationMatrix(w0: np.ndarray, theta: float = None):
+    """Calculates rotation matrix using Rodrigue's formula (norm of the w is assigned to theta), (theta in radian)"""
+    # FIXME modifies the w implicitly
 
-def convert_box_format():
-    ...
+    if theta is None:
+        norm = np.linalg.norm(w0)
+        w0 = w0 / norm
+        theta = norm
+    else:
+        assert np.allclose(np.linalg.norm(w0), 1.0)
+
+    W_hat = np.array([[0, -w0[2], w0[1]], [w0[2], 0, -w0[0]], [-w0[1], w0[0], 0]])
+
+    # Rodrigue's formula
+    R = (np.identity(3) + np.sin(theta) * W_hat + (1 - np.cos(theta)) * np.matmul(W_hat, W_hat))
+
+    # sanity check
+    assert np.allclose(np.linalg.det(R), 1.0)
+
+    return R
+
+
+def homogeneousMultiplication(A, x):
+    """A.shape = [D, D], x.shape = [N, D-1];
+    Calculates x' = A @ [x.T, 1].T
+    then returns x' in inhomogeneous vector form
+    """
+    assert A.shape[0] == A.shape[1] and x.shape[1] == (A.shape[0] - 1)
+
+    x = np.concatenate((x, np.ones((x.shape[0], 1))), 1)
+    x = A @ x.T
+    x = x[:-1] / x[-1]
+
+    return x.T
+
+
+def convert_from_xyz_and_rotate(x, y, z, angle, is_np=False):
+    """
+    x, y, z -> u, v, d
+    """
+    # Camera intrinsics
+
+
+    if is_np:
+        assert np.isinf(x).any() == False and np.isinf(y).any() == False and np.isinf(z).any() == False
+        assert np.isnan(x).any() == False and np.isnan(y).any() == False and np.isnan(z).any() == False
+    else:
+        raise NotImplementedError("what are you doing?")    
+
+    # rotate x,y,z point around x-axis 19 degree
+    R=getRotationMatrix(np.array([1, 0, 0]), +np.pi*angle/180)
+    A=np.identity(4)
+    A[:3, :3]=R
+
+    xyz=np.stack([x, y, z]).T
+
+    rotated_xyz=homogeneousMultiplication(A, xyz)
+
+
+    x, y, z = np.hsplit(rotated_xyz, 3)
+    
+    x, y, z = x.flatten(), y.flatten(), z.flatten()
+
+    u = -FX * x / z + CX
+    v = FY * y / z + CY
+
+    mask_to_nan = (u < 0) | (u > IMG_WIDTH) | (v < 0) | (v > IMG_HEIGHT)     
+    # print("u:", u)
+    # print("v:", v)
+
+    u[mask_to_nan] = np.nan
+    v[mask_to_nan] = np.nan
+
+    if is_np:
+        return np.stack((u, v), axis=1)
+    else:
+        return u, v
+
+
+def get_bbox_from_3d(bbox_3d, angle):
+    # Hands do not have 2d bboxes, so we need to convert 3d bboxes to 2d bboxes
+    bbox_3d_np=np.array([bbox_3d["x0"], bbox_3d["x1"], bbox_3d["y0"], bbox_3d["y1"], bbox_3d["z0"], bbox_3d["z1"]])
+    
+    vertices_xyz = np.array([[bbox_3d_np[0], bbox_3d_np[2], bbox_3d_np[4]], 
+                             [bbox_3d_np[0], bbox_3d_np[2], bbox_3d_np[5]], 
+                             [bbox_3d_np[0], bbox_3d_np[3], bbox_3d_np[4]], 
+                             [bbox_3d_np[0], bbox_3d_np[3], bbox_3d_np[5]], 
+                             [bbox_3d_np[1], bbox_3d_np[2], bbox_3d_np[4]], 
+                             [bbox_3d_np[1], bbox_3d_np[2], bbox_3d_np[5]], 
+                             [bbox_3d_np[1], bbox_3d_np[3], bbox_3d_np[4]], 
+                             [bbox_3d_np[1], bbox_3d_np[3], bbox_3d_np[5]]])
+
+    # This function also rotates the 3d bbox
+    vertices_uv = convert_from_xyz_and_rotate(vertices_xyz[:, 0], vertices_xyz[:, 1], vertices_xyz[:, 2], angle, is_np=True)
+    
+    x0 = np.min(vertices_uv[:, 0])
+    x1 = np.max(vertices_uv[:, 0])
+    y0 = np.min(vertices_uv[:, 1])
+    y1 = np.max(vertices_uv[:, 1])
+
+    return np.array([x0, y0, x1, y1])
+
+def convert_box_format(bbox):
+    # bbox: (cx, cy, w, h) (0-1) -> (x1, y1, x2, y2) (0-width or 0-height)
+
+    new_bbox = np.zeros_like(bbox)
+    
+    new_bbox[:, 0] = (bbox[:, 0] - bbox[:, 2] / 2) * IMG_WIDTH
+    new_bbox[:, 1] = (bbox[:, 1] - bbox[:, 3] / 2) * IMG_HEIGHT
+    new_bbox[:, 2] = (bbox[:, 0] + bbox[:, 2] / 2) * IMG_WIDTH
+    new_bbox[:, 3] = (bbox[:, 1] + bbox[:, 3] / 2) * IMG_HEIGHT
+    
+    return new_bbox
+    
+
+def extend_bbox(bbox, extend_amount=0):
+    # bbox: (x1, y1, x2, y2)
+    # extend bbox by extend_amount
+    bbox[0] = max(0, bbox[0] - extend_amount)
+    bbox[1] = max(0, bbox[1] - extend_amount)
+    bbox[2] = min(IMG_WIDTH, bbox[2] + extend_amount)
+    bbox[3] = min(IMG_HEIGHT, bbox[3] + extend_amount)
+    
+    return bbox
+
+def get_camera_angle(record_idx):
+    # return camera angle for record_idx
+    # TODO: unit test
+
+    key_indices= [0, 3, 21, 90, 180, 201, 270, 360, 600]
+    map= {
+        "0": {"angle": -1}, # dummy
+        "3": {"angle": 15},
+        "21": {"angle": 21},
+        "90": {"angle": 17.5},
+        "180": {"angle": 20},
+        "201": {"angle": 19},
+        "270": {"angle": 18},
+        "360": {"angle": 18},
+        "600": {"angle": 16}
+    }
+
+
+    for i, key_idx in enumerate(key_indices):
+        if record_idx < key_idx:
+            break
+    
+    return map[str(key_indices[i])]["angle"]
+
+
+def get_hands_bb_from_3d_obj(obj_3d):
+    left_hand = None
+    right_hand = None
+
+    for obj in obj_3d:
+        if obj["class_name"] == "LeftHand":
+            left_hand = obj
+        elif obj["class_name"] == "RightHand":
+            right_hand = obj
+    
+    if left_hand is not None:
+        left_bb=get_bbox_from_3d(left_hand["bounding_box"])
+    else:
+        left_bb=None
+
+    if right_hand is not None:
+        right_bb=get_bbox_from_3d(right_hand["bounding_box"])
+    else:
+        right_bb=None
+
+    return left_bb, right_bb
+
 
 def main(args):
 
@@ -104,42 +274,71 @@ def main(args):
     # create dir to save features
     raw_dir = opj(args.root, "raw")
     vis_feat_dir = opj(raw_dir, "vis_feat")
+
     os.makedirs(vis_feat_dir, exist_ok=True)
 
     imgs_dir = args.imgs     
 
+    record_idx = 0
     for subject, task, take in crawl_dataset():
+        subject = "subject_2"
         
-        rgb_files = natsort.natsorted(glob.glob(opj(imgs_dir, subject, task, take, "rgb", "*.png")))
-        bboxes_files = natsort.natsorted(glob.glob(opj(imgs_dir, subject, task, take, "bboxes", "*.json")))
+        rgb_files = natsort.natsorted(glob.glob(opj(imgs_dir, subject, task, take, "rgb", "chunk_*", "*.png")))
+        obj_2d_files = natsort.natsorted(glob.glob(opj(args.root, "raw", "bimacs_derived_data", subject, task, take, "2d_objects", "*.json")))
+        obj_3d_files = natsort.natsorted(glob.glob(opj(args.root, "raw", "bimacs_derived_data", subject, task, take, "3d_objects", "*.json")))
         
-        bboxes_3d_files = natsort.natsorted(glob.glob(opj(imgs_dir, subject, task, take, "bboxes", "*.json")))
-        
-        assert len(rgb_files) == len(bboxes_files), "Number of rgb files and bboxes files must be the same"
-        assert len(rgb_files) == len(bboxes_3d_files), "Number of rgb files and 3d bboxes files must be the same"
+        assert len(rgb_files) > 0, "No rgb files found"
+        assert len(rgb_files) == len(obj_2d_files), "Number of rgb files and bboxes files must be the same"
+        assert len(rgb_files) == len(obj_3d_files), "Number of rgb files and 3d bboxes files must be the same"
 
-        for rgb_f, bboxes_f, bboxes_3d_f in zip(rgb_files, bboxes_files, bboxes_3d_files):
-            
-            image = cv2.imread(rgb_f)
-            
-            with open(bboxes_f, "r") as f:
-                bboxes = json.load(f)
-            
-            bboxes_np = np.zeros((len(bboxes), 4))
-            for oi, obj in enumerate(bboxes):
-                bboxes_np[oi] = ...
+        camera_angle = get_camera_angle(record_idx)
+        target_dir = opj(vis_feat_dir, subject, task, take)
+        os.makedirs(target_dir, exist_ok=True)
 
-            bboxes = convert_box_format(bboxes)
-
-            with open(bboxes_3d_f, "r") as f:
-                bboxes_3d = json.load(f)            
+        for rgb_f, obj_2d_f, obj_3d_f in zip(rgb_files, obj_2d_files, obj_3d_files):
             
+            # image = cv2.imread(rgb_f)
+            image = np.array(Image.open(rgb_f))
+            
+            with open(obj_2d_f, "r") as f:
+                obj_2d = json.load(f)
+            
+            bboxes_np = np.zeros((len(obj_2d), 4))
+            for oi, obj in enumerate(obj_2d):
+                bbox=obj["bounding_box"]
+                bboxes_np[oi] = np.array([bbox["x"], bbox["y"], bbox["w"], bbox["h"]])
+
+            bboxes_np = convert_box_format(bboxes_np)
+
+            with open(obj_3d_f, "r") as f:
+                bboxes_3d = json.load(f)
+
+            lefthand_bb, righthand_bb = get_hands_bb_from_3d_obj(bboxes_3d)
+            concat_list = [bboxes_np]
+            if lefthand_bb is not None:
+                concat_list.append(lefthand_bb)
+            if righthand_bb is not None:
+                concat_list.append(righthand_bb)
+
+
+            bboxes_np = np.concatenate(concat_list, axis=0)
+            bboxes_np = extend_bbox(bboxes_np)
+
+            # CHECKME: if the order is correct
             obj_names = [obj["class_name"] for obj in bboxes_3d]
 
             features = extractor.extract_features(image, bboxes)
 
-            torch.save(features, "...")
+            torch.save(features, target_dir)
             # save object names (read it from 3d bboxes file)
+            with open(opj(target_dir, "obj_list.txt"), "w") as f:
+                f.write("\n".join(obj_names))
+
+        # End of frame loop
+
+        record_idx += 1
+
+    # End of dataset loop
 
 
         
@@ -171,5 +370,8 @@ if __name__ == "__main__":
     arg_parser.add_argument("--imgs", type=str, default=imgs_default, help="Bimanual dataset imgs directory")
 
     args = arg_parser.parse_args()
+    
+    assert os.path.exists(args.root), "Root directory does not exist"
+    assert os.path.exists(args.imgs), "Images directory does not exist"
 
     main(args)

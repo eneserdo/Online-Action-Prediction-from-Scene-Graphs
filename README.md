@@ -16,6 +16,8 @@ conda install pyg=2.4 -c pyg
 
 pip install enlighten natsort wandb torchmetrics matplotlib seaborn gdown
 
+python -m pip install 'git+https://github.com/facebookresearch/detectron2.git'
+
 ```
 
 
