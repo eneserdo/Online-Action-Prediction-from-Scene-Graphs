@@ -204,7 +204,7 @@ def _get_norm_func(root: str) -> Callable:
 #     # return curr_objects, curr_relations, len(black_list)==0
 
 
-def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, take, pos_normalizer) -> Tuple[Data, Data]:
+def _get_graph(relation_json, object_json, vf_path, gt_actions, frame, subject, task, take, pos_normalizer) -> Tuple[Data, Data]:
     # returns the graph and its mirrored version for the given relation and object json files
     
     with open(relation_json) as f:
@@ -212,6 +212,17 @@ def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, tak
 
     with open(object_json) as f:
         curr_objects = json.load(f)
+    
+    obj_names = [obj["class_name"] for obj in curr_objects]
+
+    if obj_names.count("LeftHand") != 1 or obj_names.count("RightHand") != 1:
+        # print("Missing hand: ", subject, task, take, "f", frame)
+        return None, None
+    
+    
+    if vf_path is not None:
+        vis_feat=torch.load(vf_path)
+
 
     if len(curr_relations) == 0 or len(curr_objects) == 0:
         # Normally, invalid graphs are handled afterwards, 
@@ -227,8 +238,13 @@ def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, tak
 
 
     # initialize "Data" params
-    x = torch.zeros((len(curr_objects), len(OBJECTS)), dtype=torch.float)
-    x_mirrored = torch.zeros((len(curr_objects), len(OBJECTS)), dtype=torch.float)
+    if vf_path is None:
+        x_dim = len(OBJECTS)
+    else:
+        x_dim = vis_feat.shape[1]
+
+    x = torch.zeros((len(curr_objects), x_dim), dtype=torch.float)
+    x_mirrored = torch.zeros((len(curr_objects), x_dim), dtype=torch.float)
     
     y = torch.zeros((2, len(ACTIONS)), dtype=torch.float)
     y_mirrored = torch.zeros((2, len(ACTIONS)), dtype=torch.float)
@@ -252,23 +268,40 @@ def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, tak
     right_hand_index, left_hand_index = -1, -1
 
     for i, obj in enumerate(curr_objects):
-        x[i, OBJECTS.index(obj["class_name"])] = 1
+        if vf_path is None: 
+            x[i, OBJECTS.index(obj["class_name"])] = 1
+        else:
+            x[i] = vis_feat[i]
 
         pos[i, 0] = (obj["bounding_box"]["x1"] + obj["bounding_box"]["x0"]) / 2
         pos[i, 1] = (obj["bounding_box"]["y1"] + obj["bounding_box"]["y0"]) / 2
         pos[i, 2] = (obj["bounding_box"]["z1"] + obj["bounding_box"]["z0"]) / 2
 
         # # # Mirrorred # # #
-        if obj["class_name"]=='LeftHand':
-            x_mirrored[i, OBJECTS.index('RightHand')] = 1
-            left_hand_index = i
+        if vf_path is None:
+            if obj["class_name"]=='LeftHand':
+                x_mirrored[i, OBJECTS.index('RightHand')] = 1
+                left_hand_index = i
 
-        elif obj["class_name"]=='RightHand':
-            x_mirrored[i, OBJECTS.index('LeftHand')] = 1
-            right_hand_index = i
+            elif obj["class_name"]=='RightHand':
+                x_mirrored[i, OBJECTS.index('LeftHand')] = 1
+                right_hand_index = i
 
+            else:
+                x_mirrored[i, OBJECTS.index(obj["class_name"])] = 1
         else:
-            x_mirrored[i, OBJECTS.index(obj["class_name"])] = 1
+            if obj["class_name"]=='LeftHand':
+                temp_idx=obj_names.index('RightHand')
+                x_mirrored[i] = vis_feat[temp_idx]
+                left_hand_index = i
+
+            elif obj["class_name"]=='RightHand':
+                temp_idx=obj_names.index('LeftHand')
+                x_mirrored[i] = vis_feat[temp_idx]
+
+                right_hand_index = i
+            else:
+                x_mirrored[i] = vis_feat[i]
         # # # # # # # # # # # #
             
     # # # Mirrorred pos # # #
@@ -368,6 +401,8 @@ def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, tak
 
 
 def _check_validity(data: Data) -> str:
+    # TODO: merge with _get_graph
+
     # Checks: both hands exists, action != null, has edge, not empty 
     
     global MISSING_HAND_COUNT, NULL_COUNT, EMPTY_COUNT, NO_EDGE_COUNT
@@ -625,7 +660,7 @@ def get_processing_dir(root: str, temporal_length: int, downsample: int) -> str:
         return opj(root, "processed"+str(temporal_length) + ds_append)
 
 
-def process_bimanual_dataset(root: str, temporal_length: int, downsample: int = 1) -> None:
+def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, use_vis_feat: bool) -> None:
     global TOTAL_FRAME_COUNT
     # temporal_length defines the number of frames in a sample regardless of the downsampling rate
 
@@ -648,6 +683,10 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int = 
     raw_dir = opj(root, "raw")
     derived_dir = opj(raw_dir, "bimacs_derived_data")
     gt_dir = opj(raw_dir, "bimacs_rgbd_data_ground_truth")
+    
+    if use_vis_feat:
+        vf_master_dir = opj(raw_dir, "vis_feat")
+        assert os.path.exists(vf_master_dir), f"Vis feat is not available in {vf_master_dir}"
 
     sample_idx=0
 
@@ -682,6 +721,12 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int = 
         relation_dir = opj(derived_dir, subject, task, take, "spatial_relations")
         relation_json_list = natsort.natsorted(glob.glob(opj(relation_dir, "*.json")))
 
+        if use_vis_feat:
+            vf_dir = opj(vf_master_dir, subject, task, take)
+            vf_list = natsort.natsorted(glob.glob(opj(vf_dir, "feat_*.pt")))
+
+
+
         gt_action_json = opj(gt_dir, subject, task, f"{take}.json")
         act_list=_get_actions_list(gt_action_json, len(relation_json_list))
 
@@ -699,6 +744,10 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int = 
         assert len(relation_json_list) == len(object_json_list)
         assert len(relation_json_list) == len(act_list)
 
+        if use_vis_feat:
+            vf_list = vf_list[::downsample]
+            assert len(relation_json_list) == len(vf_list)
+
         # Just to make sure at least one sample is saved per video. 
         # Mostly used for debugging whole video processing
         successful_save = False
@@ -710,10 +759,22 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int = 
         dataset_mapping_master["vid"][str(subject_int)+str(task_int)+str(take_int)] = act_list
         sample_count = sample_count + len(act_list) - temporal_length + 1 # This is redundant for whole video processing   
 
-        for frame, (relation_json, object_json) in enumerate(zip(relation_json_list, object_json_list)):
+        if use_vis_feat:
+            things_to_zip = zip(relation_json_list, object_json_list, vf_list)
+        else:
+            things_to_zip = zip(relation_json_list, object_json_list)
+
+        for frame, paths in enumerate(things_to_zip):
+            
+            if use_vis_feat:
+                relation_json, object_json, vf_path = paths
+            else:
+                relation_json, object_json = paths
+                vf_path = None
 
             TOTAL_FRAME_COUNT += 1
-            graph, graph_mirrored = _get_graph(relation_json, object_json, act_list[frame], frame, subject, task, take, pos_normalizer)
+
+            graph, graph_mirrored = _get_graph(relation_json, object_json, vf_path, act_list[frame], frame, subject, task, take, pos_normalizer)
 
             ### Prepending and imputation ###
             # If the graph is not valid, try to fix it (impute maybe). 
