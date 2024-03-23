@@ -50,9 +50,10 @@ class ObjectFeatureExtractor:
         self.device = device
 
     @torch.no_grad()
-    def extract_features(self, image, bboxes, return_pred=False):
+    def extract_features(self, image, bboxes, return_early_feat=False, return_pred=False):
+        # Returns roi_features, early_roi_features (optional), pred (optional)
         # Partially based on ASSIGN paper's code
-        # I also use model.roi_heads.box_head
+        # I additionally use model.roi_heads.box_head
 
         bboxes = Boxes(torch.from_numpy(bboxes).to(self.device))
 
@@ -80,17 +81,28 @@ class ObjectFeatureExtractor:
         features = [features[feature_name] for feature_name in self.predictor.model.roi_heads.in_features]
         box_features = self.predictor.model.roi_heads.box_pooler(features, proposal_boxes)
         
+        if return_early_feat:
+            bf_clone = box_features.clone() # This may not be necessary
+            early_roi_features = bf_clone.mean(dim=[2, 3])  # This is what ASSIGN does
+
         roi_features=self.predictor.model.roi_heads.box_head(box_features) # This is what I prefered
-        # roi_features = self.box_features.mean(dim=[2, 3])  # This is what ASSIGN does
 
         if return_pred:
             ret=self.predictor.model.roi_heads.box_predictor(roi_features)
             # ret[0].shape: (num_objects, 81) 80 classes + 1 background
             # ret[1].shape: (num_objects, 320) 80 classes x 4 coordinates        
-            return roi_features, ret[0]
-    
-        else:
-            return roi_features
+
+
+        return_list = [roi_features]
+
+        if return_early_feat:
+            return_list.append(early_roi_features)
+
+        if return_pred:
+            return_list.append(ret[0])
+        
+
+        return return_list
 
 
 def getRotationMatrix(w0: np.ndarray, theta: float = None):
@@ -134,7 +146,7 @@ def convert_from_xyz_and_rotate(x, y, z, angle, is_np=False):
     x, y, z -> u, v, d
     """
     # Camera intrinsics
-
+    #  uvd -> xyz
 
     if is_np:
         assert np.isinf(x).any() == False and np.isinf(y).any() == False and np.isinf(z).any() == False
@@ -266,7 +278,19 @@ def get_hands_bb_from_3d_obj(obj_3d):
     return left_bb, right_bb
 
 
+def get_all_bb_from_3d_obj(obj_3d, angle):
+    bboxes_np = np.zeros((len(obj_3d), 4))
+
+    for oi, obj in enumerate(obj_3d):
+        bbox=obj["bounding_box"]
+        bboxes_np[oi] = get_bbox_from_3d(bbox, angle)
+
+    return bboxes_np
+
+
 def main(args):
+
+    EXTRACT_EARLY_FEATURES_TOO = True
 
     # Extract features
     extractor = ObjectFeatureExtractor()
@@ -277,63 +301,83 @@ def main(args):
 
     os.makedirs(vis_feat_dir, exist_ok=True)
 
-    imgs_dir = args.imgs     
+    imgs_dir = args.imgs
 
     record_idx = 0
+    prev_subject = ""
     for subject, task, take in crawl_dataset():
-        subject = "subject_2"
         
+        if prev_subject != subject:
+            prev_subject = subject
+            print(f"Processing {subject}")
+
+        print(".", end="", flush=True)
+
         rgb_files = natsort.natsorted(glob.glob(opj(imgs_dir, subject, task, take, "rgb", "chunk_*", "*.png")))
-        obj_2d_files = natsort.natsorted(glob.glob(opj(args.root, "raw", "bimacs_derived_data", subject, task, take, "2d_objects", "*.json")))
+        # obj_2d_files = natsort.natsorted(glob.glob(opj(args.root, "raw", "bimacs_derived_data", subject, task, take, "2d_objects", "*.json")))
         obj_3d_files = natsort.natsorted(glob.glob(opj(args.root, "raw", "bimacs_derived_data", subject, task, take, "3d_objects", "*.json")))
         
         assert len(rgb_files) > 0, "No rgb files found"
-        assert len(rgb_files) == len(obj_2d_files), "Number of rgb files and bboxes files must be the same"
+        # assert len(rgb_files) == len(obj_2d_files), "Number of rgb files and bboxes files must be the same"
         assert len(rgb_files) == len(obj_3d_files), "Number of rgb files and 3d bboxes files must be the same"
 
         camera_angle = get_camera_angle(record_idx)
         target_dir = opj(vis_feat_dir, subject, task, take)
         os.makedirs(target_dir, exist_ok=True)
 
-        for rgb_f, obj_2d_f, obj_3d_f in zip(rgb_files, obj_2d_files, obj_3d_files):
-            
-            # image = cv2.imread(rgb_f)
-            image = np.array(Image.open(rgb_f))
-            
-            with open(obj_2d_f, "r") as f:
-                obj_2d = json.load(f)
-            
-            bboxes_np = np.zeros((len(obj_2d), 4))
-            for oi, obj in enumerate(obj_2d):
-                bbox=obj["bounding_box"]
-                bboxes_np[oi] = np.array([bbox["x"], bbox["y"], bbox["w"], bbox["h"]])
+        frame_idx = 0
 
-            bboxes_np = convert_box_format(bboxes_np)
+        # for rgb_f, obj_2d_f, obj_3d_f in zip(rgb_files, obj_2d_files, obj_3d_files):
+        for rgb_f, obj_3d_f in zip(rgb_files, obj_3d_files):
+            
+            image = np.array(Image.open(rgb_f))
+            if image.shape[-1] == 4:
+                print(f"Warning: {rgb_f} has 4 channels. Dropping alpha channel")
+                image = image[:, :, :3]
+
+            
+            # with open(obj_2d_f, "r") as f:
+            #     obj_2d = json.load(f)
+            
+            # bboxes_np = np.zeros((len(obj_2d), 4))
+            # for oi, obj in enumerate(obj_2d):
+            #     bbox=obj["bounding_box"]
+            #     bboxes_np[oi] = np.array([bbox["x"], bbox["y"], bbox["w"], bbox["h"]])
+
+            # bboxes_np = convert_box_format(bboxes_np)
 
             with open(obj_3d_f, "r") as f:
                 bboxes_3d = json.load(f)
 
-            lefthand_bb, righthand_bb = get_hands_bb_from_3d_obj(bboxes_3d)
-            concat_list = [bboxes_np]
-            if lefthand_bb is not None:
-                concat_list.append(lefthand_bb)
-            if righthand_bb is not None:
-                concat_list.append(righthand_bb)
+            # lefthand_bb, righthand_bb = get_hands_bb_from_3d_obj(bboxes_3d)
+            # concat_list = [bboxes_np]
+            # if lefthand_bb is not None:
+            #     concat_list.append(lefthand_bb)
+            # if righthand_bb is not None:
+            #     concat_list.append(righthand_bb)
 
 
-            bboxes_np = np.concatenate(concat_list, axis=0)
-            bboxes_np = extend_bbox(bboxes_np)
+            # bboxes_np = np.concatenate(concat_list, axis=0)
+            # bboxes_np = extend_bbox(bboxes_np)
+                
+            # # # Alternative: use 3d bboxes to get 2d bboxes
+            bboxes_np = get_all_bb_from_3d_obj(bboxes_3d, camera_angle)
 
             # CHECKME: if the order is correct
             obj_names = [obj["class_name"] for obj in bboxes_3d]
 
-            features = extractor.extract_features(image, bboxes)
+            features, early_features = extractor.extract_features(image, bboxes_np, return_early_feat=EXTRACT_EARLY_FEATURES_TOO, return_pred=False)
 
-            torch.save(features, target_dir)
+            torch.save(features, opj(target_dir, f"feat_{frame_idx:04d}.pt"))
+
+            torch.save(early_features, opj(target_dir, f"early_feat_{frame_idx:04d}.pt"))
+
             # save object names (read it from 3d bboxes file)
-            with open(opj(target_dir, "obj_list.txt"), "w") as f:
+            with open(opj(target_dir, f"objs_{frame_idx:04d}.txt"), "w") as f:
                 f.write("\n".join(obj_names))
-
+            
+            frame_idx += 1
+        
         # End of frame loop
 
         record_idx += 1
@@ -341,32 +385,68 @@ def main(args):
     # End of dataset loop
 
 
-        
 
-def get_features_objectwise():
-    # To make clustering of objects
+def get_features_objectwise(root, use_single_take=True, downsample=5):
+    # To make clustering or other object-wise analysis
 
-    object_features = {obj : [] for obj in OBJECTS}
+    raw_dir = opj(root, "raw")
+    vis_feat_dir = opj(raw_dir, "vis_feat")
+
+    object_features_dict = {obj : [] for obj in OBJECTS}
+    early_object_features_dict = {obj : [] for obj in OBJECTS}
 
     for subject, task, take in crawl_dataset():
-        feature_list = ...
-        obj_name_list = ...
+        if use_single_take:
+            if take != "take_3":
+                continue
 
-        for obj_name, feature in zip(obj_name_list, feature_list):
-            object_features[obj_name].append(feature)
+        early_feature_list = natsort.natsorted(glob.glob(opj(vis_feat_dir, subject, task, take, "early_feat_*.pt")))
+        feature_list = natsort.natsorted(glob.glob(opj(vis_feat_dir, subject, task, take, "feat_*.pt")))
+        obj_file_list = natsort.natsorted(glob.glob(opj(vis_feat_dir, subject, task, take, "objs_*.txt")))
+
+        early_feature_list = early_feature_list[::downsample]
+        feature_list = feature_list[::downsample]
+        obj_file_list = obj_file_list[::downsample]
+
+        assert len(early_feature_list) == len(feature_list) and len(feature_list) == len(obj_file_list), "Number of files must be the same"
+
+        for early_feature_file, feature_file, obj_file in zip(early_feature_list, feature_list, obj_file_list):
+            
+            eff_idx = early_feature_file.split("_")[-1][:4]
+            ff_idx = feature_file.split("_")[-1][:4]
+            of_idx = obj_file.split("_")[-1][:4]
+
+            assert eff_idx == ff_idx and ff_idx == of_idx, "Index mismatch"
+
+            with open(obj_file, "r") as f:
+                obj_names = f.read().splitlines()
+
+            features = torch.load(feature_file)
+            early_features = torch.load(early_feature_file)
+
+            for obj, feature, early_feature in zip(obj_names, features, early_features):
+                object_features_dict[obj].append(feature)
+                early_object_features_dict[obj].append(early_feature)
 
 
-    return object_features
+    for obj in object_features_dict:
+        object_features_dict[obj] = torch.stack(object_features_dict[obj])
+        early_object_features_dict[obj] = torch.stack(early_object_features_dict[obj])
+
+    print("Total number of objects: ", sum([len(object_features_dict[obj]) for obj in object_features_dict]))
+
+    return object_features_dict, early_object_features_dict
 
     
 
 if __name__ == "__main__":
     
-    imgs_default = opj(".", "raw", "bimacs_rgbd_data")
 
     arg_parser = argparse.ArgumentParser()
 
     arg_parser.add_argument("-r", "--root", type=str, default=".", help="Bimanual dataset root directory")
+    
+    imgs_default = opj(".", "raw", "bimacs_rgbd_data")
     arg_parser.add_argument("--imgs", type=str, default=imgs_default, help="Bimanual dataset imgs directory")
 
     args = arg_parser.parse_args()
