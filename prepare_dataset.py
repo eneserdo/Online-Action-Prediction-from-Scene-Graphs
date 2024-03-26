@@ -21,7 +21,7 @@ def arg_parser_dataset():
     ap.add_argument("-tl", "--temporal_length", type=int, required=True, help="Temporal length of the input (if -1, processes whole video)")
     ap.add_argument("--downsample", type=int, default=1, help="Downsampling ratio")
 
-    ap.add_argument("-vf", "--vis_feat", action="store_true", help="Visual features")
+    ap.add_argument("-vf", "--use_vf", action="store_true", help="Use visual features")
     
     return ap.parse_args()
 
@@ -34,7 +34,7 @@ def main():
         raise ValueError("It must be an integer greater than 0")
 
     # check if it is already ready
-    pr_dir = pathlib.Path(get_processing_dir(args.root, args.temporal_length, args.downsample))
+    pr_dir = pathlib.Path(get_processing_dir(args.root, args.temporal_length, args.downsample, args.use_vf))
 
     if pr_dir.exists():
         raise ValueError(f"The dataset is already processed in {pr_dir}\n, (Remove it manually if necessary)")
@@ -48,7 +48,7 @@ def main():
         download_bimanual_dataset(raw_dir, args.fix_null, args.fix_fps, args.download_anyway)
         
 
-    process_bimanual_dataset(args.root, args.temporal_length, args.downsample, args.vis_feat)
+    process_bimanual_dataset(args.root, args.temporal_length, args.downsample, args.use_vf)
     print("Dataset processed!")
     print("You can now train your model!")
 

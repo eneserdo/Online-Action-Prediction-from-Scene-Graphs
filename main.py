@@ -186,6 +186,9 @@ if __name__ == "__main__":
         assert args.norm_layer == "LayerNorm", "When temporal_length is -1, norm_layer must be LayerNorm, otherwise it may break the norm stats"
         assert args.temporal_type == "tr", "others are not implemented yet"
 
+    if args.use_vf:
+        assert not args.use_pos and not args.use_embedding, "use_vf cannot be used with use_pos or use_embedding"
+        assert args.use_global_pooling, "use_vf must use global pooling"
         
     assert args.merged_pred in ["none", "late", "attention"], f"merged_pred must be one of [none, late, attention]. Given: {args.merged_pred}"
 
@@ -216,7 +219,8 @@ if __name__ == "__main__":
                                                                test_subject=args.test_subject,
                                                                validation_take=args.validation_take,
                                                                temporal_length=args.temporal_length,
-                                                               downsample=args.downsample)
+                                                               downsample=args.downsample,
+                                                               use_vf=args.use_vf)
 
     train_loader = DataLoader(train_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker, generator=torch_generator)
     
@@ -227,7 +231,12 @@ if __name__ == "__main__":
     training_len = len(train_set)
     val_len = len(val_set)
 
-    in_channels = len(OBJECTS) + 3 if args.use_pos else len(OBJECTS)
+    if args.use_pos:
+        in_channels = len(OBJECTS) + 3
+    elif args.use_vf:
+        in_channels = 256
+    else:
+        in_channels = len(OBJECTS)
 
     model = models.ActionRecognition(gnn_type=args.gnn_type,
                                      temporal_type=args.temporal_type,
@@ -319,7 +328,7 @@ if __name__ == "__main__":
     
     # dataset_mapping contains mapping for each sample to its location in the videos. 
     # Also, a mapping from video to ground truth action labels
-    processed_dir = get_processing_dir(args.root, args.temporal_length, args.downsample)
+    processed_dir = get_processing_dir(args.root, args.temporal_length, args.downsample, args.use_vf)
     dataset_mapping_dir = opj(processed_dir, f"dataset_mapping_fold{args.test_subject}.pickle")
     with open(dataset_mapping_dir, "rb") as f:
         dataset_mapping = pickle.load(f)

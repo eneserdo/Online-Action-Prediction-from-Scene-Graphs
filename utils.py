@@ -45,6 +45,7 @@ def arg_parser():
     ap.add_argument("-ts", "--test_subject", type=int, default=1, choices=[1, 2, 3, 4, 5, 6], help="...")
     ap.add_argument("-vt", "--validation_take", type=int, default=7, choices=[i for i in range(10)], help="...")
     ap.add_argument("--downsample", type=int, default=1, help="Downsampling ratio")
+    ap.add_argument("--use_vf", action="store_true", help="use visual features")
 
     # Model - GNN part
     ap.add_argument("-g", "--gnn_type", type=str, default="TransformerConv",

@@ -215,10 +215,14 @@ def _get_graph(relation_json, object_json, vf_path, gt_actions, frame, subject, 
     
     obj_names = [obj["class_name"] for obj in curr_objects]
 
+    # # # # CHECK VALIDITY FIRST # # # #
     if obj_names.count("LeftHand") != 1 or obj_names.count("RightHand") != 1:
-        # print("Missing hand: ", subject, task, take, "f", frame)
         return None, None
     
+    if len(curr_relations) == 0 or len(curr_objects) == 0:
+        return None, None
+    # # # # CHECK VALIDITY FIRST # # # #
+
     
     if vf_path is not None:
         vis_feat=torch.load(vf_path)
@@ -650,10 +654,11 @@ def _pad_sequence(data_list: List[Data], target_length: int) -> List[Data]:
             data_list.append(__get_padding_graph())
 
 
-def get_processing_dir(root: str, temporal_length: int, downsample: int) -> str:
+def get_processing_dir(root: str, temporal_length: int, downsample: int, use_vf: bool) -> str:
     # Naming convention for the processed directory
      
     ds_append=f"_d{downsample}" if downsample > 1 else ""
+    ds_append += "_vf" if use_vf else ""
     if temporal_length == -1:
         return opj(root, "processed" + "Whole" + ds_append)
     else:
@@ -664,7 +669,7 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
     global TOTAL_FRAME_COUNT
     # temporal_length defines the number of frames in a sample regardless of the downsampling rate
 
-    processed_dir = get_processing_dir(root, temporal_length, downsample)
+    processed_dir = get_processing_dir(root, temporal_length, downsample, use_vis_feat)
     os.mkdir(processed_dir)
     
     if temporal_length == -1:
@@ -723,7 +728,7 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
 
         if use_vis_feat:
             vf_dir = opj(vf_master_dir, subject, task, take)
-            vf_list = natsort.natsorted(glob.glob(opj(vf_dir, "feat_*.pt")))
+            vf_list = natsort.natsorted(glob.glob(opj(vf_dir, "early_feat_*.pt")))
 
 
 
@@ -743,6 +748,7 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
 
         assert len(relation_json_list) == len(object_json_list)
         assert len(relation_json_list) == len(act_list)
+        assert len(relation_json_list) > 0
 
         if use_vis_feat:
             vf_list = vf_list[::downsample]
@@ -779,12 +785,13 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
             ### Prepending and imputation ###
             # If the graph is not valid, try to fix it (impute maybe). 
             # If it is not possible resets the sequence and continues
-            validity = _check_validity(graph)
+            # validity = _check_validity(graph)
+            validity = "valid" if graph is not None else "not valid"
             
             if validity == "valid":
                 pass
-            elif validity in ["null"]:
-                raise Exception(f"Unhandled graph error: {validity}")
+            # elif validity in ["null"]:
+            #     raise Exception(f"Unhandled graph error: {validity}")
             elif len(data_list) > 0:
                 # use previous graph to impute
                 graph = _impute_with_previous(graph, data_list[-1], validity)
@@ -900,11 +907,11 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
             json.dump(vid_len_info, f)
 
 class BimanualDataset(Dataset):
-    def __init__(self, root, temporal_length, downsample, mapping):
+    def __init__(self, root, temporal_length, downsample, mapping, use_vf):
 
         self.temporal_length = temporal_length
 
-        self.pdir = get_processing_dir(root, temporal_length, downsample)
+        self.pdir = get_processing_dir(root, temporal_length, downsample, use_vf)
 
         if temporal_length == -1:
             with open(opj(self.pdir, "vid_len_info.json"), "r") as f:
@@ -1042,16 +1049,14 @@ def print_data_point(data: Data):
     print("Graph id: ", data.y[0,-1].item())
 
 
-def get_bimanual_dataset_splits(*, root: str, process_it_anyway: bool, test_subject: int, validation_take: int , temporal_length: int, downsample: int) -> Tuple[Dataset, Dataset, Dataset]:
+def get_bimanual_dataset_splits(*, root: str, process_it_anyway: bool, test_subject: int, validation_take: int , temporal_length: int, downsample: int, use_vf: bool) -> Tuple[Dataset, Dataset, Dataset]:
     # dataset_mapping = {"train":{"vid":{}, "sample":{}},
     #                    "test":{"vid":{}, "sample":{}},
     #                    "val":{"vid":{}, "sample":{}}}
     
     # path_mapping = {"train": {}, "test": {}, "val": {}} # [split]: idx -> path
 
-    ds_append=f"_d{downsample}" if downsample > 1 else ""
-
-    processed_dir = get_processing_dir(root, temporal_length, downsample)
+    processed_dir = get_processing_dir(root, temporal_length, downsample, use_vf)
 
     
     assert os.path.isfile(opj(processed_dir, "dataset_mapping_master.pickle")), "Dataset is not preprocessed yet"
@@ -1078,9 +1083,9 @@ def get_bimanual_dataset_splits(*, root: str, process_it_anyway: bool, test_subj
             pickle.dump(path_mapping, f)
 
 
-    train_set=BimanualDataset(root, temporal_length, downsample, path_mapping["train"])
-    test_set=BimanualDataset(root, temporal_length, downsample, path_mapping["test"])
-    val_set=BimanualDataset(root, temporal_length, downsample, path_mapping["val"])
+    train_set=BimanualDataset(root, temporal_length, downsample, path_mapping["train"], use_vf)
+    test_set=BimanualDataset(root, temporal_length, downsample, path_mapping["test"], use_vf)
+    val_set=BimanualDataset(root, temporal_length, downsample, path_mapping["val"], use_vf)
     
 
     return train_set, test_set, val_set
