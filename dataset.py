@@ -13,7 +13,11 @@ import gdown
 import natsort
 import numpy as np
 import torch
-from torch_geometric.data import Data, Dataset, download_url, extract_zip
+from torch_geometric.data import download_url, extract_zip
+from torch_geometric.data import Data as gData
+from torch_geometric.data import Dataset as gDataset
+
+
 
 # Global variables
 OBJECTS = ['bowl', 'knife', 'screwdriver', 'cuttingboard', 'whisk', 'hammer', 'bottle', 'cup',
@@ -204,7 +208,7 @@ def _get_norm_func(root: str) -> Callable:
 #     # return curr_objects, curr_relations, len(black_list)==0
 
 
-def _get_graph(relation_json, object_json, vf_path, gt_actions, frame, subject, task, take, pos_normalizer) -> Tuple[Data, Data]:
+def _get_graph(relation_json, object_json, vf_path, gt_actions, frame, subject, task, take, pos_normalizer) -> Tuple[gData, gData]:
     # returns the graph and its mirrored version for the given relation and object json files
     
     with open(relation_json) as f:
@@ -389,13 +393,13 @@ def _get_graph(relation_json, object_json, vf_path, gt_actions, frame, subject, 
         # y_mirrored[0, -1] = int("2"+graph_str)
     
 
-    data = Data(x=x,
+    data = gData(x=x,
                 edge_index=edge_index.t().contiguous(),
                 edge_attr=edge_attr, 
                 y=y,
                 pos=pos)
 
-    data_mirrored = Data(x=x_mirrored, 
+    data_mirrored = gData(x=x_mirrored, 
                          edge_index=edge_index_mirrored.t().contiguous(),
                          edge_attr=edge_attr_mirrored, 
                          y=y_mirrored,
@@ -404,7 +408,7 @@ def _get_graph(relation_json, object_json, vf_path, gt_actions, frame, subject, 
     return data, data_mirrored
 
 
-def _check_validity(data: Data) -> str:
+def _check_validity(data: gData) -> str:
     # TODO: merge with _get_graph
 
     # Checks: both hands exists, action != null, has edge, not empty 
@@ -447,7 +451,7 @@ def _check_validity(data: Data) -> str:
     return "valid"
 
 
-def _impute_with_previous(graph: Data, previous_graph: Data, validity: str) -> Data:
+def _impute_with_previous(graph: gData, previous_graph: gData, validity: str) -> gData:
     # For now, just returns the previous graph
     # If required, impute using the data of previous graph
     return previous_graph.clone()
@@ -626,7 +630,7 @@ def _get_max_length(root: str, downsample) -> int:
     return max_length
 
 
-def __get_padding_graph() -> Data:
+def __get_padding_graph() -> gData:
     # Returns a dummy graph for padding
     # To separate dummy from real check y.sum() == -1
 
@@ -643,9 +647,9 @@ def __get_padding_graph() -> Data:
     y = torch.zeros((2, len(ACTIONS)), dtype=torch.float)
     y[0, 0] = -0.5
     y[1, 0] = -0.5
-    return Data(x=x, edge_index=edge_index.t().contiguous(), edge_attr=edge_attr, y=y)
+    return gData(x=x, edge_index=edge_index.t().contiguous(), edge_attr=edge_attr, y=y)
 
-def _pad_sequence(data_list: List[Data], target_length: int) -> List[Data]:
+def _pad_sequence(data_list: List[gData], target_length: int) -> List[gData]:
     # Pads the sequence to target_length
     # If the sequence is already longer than target_length, it is not padded
     # If the sequence is shorter than target_length, it is padded with a dummy graph
@@ -906,7 +910,7 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
         with open(opj(processed_dir, "vid_len_info.json"), "w") as f:
             json.dump(vid_len_info, f)
 
-class BimanualDataset(Dataset):
+class BimanualDataset(gDataset):
     def __init__(self, root, temporal_length, downsample, mapping, use_vf):
 
         self.temporal_length = temporal_length
@@ -944,7 +948,7 @@ class BimanualDataset(Dataset):
     def len(self) -> int:
         return self.split_len
 
-    def get(self, idx: int) -> Data:
+    def get(self, idx: int) -> gData:
 
         path, global_idx = self.mapping[idx]
         data = torch.load(opj(self.processed_dir, path))
@@ -1019,7 +1023,7 @@ def create_mappings(processed_dir: str, temporal_length: int, test_subject: int,
 
 
 # Simple test
-def print_data_point(data: Data):
+def print_data_point(data: gData):
 
     print("Summary:")
     print(f"{data.num_nodes=}")
@@ -1049,7 +1053,7 @@ def print_data_point(data: Data):
     print("Graph id: ", data.y[0,-1].item())
 
 
-def get_bimanual_dataset_splits(*, root: str, process_it_anyway: bool, test_subject: int, validation_take: int , temporal_length: int, downsample: int, use_vf: bool) -> Tuple[Dataset, Dataset, Dataset]:
+def get_bimanual_dataset_splits(*, root: str, process_it_anyway: bool, test_subject: int, validation_take: int , temporal_length: int, downsample: int, use_vf: bool) -> Tuple[gDataset, gDataset, gDataset]:
     # dataset_mapping = {"train":{"vid":{}, "sample":{}},
     #                    "test":{"vid":{}, "sample":{}},
     #                    "val":{"vid":{}, "sample":{}}}
@@ -1089,3 +1093,8 @@ def get_bimanual_dataset_splits(*, root: str, process_it_anyway: bool, test_subj
     
 
     return train_set, test_set, val_set
+
+
+# class BimanualRGBDDataset(Dataset):
+#     def __init__(self, root, temporal_length, downsample, mapping, use_vf):
+#         pass

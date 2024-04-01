@@ -590,3 +590,113 @@ class ActionRecognition(nn.Module):
 
 
         return action_prediction
+
+
+# class ViTBased(nn.Module):
+#     def __init__(self, *,
+#                  temporal_type,
+#                  in_channels,
+#                  hidden_channels,
+#                  out_channels,
+#                  num_edge_feat,
+#                  num_action_classes,
+#                  lstm_hidden_size,
+#                  num_heads1,
+#                  num_heads2,
+#                  filter_it,
+#                  use_hand_pooling,
+#                  edge_dropout,
+#                  dropout,
+#                  dropout_tr,
+#                  merged_pred,
+#                  norm_layer,
+#                  norm_first,
+#                  pos_enc,
+#                  temporal_length,
+#                  num_of_temp_layers,
+#                  dim_feedforward,
+#                  num_heads_tr,
+#                  use_pos,
+#                  use_embedding):
+#         """ Accepts kwargs for non-general params of gnns """
+#         super().__init__()
+
+#         self.filter_it = filter_it
+#         self.use_hand_pooling = use_hand_pooling
+#         self.edge_dropout = edge_dropout
+#         self.temporal_type = temporal_type
+#         self.merged_pred = merged_pred
+#         self.use_embedding = use_embedding
+#         self.use_pos = use_pos
+
+#         # import pretrained vit from timm
+
+#         self.vit = timm.create_model('vit_base_patch16_224', pretrained=True)
+#         self.vit.head = nn.Linear(self.vit.head.in_features, out_channels)
+
+
+#         if temporal_type in ["lstm", "bi"]:
+#             if num_of_temp_layers != 1:
+#                 raise NotImplementedError("args.num_of_temp_layers is not 1 as used to be. Are you sure?")
+#             num_rnn_layers = 1  # Lets make it constant
+#             is_bidirectional = ("bi" == temporal_type)
+
+#             # To have approx same number of parameters
+#             lstm_hidden_size = lstm_hidden_size * 2 // 3 if is_bidirectional else lstm_hidden_size
+
+#             self.temporal_layer = nn.LSTM(effective_out_ch2, lstm_hidden_size, num_rnn_layers,
+#                                        bidirectional=is_bidirectional, dropout=dropout)
+#             lstm_hidden_size = lstm_hidden_size * 2 if is_bidirectional else lstm_hidden_size
+
+#         elif temporal_type == "tr":
+#             # Default dropout is 0.1
+
+#             self.temporal_layer = nn.TransformerEncoder(nn.TransformerEncoderLayer(effective_out_ch2, num_heads_tr, dim_feedforward, norm_first=norm_first, dropout=dropout_tr), num_of_temp_layers)
+#             self.PE_coef = math.sqrt(effective_out_ch2)
+
+#             if pos_enc == "original":
+#                 # if merged_pred == "attention":
+#                 #     self.pos_encoder = PositionalEncodingPseudo2D(effective_out_ch2)
+#                 # else:
+#                 #     self.pos_encoder = PositionalEncodingPseudo2D(effective_out_ch2)
+#                 self.pos_encoder = PositionalEncoding(effective_out_ch2)
+#                 # self.pos_encoder = PositionalEncoding1D(effective_out_ch2)
+
+#             elif pos_enc == "learnable":
+#                 if merged_pred == "attention":
+#                     self.pos_encoder = LearnablePositionalEncoding(temporal_length*2, effective_out_ch2)
+#                 else:    
+#                     self.pos_encoder = LearnablePositionalEncoding(temporal_length, effective_out_ch2)
+                
+#                 # raise NotImplementedError("Learnable positional encoding is not implemented yet")
+            
+#             elif pos_enc == "none":
+#                 self.pos_encoder = lambda x: x
+            
+#             else:
+#                 raise NotImplementedError(f"pos_enc: {pos_enc} is not implemented")
+            
+#             # self.cls_tokens = torch.nn.Parameter(torch.randn(1, 1, effective_out_ch2)).expand(self.batch_size, -1, -1)
+
+#             lstm_hidden_size = effective_out_ch2
+
+#         elif temporal_type == "edtr":
+#             # Encoder-Decoder Transformer
+#             self.temporal_layer = Seq2SeqTransformer(num_of_temp_layers, num_of_temp_layers, effective_out_ch2, num_heads_tr, dim_feedforward, dropout_tr)
+#             self.decoder_mask = torch.nn.Transformer.generate_square_subsequent_mask(temporal_length)
+        
+#         def build_mlp(in_feat,out_feat, hid_feat=None):
+#             # hid_feat = (in_feat+out_feat)//2 if hid_feat == None else hid_feat
+#             # return Sequential(nn.Linear(in_feat, hid_feat), nn.SELU(), nn.Linear(hid_feat, out_feat))
+#             return nn.Linear(in_feat,out_feat)
+
+#     def forward(self, x):
+
+#         x = self.vit(x)
+
+#         x = self.temporal_layer(x)
+
+#         x = self.mlp(x)
+
+#         return x
+
