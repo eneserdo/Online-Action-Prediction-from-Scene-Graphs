@@ -209,9 +209,13 @@ if __name__ == "__main__":
     td_tag = "T" + str(args.temporal_length) if args.temporal_length != -1 else "W"
     td_tag += "d" + str(args.downsample)
 
+    if hasattr(args, "sweep"):
+        if args.sweep:
+            sweep_tag = "sweep"
+
     wandb.init(project="rt-action-segmentation-from-scene-graphs", name=args.name, config=args.__dict__,
                mode="disabled" if args.disable_wandb else "online",
-               tags=[td_tag])
+               tags=[td_tag, sweep_tag])
 
 
     train_set, test_set, val_set = get_bimanual_dataset_splits(root=args.root, 
