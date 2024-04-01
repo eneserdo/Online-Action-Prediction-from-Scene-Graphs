@@ -16,8 +16,11 @@ from utils import arg_parser_cv
 METRICS_OF_INTEREST = ["f1_top1_once", "f1_top3_once", "f1@10", "f1@25", "f1@50"]
 COMPARISON_METRIC = "f1_top1_once"
 
+RUN_COUNT = 0
 
 def main(args, search_params):
+    global RUN_COUNT
+    RUN_COUNT += 1
 
     args = vars(args)
     args.update(search_params)
@@ -54,7 +57,11 @@ def main(args, search_params):
             continue
 
         subject_arg = f" --test_subject {i}"
-        name_arg = f"{args.name}_fold{i}"
+
+        if args.sweep:        
+            name_arg = f"{args.name}{RUN_COUNT}_fold{i}"
+        else:
+            name_arg = f"{args.name}_fold{i}"
 
         subprocess.call(
             "python main.py " + args_str + subject_arg + f" --name {name_arg}",
