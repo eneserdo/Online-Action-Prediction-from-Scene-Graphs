@@ -34,7 +34,7 @@ from visualization_utils import (plot_segmentation, plot_segmentation_partial,
 plt.ioff()
 
 
-def arg_parser():
+def arg_parser_base():
     ap = argparse.ArgumentParser()
 
     # Dataset
@@ -88,8 +88,6 @@ def arg_parser():
     ap.add_argument("--scheduler_gamma", type=float, default=0.5, help="...")
     ap.add_argument("--weighted_loss", type=str, default="none", choices=["none", "inv", "sqrt_inv", "effective"],
                     help="Use class frequencies as weight for loss function")       # :(
-    ap.add_argument("--label_loss_weight", type=float, default=1.0,
-                    help="Weight upon action label prediction task loss")
     ap.add_argument("--smoothing", type=float, default=0.0, help="Label smoothing weight")
 
     # Metrics
@@ -112,9 +110,18 @@ def arg_parser():
     ap.add_argument("--gpu_id", type=int, default=0, help="...")
     ap.add_argument("--seed", type=int, default=34, help="...")
 
+    return ap
+
+def arg_parser():
+    ap = arg_parser_base()
+    return ap.parse_args()
+
+def arg_parser_cv():
+    ap = arg_parser_base()
+
     # Cross validation 
     ap.add_argument("--num_folds", type=int, default=6, help="This argument only meaningful for cross_validation.py")
-
+    ap.add_argument("--sweep", action="store_true", help="run sweep for hyperparameter optimization")
     return ap.parse_args()
 
 
