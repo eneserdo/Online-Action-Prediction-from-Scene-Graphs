@@ -120,8 +120,9 @@ def arg_parser_cv():
     ap = arg_parser_base()
 
     # Cross validation 
-    ap.add_argument("--num_folds", type=int, default=6, help="This argument only meaningful for cross_validation.py")
-    ap.add_argument("--sweep", action="store_true", help="run sweep for hyperparameter optimization")
+    ap.add_argument("--num_folds", type=int, default=6, help="Number of folds")
+    ap.add_argument("--num_sweeps", type=int, default=0, help = "Number of sweep")
+    
     return ap.parse_args()
 
 
