@@ -18,12 +18,12 @@ COMPARISON_METRIC = "f1_top1_once"
 
 RUN_COUNT = 0
 
-def main(args, search_params):
+def main(args, config):
     global RUN_COUNT
     RUN_COUNT += 1
 
     args = vars(args)
-    args.update(search_params)
+    args.update(config)
 
     # Get all arguments as a string except the name
     args_str = ""

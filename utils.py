@@ -78,7 +78,7 @@ def arg_parser_base():
 
 
     # Optimizer
-    ap.add_argument("-o", "--optimizer_type", type=str, required=True,
+    ap.add_argument("-o", "--optimizer_type", type=str,
                     choices=["Adam", "AdamW", "NAdam", "RMSprop", "SGD"],
                     help="Type of optimizer to be used  from torch.optim", default='Adam')
     ap.add_argument("-lr", "--learning_rate", type=float, default=0.0005, help="...")
