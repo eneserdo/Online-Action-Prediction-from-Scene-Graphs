@@ -19,7 +19,7 @@ def arg_parser_dataset():
     ap.add_argument("--fix_null", action="store_true", help="Fix null actions in the video of subject_6-task_4-take_1")
     
     ap.add_argument("-tl", "--temporal_length", type=int, required=True, help="Temporal length of the input (if -1, processes whole video)")
-    ap.add_argument("--downsample", type=int, default=1, help="Downsampling ratio")
+    ap.add_argument("-ds", "--downsample", type=int, default=1, help="Downsampling ratio")
 
     ap.add_argument("-vf", "--use_vf", action="store_true", help="Use visual features")
     

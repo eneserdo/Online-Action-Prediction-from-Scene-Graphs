@@ -10,7 +10,7 @@ import numpy as np
 import pickle
 import wandb
 
-from utils import arg_parser
+from utils import arg_parser_cv as arg_parser
 
 METRICS_OF_INTEREST = ["f1_top1_once", "f1_top3_once", "f1@10", "f1@25", "f1@50"]
 COMPARISON_METRIC = "f1_top1_once"
@@ -20,9 +20,9 @@ def main():
 
     args_str = ""
     for key, value in args.__dict__.items():
-        if key == "name":
+        if key in ["name", "num_folds", "num_sweeps"]:
             continue
-
+        
         if value is None:
             continue
 

@@ -476,9 +476,9 @@ def download_bimanual_dataset(raw_dir: str, fix_null, fix_fps, download_anyway) 
 
     urls = ["https://bimanual-actions.humanoids.kit.edu/download/bimacs_derived_data_3d_objects.zip",
             "https://bimanual-actions.humanoids.kit.edu/download/bimacs_derived_data_spatial_relations.zip",
-            "https://bimanual-actions.humanoids.kit.edu/download/bimacs_rgbd_data_ground_truth.zip",
-            "https://bimanual-actions.humanoids.kit.edu/download/bimacs_derived_data_2d_objects.zip"]
+            "https://bimanual-actions.humanoids.kit.edu/download/bimacs_rgbd_data_ground_truth.zip"]
     
+            # "https://bimanual-actions.humanoids.kit.edu/download/bimacs_derived_data_2d_objects.zip"]
     # Download
     if download_anyway or is_something_missing:
         for url in urls:
@@ -502,6 +502,9 @@ def download_bimanual_dataset(raw_dir: str, fix_null, fix_fps, download_anyway) 
         extract_zip(path, raw_dir)
     
     extract_zip(opj(raw_dir, "BimanualActions.zip"), raw_dir)
+    
+    if os.path.isfile(opj(raw_dir, "vis_feat.zip")):
+        extract_zip(opj(raw_dir, "vis_feat.zip"), raw_dir)
 
 
     def read_check_write(sub, task, tk_json, hand, new_vals):
@@ -756,7 +759,7 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
 
         if use_vis_feat:
             vf_list = vf_list[::downsample]
-            assert len(relation_json_list) == len(vf_list)
+            assert len(relation_json_list) == len(vf_list), f"{subject=}, {task=}, {take=}, {len(relation_json_list)=}, {len(vf_list)=}"
 
         # Just to make sure at least one sample is saved per video. 
         # Mostly used for debugging whole video processing
@@ -1063,8 +1066,8 @@ def get_bimanual_dataset_splits(*, root: str, process_it_anyway: bool, test_subj
     processed_dir = get_processing_dir(root, temporal_length, downsample, use_vf)
 
     
-    assert os.path.isfile(opj(processed_dir, "dataset_mapping_master.pickle")), "Dataset is not preprocessed yet"
-    assert os.path.isfile(opj(processed_dir, "config_info_master.json")), "Dataset is not preprocessed yet"
+    assert os.path.isfile(opj(processed_dir, "dataset_mapping_master.pickle")), f"In {processed_dir}, dataset is not preprocessed yet"
+    assert os.path.isfile(opj(processed_dir, "config_info_master.json")), f"In {processed_dir}, dataset is not preprocessed yet"
 
     if os.path.exists(opj(processed_dir, f"dataset_mapping_fold{test_subject}.pickle")) and (not process_it_anyway):
         # read from folder
