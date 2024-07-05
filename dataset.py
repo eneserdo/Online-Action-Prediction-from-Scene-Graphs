@@ -266,9 +266,13 @@ def _get_graph(relation_json, object_json, vf_path, gt_actions, frame, subject, 
 
     edge_index = []
     edge_index_mirrored = []
+    edge_index = []
+    edge_index_mirrored = []
 
     num_possible_relations = len(curr_objects)*(len(curr_objects)-1)
 
+    edge_attr = torch.zeros((int(num_possible_relations), len(RELATIONS)))
+    edge_attr_mirrored = torch.zeros((int(num_possible_relations), len(RELATIONS)))
     edge_attr = torch.zeros((int(num_possible_relations), len(RELATIONS)))
     edge_attr_mirrored = torch.zeros((int(num_possible_relations), len(RELATIONS)))
 
@@ -334,9 +338,14 @@ def _get_graph(relation_json, object_json, vf_path, gt_actions, frame, subject, 
 
         oi = relation["object_index"]
         si = relation["subject_index"]
+        oi = relation["object_index"]
+        si = relation["subject_index"]
 
         edge=[oi, si]
+        edge=[oi, si]
 
+        if edge not in edge_index:
+            edge_index.append(edge)
         if edge not in edge_index:
             edge_index.append(edge)
 
@@ -366,7 +375,12 @@ def _get_graph(relation_json, object_json, vf_path, gt_actions, frame, subject, 
     edge_attr_mirrored=edge_attr_mirrored[:len(edge_index_mirrored)]
     edge_index_mirrored=torch.tensor(edge_index_mirrored, dtype=torch.long)
     # # # # # # # # # # # #
+    # # # Mirrorred # # #
+    edge_attr_mirrored=edge_attr_mirrored[:len(edge_index_mirrored)]
+    edge_index_mirrored=torch.tensor(edge_index_mirrored, dtype=torch.long)
+    # # # # # # # # # # # #
 
+    left_act, right_act = gt_actions
     left_act, right_act = gt_actions
 
     # subject, task, take were just added for debugging purposes, and will be removed
@@ -384,6 +398,9 @@ def _get_graph(relation_json, object_json, vf_path, gt_actions, frame, subject, 
         # y_mirrored[1, -1]=int("2"+graph_str)
 
 
+    if right_act != -1:
+        y[1, right_act] = 1
+        y_mirrored[0, right_act] = 1
     if right_act != -1:
         y[1, right_act] = 1
         y_mirrored[0, right_act] = 1
@@ -406,6 +423,7 @@ def _get_graph(relation_json, object_json, vf_path, gt_actions, frame, subject, 
                          pos=pos_mirrored)
 
     return data, data_mirrored
+    return data, data_mirrored
 
 
 def _check_validity(data: gData) -> str:
@@ -426,6 +444,22 @@ def _check_validity(data: gData) -> str:
         raise Exception("Null action")
         return "null"
 
+    # not empty
+    if len(data.x)==0:
+        EMPTY_COUNT+=1
+        return "empty"
+    
+    # both hands
+    for row in data.x:
+        if row[OBJECTS.index("LeftHand")]==1:
+            Lhand=True
+        
+        if row[OBJECTS.index("RightHand")]==1:
+            Rhand=True
+            
+    if not (Rhand and Lhand):
+        MISSING_HAND_COUNT+=1
+        return "missing hand"
     # not empty
     if len(data.x)==0:
         EMPTY_COUNT+=1
