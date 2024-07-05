@@ -221,15 +221,22 @@
 # python cross_validation.py -g TransformerConv -o Adam -lr 0.0001 -wd 0.001 -me 15 --scheduler_step_size 8 --saving_freq 2 --name Beta1_10d3_VF_S_Reg3 -tl 10 --downsample 3 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.2 --use_vf --hidden_channels 96 --out_channels 96 --num_heads1 4 --num_heads2 4 --dim_feedforward 256 --use_global_pooling -bs 128
 # sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.0002 -wd 0 -me 20 --scheduler_step_size 8 --saving_freq 2 --name Beta1_10d3_Reg2 -tl 10 --downsample 3 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.3 --dropout 0.4 --num_heads1 4 --num_heads2 4 --dropout_tr 0.4 --dim_feedforward 256
-sleep 5
+# python main.py -g TransformerConv -o Adam -lr 0.0002 -wd 0 -me 20 --scheduler_step_size 8 --saving_freq 2 --name Beta1_10d3_Reg2 -tl 10 --downsample 3 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.3 --dropout 0.4 --num_heads1 4 --num_heads2 4 --dropout_tr 0.4 --dim_feedforward 256
+# sleep 5
 
-python main.py -g TransformerConv -o Adam -lr 0.0002 -wd 0 -me 20 --scheduler_step_size 8 --saving_freq 2 --name Beta1_10d3_Reg1 -tl 10 --downsample 3 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.3 --dropout 0.3 --num_heads1 4 --num_heads2 4 --dropout_tr 0.3 --dim_feedforward 256
-sleep 5
+# python main.py -g TransformerConv -o Adam -lr 0.0002 -wd 0 -me 20 --scheduler_step_size 8 --saving_freq 2 --name Beta1_10d3_Reg1 -tl 10 --downsample 3 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.3 --dropout 0.3 --num_heads1 4 --num_heads2 4 --dropout_tr 0.3 --dim_feedforward 256
+# sleep 5
 
 
-python cross_validation.py -g TransformerConv -o Adam -lr 0.0001 -wd 0.0002 -me 15 --scheduler_step_size 8 --saving_freq 2 --name Beta1_10d3_VF_S_Reg4 -tl 10 --downsample 3 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.4 --use_vf --hidden_channels 96 --out_channels 96 --num_heads1 4 --num_heads2 4 --dim_feedforward 256 --use_global_pooling -bs 128 --dropout 0.4
-sleep 5
+# python cross_validation.py -g TransformerConv -o Adam -lr 0.0001 -wd 0.0002 -me 15 --scheduler_step_size 8 --saving_freq 2 --name Beta1_10d3_VF_S_Reg4 -tl 10 --downsample 3 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.4 --use_vf --hidden_channels 96 --out_channels 96 --num_heads1 4 --num_heads2 4 --dim_feedforward 256 --use_global_pooling -bs 128 --dropout 0.4
+# sleep 5
 
-python cross_validation.py -g TransformerConv -o Adam -lr 0.0001 -wd 0.0002 -me 15 --scheduler_step_size 8 --saving_freq 2 --name Beta1_10d3_VF_S_Reg5 -tl 10 --downsample 3 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.3 --use_vf --hidden_channels 96 --out_channels 96 --num_heads1 4 --num_heads2 4 --dim_feedforward 256 --use_global_pooling -bs 128 --dropout 0.5 --dropout_tr 0.5
-sleep 5
+# python cross_validation.py -g TransformerConv -o Adam -lr 0.0001 -wd 0.0002 -me 15 --scheduler_step_size 8 --saving_freq 2 --name Beta1_10d3_VF_S_Reg5 -tl 10 --downsample 3 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.3 --use_vf --hidden_channels 96 --out_channels 96 --num_heads1 4 --num_heads2 4 --dim_feedforward 256 --use_global_pooling -bs 128 --dropout 0.5 --dropout_tr 0.5
+# sleep 5
+
+# python cross_validation.py --gpu_id 1 -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 6 --saving_freq 2 --name Beta1_10d3_VF_XL1 -tl 10 --downsample 3 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.15 --use_vf --hidden_channels 96 --out_channels 96 --num_heads1 4 --num_heads2 4 --dim_feedforward 256 --use_global_pooling -bs 32 --dropout 0.05 --num_heads_tr 8
+# sleep 5
+
+# python cross_validation.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 30 --scheduler_step_size 6 --saving_freq 2 --name Beta1_10d3_VF_XL2 -tl 10 --downsample 3 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.2 --use_vf --hidden_channels 128 --out_channels 128 --num_heads1 4 --num_heads2 4 --dim_feedforward 512 --use_global_pooling -bs 32 --dropout 0.1 --num_heads_tr 8
+# python cross_validation.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.001 -me 30 --scheduler_step_size 6 --saving_freq 2 --name Beta1_10d3_VF_XL3 -tl 10 --downsample 3 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.15 --use_vf --hidden_channels 128 --out_channels 128 --num_heads1 4 --num_heads2 4 --dim_feedforward 512 --use_global_pooling -bs 32 --dropout 0.05 --num_heads_tr 8
+# python cross_validation.py -g TransformerConv -o Adam -lr 0.001 -wd 0.001 -me 30 --scheduler_step_size 4 --saving_freq 2 --name Beta1_10d3_VF_XL4 -tl 10 --downsample 3 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.15 --use_vf --hidden_channels 96 --out_channels 96 --num_heads1 8 --num_heads2 8 --dim_feedforward 256 --use_global_pooling -bs 32 --dropout 0.05 --num_heads_tr 8 --gpu_id 1
