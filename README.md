@@ -8,14 +8,15 @@ Online Action Prediction from Scene Graphs
 You can use following codes to create the required environments (may not be inclusive)
 
 ```
-conda create -n myenv python=3.8
+conda create -n pyg_env python=3.8
 
-conda install pytorch==1.12.0 torchvision==0.13.0 torchaudio==0.12.0 cudatoolkit=11.6 -c pytorch -c conda-forge 
+conda install pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia # v2.1 is expected ?
 
-conda install pyg -c pyg    # it is expected to install pytorch geometric 2.2
+conda install pyg=2.4 -c pyg
 
 pip install enlighten natsort wandb torchmetrics matplotlib seaborn gdown
-pip install functorch==0.2.0
+
+python -m pip install 'git+https://github.com/facebookresearch/detectron2.git'
 
 ```
 

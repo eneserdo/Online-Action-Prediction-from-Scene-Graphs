@@ -2,6 +2,7 @@
 
 from itertools import accumulate, groupby
 from typing import Dict, Iterable
+
 import numpy as np
 
 

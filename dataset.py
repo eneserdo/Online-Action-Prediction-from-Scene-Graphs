@@ -1,26 +1,22 @@
-"""
-    TODO
-    - mirrored graph
-    - remove data.verify and unnecessary asserts
-    - bimanual paper sample count: 442216 vs our: 421610 
-
-    - !!! prepating dataset and getting Dataset instances should be separate
-"""
+import copy
 import glob
 import json
 import os
+import pathlib
+import pickle
 import shutil
 from os.path import join as opj
-from typing import List, Tuple
-import json
-import gdown
+from typing import Callable, List, Tuple
 
 import enlighten
+import gdown
 import natsort
 import numpy as np
 import torch
-from torch_geometric.data import Data, Dataset, download_url, extract_zip
-from torch_geometric.loader import DataLoader
+from torch_geometric.data import download_url, extract_zip
+from torch_geometric.data import Data as gData
+from torch_geometric.data import Dataset as gDataset
+
 
 
 # Global variables
@@ -41,6 +37,7 @@ TOTAL_FRAME_COUNT=0
 EMPTY_COUNT=0
 NO_EDGE_COUNT=0
 
+# CERTAINITY_THRESHOLD = 0.10 # out of 1
 
 
 def crawl_dataset_FULL():
@@ -67,7 +64,6 @@ if DEBUG_MODE:
     crawl_dataset = crawl_dataset_DEBUG
 else:
     crawl_dataset = crawl_dataset_FULL
-
 
 
 def _get_actions_list(gt_action_json: os.PathLike, act_len: int) -> np.ndarray:
@@ -103,21 +99,166 @@ def _get_actions_list(gt_action_json: os.PathLike, act_len: int) -> np.ndarray:
     return actions_list
 
 
-def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, take) -> Tuple[Data, Data]:
-    # returns edge index and edge features
+def __is_list_valid(nums):
+    for num in nums:
+        if np.isnan(num) or np.isinf(num):
+            return False
+    return True
+
+
+def _get_norm_func(root: str) -> Callable:
+    # returns the normalization function for the position
+
+    min_x, min_y, min_z = np.inf, np.inf, np.inf
+    max_x, max_y, max_z = -np.inf, -np.inf, -np.inf
+
+    # first moment
+    first_m_x, first_m_y, first_m_z = 0, 0, 0
+    # second moment
+    second_m_x, second_m_y, second_m_z = 0, 0, 0
+    counter = 0
+
+    for subject, task, take in crawl_dataset():     # among all the videos
+        object_dir = opj(root, "raw", "bimacs_derived_data", subject, task, take, "3d_objects")
+        object_json_list = natsort.natsorted(glob.glob(opj(object_dir, "*.json")))
+        for object_json in object_json_list:        # among all the frames in a video
+            with open(object_json) as f:
+                curr_objects = json.load(f)
+            for obj in curr_objects:                # among all the objects in a frame
+                bbox = obj["bounding_box"]
+                # bbox: {x0, y0, z0, x1, y1, z1}
+                # TODO handle the nans, infs
+
+                if not __is_list_valid(bbox.values()):
+                    continue
+
+                cx = (bbox["x1"] + bbox["x0"]) / 2
+                cy = (bbox["y1"] + bbox["y0"]) / 2
+                cz = (bbox["z1"] + bbox["z0"]) / 2
+                
+                min_x, min_y, min_z = min(min_x, cx), min(min_y, cy), min(min_z, cz)
+                max_x, max_y, max_z = max(max_x, cx), max(max_y, cy), max(max_z, cz)
+
+                counter += 1
+                first_m_x += cx
+                first_m_y += cy
+                first_m_z += cz
+
+                second_m_x += cx**2
+                second_m_y += cy**2
+                second_m_z += cz**2
+    
+    mean_x, mean_y, mean_z = first_m_x / counter, first_m_y / counter, first_m_z / counter
+    std_x = np.sqrt(second_m_x / counter - mean_x**2)
+    std_y = np.sqrt(second_m_y / counter - mean_y**2)
+    std_z = np.sqrt(second_m_z / counter - mean_z**2)
+
+    mean=torch.tensor([mean_x, mean_y, mean_z]).reshape(1, 3)
+    std=torch.tensor([std_x, std_y, std_z]).reshape(1, 3)
+    
+    min_pos = torch.tensor([min_x, min_y, min_z])
+    max_pos = torch.tensor([max_x, max_y, max_z])
+
+    def normalize(pos):
+        assert isinstance(pos, torch.Tensor) and pos.shape[1] == 3
+        return (pos - min_pos) / (max_pos - min_pos)
+        # return (pos - mean) / std
+
+    return normalize
+
+
+
+# def __filter_low_certainty_objects(curr_objects, curr_relations):
+#     black_list = []
+#     init_len = len(curr_objects)
+
+#     for idx, obj in enumerate(curr_objects):
+#         if obj["certainty"] < CERTAINITY_THRESHOLD:
+#             black_list.append(idx)
+
+#     if len(black_list) == 0:
+#         return
+#     print("+", end="",  flush=True)
+
+#     curr_objects = [obj for idx, obj in enumerate(curr_objects) if idx not in black_list]
+
+#     index_map = {}
+#     curr_idx = 0
+#     for idx in range(init_len):
+#         if idx in black_list:
+#             index_map[idx] = -1
+#         else:
+#             index_map[idx] = curr_idx
+#             curr_idx += 1
+
+
+#     rel_idx = 0
+#     for _ in range(len(curr_relations)):
+
+#         new_obj_idx = index_map[curr_relations[rel_idx]["object_index"]]
+#         new_sub_idx = index_map[curr_relations[rel_idx]["subject_index"]]
+
+#         if new_obj_idx == -1 or new_sub_idx == -1:
+#             curr_relations.pop(rel_idx)
+#         else:
+#             curr_relations[rel_idx]["object_index"] = new_obj_idx
+#             curr_relations[rel_idx]["subject_index"] = new_sub_idx
+#             rel_idx += 1
+    
+#     # return curr_objects, curr_relations, len(black_list)==0
+
+
+def _get_graph(relation_json, object_json, vf_path, gt_actions, frame, subject, task, take, pos_normalizer) -> Tuple[gData, gData]:
+    # returns the graph and its mirrored version for the given relation and object json files
     
     with open(relation_json) as f:
         curr_relations = json.load(f)
 
     with open(object_json) as f:
         curr_objects = json.load(f)
+    
+    obj_names = [obj["class_name"] for obj in curr_objects]
+
+    # # # # CHECK VALIDITY FIRST # # # #
+    if obj_names.count("LeftHand") != 1 or obj_names.count("RightHand") != 1:
+        return None, None
+    
+    if len(curr_relations) == 0 or len(curr_objects) == 0:
+        return None, None
+    # # # # CHECK VALIDITY FIRST # # # #
+
+    
+    if vf_path is not None:
+        vis_feat=torch.load(vf_path)
+
+
+    if len(curr_relations) == 0 or len(curr_objects) == 0:
+        # Normally, invalid graphs are handled afterwards, 
+        # but this is a special case, since pos depends on non-empty graphs
+        print("Empty: ", subject, task, take, "f", frame)
+        return None, None
+
+
+    # __filter_low_certainty_objects(curr_objects, curr_relations)
+    # curr_objects, curr_relations, filter_flag =__filter_low_certainty_objects(copy.deepcopy(curr_objects_), copy.deepcopy(curr_relations_))
+    # if filter_flag:
+    #     assert curr_objects == curr_objects_ and curr_relations == curr_relations_
+
 
     # initialize "Data" params
-    x = torch.zeros((len(curr_objects), len(OBJECTS)), dtype=torch.float)
-    x_mirrored = torch.zeros((len(curr_objects), len(OBJECTS)), dtype=torch.float)
+    if vf_path is None:
+        x_dim = len(OBJECTS)
+    else:
+        x_dim = vis_feat.shape[1]
+
+    x = torch.zeros((len(curr_objects), x_dim), dtype=torch.float)
+    x_mirrored = torch.zeros((len(curr_objects), x_dim), dtype=torch.float)
     
     y = torch.zeros((2, len(ACTIONS)), dtype=torch.float)
     y_mirrored = torch.zeros((2, len(ACTIONS)), dtype=torch.float)
+
+    pos = torch.zeros((len(curr_objects), 3), dtype=torch.float)
+    pos_mirrored = torch.zeros((len(curr_objects), 3), dtype=torch.float)
 
     # To debug add embed some info
     # y = torch.zeros((2, len(ACTIONS)+1), dtype=torch.float)
@@ -125,39 +266,86 @@ def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, tak
 
     edge_index = []
     edge_index_mirrored = []
+    edge_index = []
+    edge_index_mirrored = []
 
-    num_possible_relations=len(curr_objects)*(len(curr_objects)-1)
+    num_possible_relations = len(curr_objects)*(len(curr_objects)-1)
 
+    edge_attr = torch.zeros((int(num_possible_relations), len(RELATIONS)))
+    edge_attr_mirrored = torch.zeros((int(num_possible_relations), len(RELATIONS)))
     edge_attr = torch.zeros((int(num_possible_relations), len(RELATIONS)))
     edge_attr_mirrored = torch.zeros((int(num_possible_relations), len(RELATIONS)))
 
     ### Fill them
+    right_hand_index, left_hand_index = -1, -1
 
     for i, obj in enumerate(curr_objects):
-        x[i, OBJECTS.index(obj["class_name"])] = 1
+        if vf_path is None: 
+            x[i, OBJECTS.index(obj["class_name"])] = 1
+        else:
+            x[i] = vis_feat[i]
+
+        pos[i, 0] = (obj["bounding_box"]["x1"] + obj["bounding_box"]["x0"]) / 2
+        pos[i, 1] = (obj["bounding_box"]["y1"] + obj["bounding_box"]["y0"]) / 2
+        pos[i, 2] = (obj["bounding_box"]["z1"] + obj["bounding_box"]["z0"]) / 2
 
         # # # Mirrorred # # #
-        if obj["class_name"]=='LeftHand':
-            x_mirrored[i, OBJECTS.index('RightHand')] = 1
+        if vf_path is None:
+            if obj["class_name"]=='LeftHand':
+                x_mirrored[i, OBJECTS.index('RightHand')] = 1
+                left_hand_index = i
 
-        elif obj["class_name"]=='RightHand':
-            x_mirrored[i, OBJECTS.index('LeftHand')] = 1
+            elif obj["class_name"]=='RightHand':
+                x_mirrored[i, OBJECTS.index('LeftHand')] = 1
+                right_hand_index = i
 
+            else:
+                x_mirrored[i, OBJECTS.index(obj["class_name"])] = 1
         else:
-            x_mirrored[i, OBJECTS.index(obj["class_name"])] = 1
+            if obj["class_name"]=='LeftHand':
+                temp_idx=obj_names.index('RightHand')
+                x_mirrored[i] = vis_feat[temp_idx]
+                left_hand_index = i
+
+            elif obj["class_name"]=='RightHand':
+                temp_idx=obj_names.index('LeftHand')
+                x_mirrored[i] = vis_feat[temp_idx]
+
+                right_hand_index = i
+            else:
+                x_mirrored[i] = vis_feat[i]
         # # # # # # # # # # # #
-    
+            
+    # # # Mirrorred pos # # #
+    pos_mirrored = pos.clone()
+
+    # mirror the x axis
+    pos_mirrored[:, 0] = -pos_mirrored[:, 0]
+
+    # swap left and right hands
+    temp = pos_mirrored[left_hand_index].clone()
+    pos_mirrored[left_hand_index] = pos_mirrored[right_hand_index]
+    pos_mirrored[right_hand_index] = temp
+    # # # # # # # # # # #
+
+    # Normalize
+    pos = pos_normalizer(pos)
+    pos_mirrored = pos_normalizer(pos_mirrored)
+
+
     for relation in curr_relations:
+        # edge_index must have unique edges
 
-        # if self.contact_only and (relation["relation_name"] != "contact"):
-        #     # Skips the other relations if desired
-        #     continue
-
+        oi = relation["object_index"]
+        si = relation["subject_index"]
         oi = relation["object_index"]
         si = relation["subject_index"]
 
         edge=[oi, si]
+        edge=[oi, si]
 
+        if edge not in edge_index:
+            edge_index.append(edge)
         if edge not in edge_index:
             edge_index.append(edge)
 
@@ -176,7 +364,9 @@ def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, tak
         else:
             edge_attr_mirrored[edge_index_mirrored.index(edge), RELATIONS.index(relation["relation_name"])] = 1
         # # # # # # # # # # # #
-        
+
+
+    assert len(edge_index) <= num_possible_relations
 
     edge_attr=edge_attr[:len(edge_index)]
     edge_index=torch.tensor(edge_index, dtype=torch.long)
@@ -185,14 +375,19 @@ def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, tak
     edge_attr_mirrored=edge_attr_mirrored[:len(edge_index_mirrored)]
     edge_index_mirrored=torch.tensor(edge_index_mirrored, dtype=torch.long)
     # # # # # # # # # # # #
+    # # # Mirrorred # # #
+    edge_attr_mirrored=edge_attr_mirrored[:len(edge_index_mirrored)]
+    edge_index_mirrored=torch.tensor(edge_index_mirrored, dtype=torch.long)
+    # # # # # # # # # # # #
 
+    left_act, right_act = gt_actions
     left_act, right_act = gt_actions
 
     # subject, task, take were just added for debugging purposes, and will be removed
     # y[0]=torch.tensor([left_act, int(subject[-1]+task[5]+take[-1]+str(frame))], dtype=torch.float)
     # y[1]=torch.tensor([right_act, int(subject[-1]+task[5]+take[-1]+str(frame))], dtype=torch.float)
 
-    graph_str=subject[-1]+task[5]+take[-1]+str(frame)
+    # graph_str=subject[-1]+task[5]+take[-1]+str(frame)
 
     if left_act != -1:
         y[0, left_act]=1
@@ -206,25 +401,41 @@ def _get_graph(relation_json, object_json, gt_actions, frame, subject, task, tak
     if right_act != -1:
         y[1, right_act] = 1
         y_mirrored[0, right_act] = 1
+    if right_act != -1:
+        y[1, right_act] = 1
+        y_mirrored[0, right_act] = 1
 
         # To debug
         # y[1, -1] = int("1"+graph_str)
         # y_mirrored[0, -1] = int("2"+graph_str)
     
 
-    data = Data(x=x, edge_index=edge_index.t().contiguous(),
-                edge_attr=edge_attr, y=y)
+    data = gData(x=x,
+                edge_index=edge_index.t().contiguous(),
+                edge_attr=edge_attr, 
+                y=y,
+                pos=pos)
 
-    data_mirrored = Data(x=x_mirrored, edge_index=edge_index_mirrored.t().contiguous(),
-                            edge_attr=edge_attr_mirrored, y=y_mirrored)
+    data_mirrored = gData(x=x_mirrored, 
+                         edge_index=edge_index_mirrored.t().contiguous(),
+                         edge_attr=edge_attr_mirrored, 
+                         y=y_mirrored,
+                         pos=pos_mirrored)
 
+    return data, data_mirrored
     return data, data_mirrored
 
 
-def _check_validity(data: Data) -> str:
+def _check_validity(data: gData) -> str:
+    # TODO: merge with _get_graph
+
     # Checks: both hands exists, action != null, has edge, not empty 
     
     global MISSING_HAND_COUNT, NULL_COUNT, EMPTY_COUNT, NO_EDGE_COUNT
+
+    if data is None:
+        EMPTY_COUNT+=1
+        return "empty"
 
     Lhand, Rhand=False, False
     # null
@@ -233,6 +444,22 @@ def _check_validity(data: Data) -> str:
         raise Exception("Null action")
         return "null"
 
+    # not empty
+    if len(data.x)==0:
+        EMPTY_COUNT+=1
+        return "empty"
+    
+    # both hands
+    for row in data.x:
+        if row[OBJECTS.index("LeftHand")]==1:
+            Lhand=True
+        
+        if row[OBJECTS.index("RightHand")]==1:
+            Rhand=True
+            
+    if not (Rhand and Lhand):
+        MISSING_HAND_COUNT+=1
+        return "missing hand"
     # not empty
     if len(data.x)==0:
         EMPTY_COUNT+=1
@@ -258,345 +485,582 @@ def _check_validity(data: Data) -> str:
     return "valid"
 
 
-def _impute_with_previous(graph: Data, previous_graph: Data, validity: str) -> Data:
+def _impute_with_previous(graph: gData, previous_graph: gData, validity: str) -> gData:
     # For now, just returns the previous graph
     # If required, impute using the data of previous graph
     return previous_graph.clone()
     
 
-class BimanualDataset(Dataset):
-    def __init__(self, root: str, 
-                       is_processed: bool, 
-                       split: str, 
-                       test_subject: int, 
-                       validation_take: int , 
-                       temporal_length: int, 
-                       contact_only: bool, 
-                       fix_fps: bool=False,
-                       fix_null: bool=False):
-        
-        if fix_fps:
-            assert temporal_length%2==0, "When fix fps enabled, temporal_length must be even"
-        
-        self.temporal_length = temporal_length
-        self.is_processed = is_processed
-        self.test_subject = test_subject
-        self.validation_take = validation_take
-        self.split = split
-        self.config = None
-        transform, pre_transform, pre_filter=None, None, None
-        self.deleted_once=False
-        self.fix_fps=fix_fps
-        self.fix_null=fix_null
+def download_bimanual_dataset(raw_dir: str, fix_null, fix_fps, download_anyway) -> None:
+    # Downloads and unzip the Bimanual dataset to raw_dir.
+    # Also fixes the null actions if fix_null is True (kind of a preprocessing)
+    
+    # Check if zips are already downloaded
 
-        self.root = root
-        self.contact_only=contact_only
+    is_something_missing = False
+    for zipf in ["bimacs_derived_data_3d_objects.zip", 
+                 "bimacs_derived_data_spatial_relations.zip", 
+                 "bimacs_rgbd_data_ground_truth.zip",
+                 "BimanualActions.zip"]:
+        if not os.path.exists(opj(raw_dir, zipf)):
+            print(f"{zipf} is missing, downloading all...")
+            is_something_missing = True
+            # if single file is missing, download all bc it could be corrupted
+            break
+
+    urls = ["https://bimanual-actions.humanoids.kit.edu/download/bimacs_derived_data_3d_objects.zip",
+            "https://bimanual-actions.humanoids.kit.edu/download/bimacs_derived_data_spatial_relations.zip",
+            "https://bimanual-actions.humanoids.kit.edu/download/bimacs_rgbd_data_ground_truth.zip"]
+    
+            # "https://bimanual-actions.humanoids.kit.edu/download/bimacs_derived_data_2d_objects.zip"]
+    # Download
+    if download_anyway or is_something_missing:
+        for url in urls:
+            path = download_url(url, raw_dir)
+
+        # Features https://drive.google.com/drive/folders/1yfwItIoQrAnbnk5GTjbbfN8Ls8Ybl_hr
+        gdown.download(id="1FceipuZMUjp1ES2THqlAmQgPdE18-flk", output=opj(raw_dir, "BimanualActions.zip"))
+        print("Dataset downloaded!")
+        
+    # remove everything except the zips (otherwise it might be corrupted)
+    for f in os.listdir(raw_dir):
+        if f.endswith(".zip"):
+            continue
+        else:
+            print(f"Removing old files: {f}")
+            shutil.rmtree(opj(raw_dir, f))
+
+    # Unzip
+    for url in urls:
+        path = opj(raw_dir, url.split("/")[-1])
+        extract_zip(path, raw_dir)
+    
+    extract_zip(opj(raw_dir, "BimanualActions.zip"), raw_dir)
+    
+    if os.path.isfile(opj(raw_dir, "vis_feat.zip")):
+        extract_zip(opj(raw_dir, "vis_feat.zip"), raw_dir)
+
+
+    def read_check_write(sub, task, tk_json, hand, new_vals):
+        # An internal function to read, check and write the json file
+        # Read
+        the_json_path=opj(raw_dir, "bimacs_rgbd_data_ground_truth", sub, task, tk_json)
+        with open(the_json_path, "r") as f:
+            the_dict = json.load(f)
+
+        # Check
+        old_time_steps = the_dict[hand][::2]
+        new_time_steps = new_vals[::2]
+        
+        assert old_time_steps == new_time_steps, f"{old_time_steps=}, {new_time_steps=}"
+        
+        none_found=False
+        act_labels = the_dict[hand][1::2]
+        for i in act_labels:
+            if i==None:
+                none_found=True
+                break
+        
+        if not none_found:
+            print("No null found: ", the_json_path)
+            return  # no need to fix            
+
+        # Write back
+        the_dict[hand] = new_vals
+        with open(the_json_path, "w") as f:
+            json.dump(the_dict, f)
+        
+        print("Fixed: ", the_json_path)
+
+
+    if fix_null:
+        read_check_write("subject_6", "task_4_k_wiping", "take_1.json", "left_hand", 
+                            [0, 0, 91, 1, 114, 3, 129, 5, 150, 4, 165, 2, 189, 1, 209, 5, 357])
+        read_check_write("subject_1", "task_9_w_sawing", "take_2.json", "right_hand", 
+                            [0, 0, 14, 1, 32, 3, 42, 9, 97, 9, 133])
+        read_check_write("subject_1", "task_7_w_free_hard_drive", "take_7.json", "right_hand", 
+                            [0, 0, 13, 1, 28, 3, 36, 2, 39, 1, 44, 3, 56, 11, 135, 2, 138, 1, 142, 3, 154, 0, 181, 1, 207, 11, 285, 2, 290, 1, 292, 3, 300, 4, 309, 4, 331, 2, 333, 1, 337, 4, 350, 2, 358, 0, 381])
+        read_check_write("subject_3", "task_2_k_cooking_with_bowls", "take_1.json", "right_hand", 
+                            [0, 0, 61, 1, 85, 5, 194, 1, 199, 1, 206, 3, 241, 6, 339, 4, 366, 2, 371, 1, 376, 5, 475, 2, 521, 0, 542])
+
+        print("# Replaced null actions by manually detected labels (This is directly done on the raw data!)")
+
+
+    def double_data(sub, task, tk):
+        # An internal function to double the data (15fps -> 30fps)
+        # just for readibility of the code
+
+        vid_relational_path = opj(sub, task, tk)
+
+        path_to_data = opj(raw_dir, "bimacs_derived_data", vid_relational_path)
+        # we need repeat 
+        # read every spatial_relation and 3d_object json file
+        # save it twice i -> 2*i, 2*i+1
+        # But it must be done in REVERSE order to avoid unintended overwriting
+        
+
+        object_json_list = natsort.natsorted(glob.glob(opj(path_to_data, "3d_objects", "*.json")), reverse=True)
+        relation_json_list = natsort.natsorted(glob.glob(opj(path_to_data, "spatial_relations", "*.json")), reverse=True)
+
+        assert len(object_json_list) == len(relation_json_list)
+
+        for relation_json, object_json in zip(relation_json_list, object_json_list):
+            
+            fname_r=pathlib.Path(relation_json).stem # './.../frame_XXX.json' -> 'frame_XXX'
+            frame_idx = int(fname_r.split("_")[1])
+
+            assert frame_idx == int(pathlib.Path(object_json).stem.split("_")[1])
+
+            # Relation
+            relation_json_new1 = opj(path_to_data, "spatial_relations", f"frame_{2*frame_idx}.json")
+            relation_json_new2 = opj(path_to_data, "spatial_relations", f"frame_{2*frame_idx+1}.json")
+            os.rename(relation_json, relation_json_new1)
+            shutil.copy(relation_json_new1, relation_json_new2) # Copy content and permission
+
+            # Object
+            object_json_new1 = opj(path_to_data, "3d_objects", f"frame_{2*frame_idx}.json")
+            object_json_new2 = opj(path_to_data, "3d_objects", f"frame_{2*frame_idx+1}.json")
+            os.rename(object_json, object_json_new1)
+            shutil.copy(object_json_new1, object_json_new2) # Copy content and permission
+
+
+        # read action json file double the action boundaries
+        
+        the_json_path=opj(raw_dir, "bimacs_rgbd_data_ground_truth", sub, task, f"{tk}.json")
+        with open(the_json_path, "r") as f:
+            the_dict = json.load(f)
+
+        the_dict["left_hand"][::2] = [2*i for i in the_dict["left_hand"][::2]]
+        the_dict["right_hand"][::2] = [2*i for i in the_dict["right_hand"][::2]]
+
+        with open(the_json_path, "w") as f:
+            json.dump(the_dict, f)
+        
+    if fix_fps:
+        # check if it is already fixed
+        path_to_data = opj(raw_dir, "bimacs_derived_data", "subject_1","task_9_w_sawing", "take_0")
+        object_json_list = natsort.natsorted(glob.glob(opj(path_to_data, "3d_objects", "*.json")))
+        
+        if len(object_json_list) == 246*2: # This is hardcoded. 246 is the original length
+            print("# Fps is already fixed")
+        
+
+        with open(opj(raw_dir, "BimanualActions", "bimacs_video_id_to_video_fps.json"), "r") as f:
+            fps_info = json.load(f)
+        
+        for vid_name, fps_value in fps_info.items():
+            # vid_name: "subject_X-task_X-take_X"
+            
+            if fps_value == 15:
+                double_data(*vid_name.split("-"))
+                print(f"# Fps fixed: {vid_name}:  (This is directly done on the raw data!)")
+
+
+def _get_max_length(root: str, downsample) -> int:
+    # Returns the maximum length of the videos (used for padding)
+    max_length = 0
+    for subject, task, take in crawl_dataset():
+        relation_dir = opj(root, "raw", "bimacs_derived_data", subject, task, take, "spatial_relations")
+        curr_list = glob.glob(opj(relation_dir, "*.json"))[::downsample]
+        curr_length = len(curr_list)
+        max_length = max(max_length, curr_length)
+    return max_length
+
+
+def __get_padding_graph() -> gData:
+    # Returns a dummy graph for padding
+    # To separate dummy from real check y.sum() == -1
+
+    # To make hand_pooling keep working, this should have left and right hand 
+    x = torch.zeros((2, len(OBJECTS)), dtype=torch.float)
+    x[0, OBJECTS.index("LeftHand")] = 1
+    x[1, OBJECTS.index("RightHand")] = 1
+    
+    edge_index = torch.tensor([[0, 1], [1, 0]], dtype=torch.long)
+    edge_attr = torch.zeros((2, len(RELATIONS)), dtype=torch.float)
+    edge_attr[0, RELATIONS.index("contact")] = 1
+    edge_attr[1, RELATIONS.index("contact")] = 1
+    
+    y = torch.zeros((2, len(ACTIONS)), dtype=torch.float)
+    y[0, 0] = -0.5
+    y[1, 0] = -0.5
+    return gData(x=x, edge_index=edge_index.t().contiguous(), edge_attr=edge_attr, y=y)
+
+def _pad_sequence(data_list: List[gData], target_length: int) -> List[gData]:
+    # Pads the sequence to target_length
+    # If the sequence is already longer than target_length, it is not padded
+    # If the sequence is shorter than target_length, it is padded with a dummy graph
+    if len(data_list) < target_length:
+        for _ in range(target_length - len(data_list)):
+            data_list.append(__get_padding_graph())
+
+
+def get_processing_dir(root: str, temporal_length: int, downsample: int, use_vf: bool) -> str:
+    # Naming convention for the processed directory
+     
+    ds_append=f"_d{downsample}" if downsample > 1 else ""
+    ds_append += "_vf" if use_vf else ""
+    if temporal_length == -1:
+        return opj(root, "processed" + "Whole" + ds_append)
+    else:
+        return opj(root, "processed"+str(temporal_length) + ds_append)
+
+
+def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, use_vis_feat: bool) -> None:
+    global TOTAL_FRAME_COUNT
+    # temporal_length defines the number of frames in a sample regardless of the downsampling rate
+
+    processed_dir = get_processing_dir(root, temporal_length, downsample, use_vis_feat)
+    os.mkdir(processed_dir)
+    
+    if temporal_length == -1:
+        # whole video as one sample
+        process_whole_video = True
+        MAX_VID_LENGTH = _get_max_length(root, downsample) 
+    else:
+        process_whole_video = False
+
+    pos_normalizer = _get_norm_func(root)
+
+    for subject in ['subject_{}'.format(i) for i in range(1, 7)]:
+        os.mkdir(opj(processed_dir, subject))
+
+
+    raw_dir = opj(root, "raw")
+    derived_dir = opj(raw_dir, "bimacs_derived_data")
+    gt_dir = opj(raw_dir, "bimacs_rgbd_data_ground_truth")
+    
+    if use_vis_feat:
+        vf_master_dir = opj(raw_dir, "vis_feat")
+        assert os.path.exists(vf_master_dir), f"Vis feat is not available in {vf_master_dir}"
+
+    sample_idx=0
+
+    imputation_count=0
+    prepended_things_count=0
+
+    dataset_mapping_master = {"sample":{}, "vid":{}}
+
+    if process_whole_video:
+        vid_len_info = {} # idx -> video length
+
+    # To double check
+    sample_count = 0
+
+    # Progress bar
+    progressbar_manager=enlighten.get_manager()
+    ticks=progressbar_manager.counter(total=540, desc="Progress:", unit="folder", color="blue")
+
+    for subject, task, take in crawl_dataset():
+
+        subject_int, task_int, take_int = int(subject[-1]), int(task[5]), int(take[-1])
+        # Sometimes initial graphs are invalid, so imputation is not working. This is to fix that
+        prepend_count=0
+
+        # make sure there is no cross-folder graph sequence
+        data_list = []
+        data_list_mirrored = []
+
+        object_dir = opj(derived_dir, subject, task, take, "3d_objects")
+        object_json_list = natsort.natsorted(glob.glob(opj(object_dir, "*.json")))
+
+        relation_dir = opj(derived_dir, subject, task, take, "spatial_relations")
+        relation_json_list = natsort.natsorted(glob.glob(opj(relation_dir, "*.json")))
+
+        if use_vis_feat:
+            vf_dir = opj(vf_master_dir, subject, task, take)
+            vf_list = natsort.natsorted(glob.glob(opj(vf_dir, "early_feat_*.pt")))
+
+
+
+        gt_action_json = opj(gt_dir, subject, task, f"{take}.json")
+        act_list=_get_actions_list(gt_action_json, len(relation_json_list))
+
+        assert int(pathlib.Path(relation_json_list[0]).stem.split("_")[1]) == 0, f"{relation_json_list[0]=}"
+        assert int(pathlib.Path(relation_json_list[-1]).stem.split("_")[1]) == len(relation_json_list) - 1, f"{relation_json_list[-1]=}, {len(relation_json_list)=}"
+        
+        assert int(pathlib.Path(object_json_list[0]).stem.split("_")[1]) == 0, f"{object_json_list[0]=}"
+        assert int(pathlib.Path(object_json_list[-1]).stem.split("_")[1]) == len(object_json_list) - 1, f"{object_json_list[-1]=}, {len(object_json_list)=}"
+
+        # Downsample
+        relation_json_list = relation_json_list[::downsample]
+        object_json_list = object_json_list[::downsample]
+        act_list = act_list[::downsample]
+
+        assert len(relation_json_list) == len(object_json_list)
+        assert len(relation_json_list) == len(act_list)
+        assert len(relation_json_list) > 0
+
+        if use_vis_feat:
+            vf_list = vf_list[::downsample]
+            assert len(relation_json_list) == len(vf_list), f"{subject=}, {task=}, {take=}, {len(relation_json_list)=}, {len(vf_list)=}"
+
+        # Just to make sure at least one sample is saved per video. 
+        # Mostly used for debugging whole video processing
+        successful_save = False
+        if process_whole_video:
+            temporal_length = len(object_json_list[::downsample])
+            is_padding_needed = False
+
+
+        dataset_mapping_master["vid"][str(subject_int)+str(task_int)+str(take_int)] = act_list
+        sample_count = sample_count + len(act_list) - temporal_length + 1 # This is redundant for whole video processing   
+
+        if use_vis_feat:
+            things_to_zip = zip(relation_json_list, object_json_list, vf_list)
+        else:
+            things_to_zip = zip(relation_json_list, object_json_list)
+
+        for frame, paths in enumerate(things_to_zip):
+            
+            if use_vis_feat:
+                relation_json, object_json, vf_path = paths
+            else:
+                relation_json, object_json = paths
+                vf_path = None
+
+            TOTAL_FRAME_COUNT += 1
+
+            graph, graph_mirrored = _get_graph(relation_json, object_json, vf_path, act_list[frame], frame, subject, task, take, pos_normalizer)
+
+            ### Prepending and imputation ###
+            # If the graph is not valid, try to fix it (impute maybe). 
+            # If it is not possible resets the sequence and continues
+            # validity = _check_validity(graph)
+            validity = "valid" if graph is not None else "not valid"
+            
+            if validity == "valid":
+                pass
+            # elif validity in ["null"]:
+            #     raise Exception(f"Unhandled graph error: {validity}")
+            elif len(data_list) > 0:
+                # use previous graph to impute
+                graph = _impute_with_previous(graph, data_list[-1], validity)
+                graph_mirrored = _impute_with_previous(graph_mirrored, data_list_mirrored[-1], validity)
+                imputation_count+=1
+            else:
+                # print("Skipping: invalid graph and no previous graph to impute: ", subject, task, take, "f", frame)
+                prepend_count+=1
+                prepended_things_count+=1
+                # data_list=[]
+                # data_list_mirrored=[]
+                continue
+            
+
+            data_list.append(graph)    
+            data_list_mirrored.append(graph_mirrored)
+            
+
+            if prepend_count != 0 and len(data_list) == 1:
+                for _ in range(prepend_count):
+                    data_list.append(graph.clone())
+                    data_list_mirrored.append(graph_mirrored.clone())
+                assert len(data_list) == prepend_count+1
+                prepend_count=0
+            ##################################
+
+                
+            # if the sequence is complete, saves it
+            if len(data_list) == temporal_length:
+                
+                # # Am i genius or what
+                # data_list = data_list[::downsample]
+                # data_list_mirrored = data_list_mirrored[::downsample]
+
+                # There is already a collate function for DataLoader in pyg, 
+                # so it is not trivial to use DataLoader for this purpose. Instead, 
+                # I padded manually.
+                # Padding
+                if process_whole_video:
+                    # if MAX_VID_LENGTH - len(data_list) > 0:
+                    #     is_padding_needed = True
+                    #     for _ in range(MAX_VID_LENGTH - len(data_list)):
+                    #         data_list.append(_get_padding_graph())
+                    #         data_list_mirrored.append(_get_padding_graph())
+                    _pad_sequence(data_list, MAX_VID_LENGTH)
+                    _pad_sequence(data_list_mirrored, MAX_VID_LENGTH)
+
+
+                # To make sure no padding goes into training 
+                # TODO: will be removed
+                if process_whole_video:
+                    last_element_idx = len(dataset_mapping_master["vid"][str(subject_int)+str(task_int)+str(take_int)]) - 1
+                    assert data_list[last_element_idx].y.sum() == 2, "WTF"
+                    assert data_list_mirrored[last_element_idx].y.sum() == 2, "WTF"
+                    
+                    if is_padding_needed:
+                        # make sure last element is not padding
+                        assert data_list[last_element_idx + 1].y.sum() == -1, "WTF"
+                        assert data_list_mirrored[last_element_idx + 1].y.sum() == -1, "WTF"
+
+                assert len(data_list) == len(data_list_mirrored), f"{len(data_list)=}, {len(data_list_mirrored)=}"
+    
+                torch.save(data_list, opj(processed_dir, subject, f'data_{sample_idx}.pt'))
+                dataset_mapping_master["sample"][sample_idx] = (subject_int, task_int, take_int, frame-temporal_length + 1, frame + 1, "_")
+                if process_whole_video:
+                    vid_len_info[sample_idx] = temporal_length
+                sample_idx+=1
+
+                dataset_mapping_master["sample"][sample_idx] = (subject_int, task_int, take_int, frame-temporal_length + 1, frame + 1, "M")
+                torch.save(data_list_mirrored, opj(processed_dir, subject, f'data_{sample_idx}.pt'))
+                if process_whole_video:
+                    vid_len_info[sample_idx] = temporal_length
+                sample_idx+=1
+
+                successful_save = True
+                data_list[0].validate(raise_on_error=True)
+                data_list_mirrored[0].validate(raise_on_error=True)
+                data_list.pop(0)
+                data_list_mirrored.pop(0)
+        # End of for loop (frame)
+                
+        if not successful_save:
+            raise ValueError("WTF")
+
+        assert 2*sample_count == sample_idx, f"{sample_count=}, {sample_idx=}"
+
+        ticks.update()
+
+    # End of for loop (video)
+
+
+    progressbar_manager.stop()
+    
+    assert sample_idx == sample_count*2, f"{sample_idx=} ,{sample_count*2=}"
+
+    print(f"\n\n#######\n{TOTAL_FRAME_COUNT=}, {EMPTY_COUNT=}, {NO_EDGE_COUNT=}, {MISSING_HAND_COUNT=}, {NULL_COUNT=}")
+    
+    
+    print(f"{imputation_count=}, {prepended_things_count=}")
+
+    config_info = {"sample_count": sample_idx, 
+                   "temporal_length": temporal_length,
+                   "downsample": downsample}
+
+    with open(opj(processed_dir, "config_info_master.json"), "w") as f:
+        json.dump(config_info, f)
+        
+    with open(opj(processed_dir, "dataset_mapping_master.pickle"), "wb") as f:
+        pickle.dump(dataset_mapping_master, f)
+
+    if process_whole_video:
+        with open(opj(processed_dir, "vid_len_info.json"), "w") as f:
+            json.dump(vid_len_info, f)
+
+class BimanualDataset(gDataset):
+    def __init__(self, root, temporal_length, downsample, mapping, use_vf):
+
+        self.temporal_length = temporal_length
+
+        self.pdir = get_processing_dir(root, temporal_length, downsample, use_vf)
+
+        if temporal_length == -1:
+            with open(opj(self.pdir, "vid_len_info.json"), "r") as f:
+                self.vid_len_info = json.load(f)
+        
+        self.mapping = mapping
+
+        self.split_len = len(mapping)
+        
         self.distribution = torch.zeros((len(ACTIONS)))
 
-        assert split in ["val", "train", "test"], "split can only be val, train or test"
-        if is_processed:
-            self._load_config()
-            assert self.config["test_subject"]==test_subject
-            assert self.config["validation_take"]==validation_take
-            assert self.config["temporal_length"]==temporal_length
-
-
+        transform, pre_transform, pre_filter = None, None, None
         super().__init__(root, transform, pre_transform, pre_filter)
 
+    # This is weird
     @property
     def processed_dir(self) -> str:
-        return opj(self.root, 'processed'+str(self.temporal_length))
+        return self.pdir
 
     @property
     def raw_file_names(self):
         return ["bimacs_rgbd_data_ground_truth/subject_1/task_1_k_cooking/take_0.json"]
 
     @property
-    def processed_file_names(self):        
-        if self.is_processed:
-            # addr = [os.path.basename(x) for x in glob.glob(opj(self.processed_dir, 'data*.pt'))]
-            # addr = [opj(self.split, a) for a in addr]
-            addr = [opj("train", 'data_0.pt'), opj("test", 'data_0.pt'), opj("val", 'data_0.pt')]
-            return addr
-        else:
-            if os.path.isdir(self.processed_dir):
-                print()
-                if not self.deleted_once:
-                    print("Deleting processed_dir...")
-                    shutil.rmtree(self.processed_dir)
-                    os.mkdir(self.processed_dir)
-                    self.deleted_once=True
-            return "some_dummy_name.pt"
-
-    def _fix_null(self):
-        # Somehow left hand in the video of subject_6-task_4-take_1 is all null. This is to fix it
-
-        def read_check_write(sub, task, tk_json, hand, new_vals):
-            # An internal function to read, check and write the json file
-            # Read
-            the_json_path=opj(self.raw_dir, "bimacs_rgbd_data_ground_truth", sub, task, tk_json)
-            with open(the_json_path, "r") as f:
-                the_dict = json.load(f)
-
-            # Check
-            old_time_steps = the_dict[hand][::2]
-            new_time_steps = new_vals[::2]
-            
-            assert old_time_steps == new_time_steps, f"{old_time_steps=}, {new_time_steps=}"
-            
-            none_found=False
-            act_labels = the_dict[hand][1::2]
-            for i in act_labels:
-                if i==None:
-                    none_found=True
-                    break
-            
-            if not none_found:
-                print("No null found: ", the_json_path)
-                return  # no need to fix            
-
-            # Write back
-            the_dict[hand] = new_vals
-            with open(the_json_path, "w") as f:
-                json.dump(the_dict, f)
-            
-            print("Fixed: ", the_json_path)
+    def processed_file_names(self):
+        addr = [opj("subject_1", 'data_0.pt')] # TODO: maybe change this
+        return addr
 
 
-        read_check_write("subject_6", "task_4_k_wiping", "take_1.json", "left_hand", 
-                         [0, 0, 91, 1, 114, 3, 129, 5, 150, 4, 165, 2, 189, 1, 209, 5, 357])
-        read_check_write("subject_1", "task_9_w_sawing", "take_2.json", "right_hand", 
-                         [0, 0, 14, 1, 32, 3, 42, 9, 97, 9, 133])
-        read_check_write("subject_1", "task_7_w_free_hard_drive", "take_7.json", "right_hand", 
-                         [0, 0, 13, 1, 28, 3, 36, 2, 39, 1, 44, 3, 56, 11, 135, 2, 138, 1, 142, 3, 154, 0, 181, 1, 207, 11, 285, 2, 290, 1, 292, 3, 300, 4, 309, 4, 331, 2, 333, 1, 337, 4, 350, 2, 358, 0, 381])
-        read_check_write("subject_3", "task_2_k_cooking_with_bowls", "take_1.json", "right_hand", 
-                         [0, 0, 61, 1, 85, 5, 194, 1, 199, 1, 206, 3, 241, 6, 339, 4, 366, 2, 371, 1, 376, 5, 475, 2, 521, 0, 542])
-
-        print("# Replaced null actions by manually detected labels (This is directly done on the raw data!)")
-
-    def download(self):
-        # Downloads Bimanual dataset to `self.raw_dir`.
-
-        urls = ["https://bimanual-actions.humanoids.kit.edu/download/bimacs_derived_data_3d_objects.zip",
-                "https://bimanual-actions.humanoids.kit.edu/download/bimacs_derived_data_spatial_relations.zip",
-                "https://bimanual-actions.humanoids.kit.edu/download/bimacs_rgbd_data_ground_truth.zip"]
-
-        for url in urls:
-            path = download_url(url, self.raw_dir)
-            extract_zip(path, self.raw_dir)
-        
-        # Features https://drive.google.com/drive/folders/1yfwItIoQrAnbnk5GTjbbfN8Ls8Ybl_hr
-
-        gdown.download(id="1FceipuZMUjp1ES2THqlAmQgPdE18-flk", output=opj(self.raw_dir, "BimanualActions.zip"))
-        extract_zip(opj(self.raw_dir, "BimanualActions.zip"), self.raw_dir)
-        self._fix_null()
-        
-    def _save_config(self, config_info: dict) -> None:
-        with open(opj(self.processed_dir, "config_info.json"), "w") as f:
-            json.dump(config_info, f)
-        
-        self.split_len=self.config[self.split]
-        
-    def _load_config(self) -> None:
-        with open(opj(self.processed_dir, "config_info.json"), "r") as f:
-            self.config = json.load(f)
-        
-        self.split_len=self.config[self.split]
-        self.distribution = self.config["distribution"]
-
-    def process(self):
-        global TOTAL_FRAME_COUNT
-
-
-        if self.fix_null:
-            self._fix_null()
-
-        train_dir, test_dir, val_dir = opj(self.processed_dir, "train"), opj(self.processed_dir, "test"), opj(self.processed_dir, "val")
-        
-        os.mkdir(train_dir)
-        os.mkdir(test_dir)
-        os.mkdir(val_dir)
-
-        derived_dir = opj(self.raw_dir, "bimacs_derived_data")
-        gt_dir = opj(self.raw_dir, "bimacs_rgbd_data_ground_truth")
-
-        with open(opj(self.raw_dir, "BimanualActions", "bimacs_video_id_to_video_fps.json"), "r") as f:
-            self.fps_info = json.load(f)
-
-        train_sample_idx=0
-        val_sample_idx=0
-        test_sample_idx=0
-
-        imputation_count=0
-        prepended_things_count=0
-
-        progressbar_manager=enlighten.get_manager()
-        ticks=progressbar_manager.counter(total=540, desc="Progress:", unit="folder", color="blue")
-        
-        # aslında list de olur ama ne olur ne olmaz
-        test_idx_sample_mapping = {} # [for each sample] idx -> (subject, task, take, start_frame, end_frame, if_mirrored)
-        test_ground_truth = {} # [for each video] video_idx -> (ground_truth_L, ground_truth_R) 
-        video_idx=0
-
-        # To double check
-        train_sample_count = 0
-        val_sample_count = 0
-        test_sample_count = 0
-
-        for subject, task, take in crawl_dataset():
-            
-            # Sometimes initial graphs are invalid, so imputation is not working. This is to fix that
-            prepend_count=0
-
-            # make sure there is no cross-folder graph sequence
-            data_list = [] 
-            data_list_mirrored = [] 
-
-            object_dir = opj(derived_dir, subject, task, take, "3d_objects")
-            object_json_list = natsort.natsorted(glob.glob(opj(object_dir, "*.json")))
-
-            relation_dir = opj(derived_dir, subject, task, take, "spatial_relations")
-            relation_json_list = natsort.natsorted(glob.glob(opj(relation_dir, "*.json")))
-
-            gt_action_json = opj(gt_dir, subject, task, f"{take}.json")
-            act_list=_get_actions_list(gt_action_json, len(relation_json_list))
-
-            assert len(relation_json_list) == len(object_json_list)
-
-            # To double check
-            if int(subject[-1])==self.test_subject:
-                test_sample_count = test_sample_count + len(relation_json_list) - self.temporal_length + 1
-            elif int(take[-1])==self.validation_take:
-                val_sample_count = val_sample_count + len(relation_json_list) - self.temporal_length + 1
-            else:
-                train_sample_count = train_sample_count + len(relation_json_list) - self.temporal_length + 1
-
-            if int(subject[-1])==self.test_subject:
-                test_ground_truth[video_idx] = (act_list[:, 0].tolist(), act_list[:, 1].tolist())
-                video_idx+=1
-
-            for frame, (relation_json, object_json) in enumerate(zip(relation_json_list, object_json_list)):
-                
-                TOTAL_FRAME_COUNT+=1
-                graph, graph_mirrored = _get_graph(relation_json, object_json, act_list[frame], frame, subject, task, take)
-
-                # If the graph is not valid, try to fix it (impute maybe). 
-                # If it is not possible resets the sequence and continues
-                validity = _check_validity(graph)
-                
-                if validity == "valid":
-                    pass
-                elif validity in ["null"]:
-                    raise Exception(f"Unhandled graph error: {validity}")
-                elif len(data_list) > 0:
-                    # use previous graph to impute
-                    graph = _impute_with_previous(graph, data_list[-1], validity)
-                    graph_mirrored = _impute_with_previous(graph_mirrored, data_list_mirrored[-1], validity)
-                    imputation_count+=1
-                else:
-                    # print("Skipping: invalid graph and no previous graph to impute: ", subject, task, take, "f", frame)
-                    prepend_count+=1
-                    prepended_things_count+=1
-                    # data_list=[]
-                    # data_list_mirrored=[]
-                    continue
-                
-                data_list.append(graph)    
-                data_list_mirrored.append(graph_mirrored)
-                
-                # TODO: Fix_fps and prepend_count are not compatible. Fix it
-                if prepend_count != 0 and len(data_list) == 1:
-                    for _ in range(prepend_count):
-                        data_list.append(graph.clone())
-                        data_list_mirrored.append(graph_mirrored.clone())
-                    assert len(data_list) == prepend_count+1
-                    prepend_count=0
-
-                # TODO: we pop only one graph, but when fix_fps is true, we need to pop two of them
-                # Check if fps need to be fixed. If so, add same graph again  
-                if self.fix_fps and self.fps_info[subject+"-"+task+"-"+take] == 15:
-                    data_list.append(graph)
-                    data_list_mirrored.append(graph_mirrored)
-                    
-                # if the sequence is complete, saves it
-                if len(data_list) == self.temporal_length:
-                    
-                    if int(subject[-1])==self.test_subject:
-                        torch.save(data_list, opj(test_dir, f'data_{test_sample_idx}.pt'))
-                        test_idx_sample_mapping[test_sample_idx] = (subject, task, take, frame-self.temporal_length+1, frame, "not_mirrored")
-                        test_sample_idx+=1
-
-                        torch.save(data_list_mirrored, opj(test_dir, f'data_{test_sample_idx}.pt'))
-                        test_idx_sample_mapping[test_sample_idx] = (subject, task, take, frame-self.temporal_length+1, frame, "mirrored")
-                        test_sample_idx+=1
-                    
-                    elif int(take[-1])==self.validation_take:
-                        torch.save(data_list, opj(val_dir, f'data_{val_sample_idx}.pt'))
-                        val_sample_idx+=1
-                        
-                        torch.save(data_list_mirrored, opj(val_dir, f'data_{val_sample_idx}.pt'))
-                        val_sample_idx+=1
-
-                    else:
-                        torch.save(data_list, opj(train_dir, f'data_{train_sample_idx}.pt'))
-                        train_sample_idx+=1
-
-                        torch.save(data_list_mirrored, opj(train_dir, f'data_{train_sample_idx}.pt'))
-                        train_sample_idx+=1
-
-                    self.distribution = self.distribution + data_list[0].y[0] + data_list[0].y[1]
-                    data_list[0].validate(raise_on_error=True)
-                    data_list_mirrored[0].validate(raise_on_error=True)
-                    data_list.pop(0)
-                    data_list_mirrored.pop(0)
-
-            ticks.update()
-
-
-        progressbar_manager.stop()
-        
-        assert train_sample_idx == train_sample_count*2, f"{train_sample_idx=} ,{train_sample_count*2=}"
-        assert val_sample_idx == val_sample_count*2, f"{val_sample_idx=} ,{val_sample_count*2=}"
-        assert test_sample_idx == test_sample_count*2, f"{test_sample_idx=} ,{test_sample_count*2=}"
-
-        print(f"\n\n#######\n{TOTAL_FRAME_COUNT=}, {EMPTY_COUNT=}, {NO_EDGE_COUNT=}, {MISSING_HAND_COUNT=}, {NULL_COUNT=}")
-        
-        self.config = {"test": test_sample_idx, 
-                       "train": train_sample_idx, 
-                       "val": val_sample_idx, 
-                       "test_subject": self.test_subject, 
-                       "validation_take": self.validation_take,
-                       "temporal_length": self.temporal_length,
-                       "distribution": self.distribution.tolist()}
-        
-        print(self.config)
-        print(f"{imputation_count=}, {prepended_things_count=}")
-        
-        self._save_config(self.config)
-        
-        with open(opj(self.processed_dir, "test_idx_sample_mapping.json"), "w") as f:
-            json.dump(test_idx_sample_mapping, f)
-
-        with open(opj(self.processed_dir, "test_ground_truth.json"), "w") as f:
-            json.dump(test_ground_truth, f)
-        
-        self.is_processed=True
-
-    def len(self):
-        # return len(self.processed_file_names)
+    def len(self) -> int:
         return self.split_len
 
-    def get(self, idx):
-        # data = torch.load(opj(self.processed_dir, f'data_{idx}.pt'))
-        # f=glob.glob(opj(self.processed_dir, f'data*_{idx}.pt'))
-        # data = torch.load(f[0])
+    def get(self, idx: int) -> gData:
 
-        data = torch.load(opj(self.processed_dir, self.split, f'data_{idx}.pt'))
-        return idx, data
+        path, global_idx = self.mapping[idx]
+        data = torch.load(opj(self.processed_dir, path))
+
+        # TODO maybe return both global_idx and local_idx
+
+        if self.temporal_length == -1:
+            return self.vid_len_info[str(global_idx)], global_idx, data
+        else:
+            return global_idx, data 
+
+
+
+def create_mappings(processed_dir: str, temporal_length: int, test_subject: int, validation_take: int) -> [dict, dict]:
+    
+    path_mapping = {"train": {}, "test": {}, "val": {}} # [split]: local idx -> path, global idx (i.e. idx = local; train_idx,val_idx,test_idx = global)
+
+    dataset_mapping = {"train":{"vid":{}, "sample":{}},
+                       "test":{"vid":{}, "sample":{}},
+                       "val":{"vid":{}, "sample":{}}}
+    
+    with open(opj(processed_dir, "config_info_master.json"), "r") as f:
+        config_master = json.load(f)
+
+
+    with open(opj(processed_dir, "dataset_mapping_master.pickle"), "rb") as f:
+        dataset_mapping_master = pickle.load(f)
+
+
+    # vids
+    # dataset_mapping_master["vid"][str(subject_int)+str(task_int)+str(take_int)] = act_list
+    for id, act_list in dataset_mapping_master["vid"].items():
+
+        subject_int, task_int, take_int = int(id[0]), int(id[1]), int(id[2])
+
+        if subject_int == test_subject:
+            dataset_mapping["test"]["vid"][id] = act_list
+        elif take_int == validation_take:
+            dataset_mapping["val"]["vid"][id] = act_list
+        else:
+            dataset_mapping["train"]["vid"][id] = act_list
+
+
+    # samples
+    test_idx = 0
+    val_idx = 0
+    train_idx = 0
+
+    # dataset_mapping_master["sample"][sample_idx] = (subject_int, task_int, take_int, frame-temporal_length + 1, frame + 1, "_" or "M") 
+    for idx, (sub, task, take, start, end, mirrored) in dataset_mapping_master["sample"].items():
+        
+        if sub == test_subject:
+            dataset_mapping["test"]["sample"][idx] = (sub, task, take, start, end, mirrored)
+            path_mapping["test"][test_idx] = (opj("subject_"+str(sub), f"data_{idx}.pt"), idx)
+            test_idx+=1
+        
+        elif take == validation_take:
+            dataset_mapping["val"]["sample"][idx] = (sub, task, take, start, end, mirrored)
+            path_mapping["val"][val_idx] = (opj("subject_"+str(sub), f"data_{idx}.pt"), idx)
+            val_idx+=1
+
+        else:
+            dataset_mapping["train"]["sample"][idx] = (sub, task, take, start, end, mirrored)
+            path_mapping["train"][train_idx] = (opj("subject_"+str(sub), f"data_{idx}.pt"), idx)
+            train_idx+=1
+
+    
+    assert train_idx + test_idx + val_idx == config_master["sample_count"], f"{train_idx + test_idx + val_idx=}, {config_master['sample_count']=}" 
+
+
+    return dataset_mapping, path_mapping
 
 
 # Simple test
-def print_data_point(data: Data):
+def print_data_point(data: gData):
 
     print("Summary:")
     print(f"{data.num_nodes=}")
@@ -626,32 +1090,48 @@ def print_data_point(data: Data):
     print("Graph id: ", data.y[0,-1].item())
 
 
-def get_bimanual_dataset_splits(*, root: str, is_processed: bool, test_subject: int, validation_take: int , temporal_length: int, contact_only: bool, fix_fps: bool, fix_null: bool) -> Tuple[Dataset, Dataset, Dataset]:
-    # Wrapper function to prepare dataset splits (train, test, validation)
+def get_bimanual_dataset_splits(*, root: str, process_it_anyway: bool, test_subject: int, validation_take: int , temporal_length: int, downsample: int, use_vf: bool) -> Tuple[gDataset, gDataset, gDataset]:
+    # dataset_mapping = {"train":{"vid":{}, "sample":{}},
+    #                    "test":{"vid":{}, "sample":{}},
+    #                    "val":{"vid":{}, "sample":{}}}
     
-    train_set=BimanualDataset(root, is_processed, "train", test_subject, validation_take, temporal_length, contact_only, fix_fps, fix_null)
-    test_set=BimanualDataset(root, True, "test", test_subject, validation_take, temporal_length, contact_only, fix_fps)
-    val_set=BimanualDataset(root, True, "val", test_subject, validation_take, temporal_length, contact_only, fix_fps)
+    # path_mapping = {"train": {}, "test": {}, "val": {}} # [split]: idx -> path
+
+    processed_dir = get_processing_dir(root, temporal_length, downsample, use_vf)
+
     
-    print("Datasets are ready")
+    assert os.path.isfile(opj(processed_dir, "dataset_mapping_master.pickle")), f"In {processed_dir}, dataset is not preprocessed yet"
+    assert os.path.isfile(opj(processed_dir, "config_info_master.json")), f"In {processed_dir}, dataset is not preprocessed yet"
+
+    if os.path.exists(opj(processed_dir, f"dataset_mapping_fold{test_subject}.pickle")) and (not process_it_anyway):
+        # read from folder
+        print("Reading dataset mappings...")
+        with open(opj(processed_dir, f"dataset_mapping_fold{test_subject}.pickle"), "rb") as f:
+            dataset_mapping = pickle.load(f)
+        
+        with open(opj(processed_dir, f"path_mapping_fold{test_subject}.pickle"), "rb") as f:
+            path_mapping = pickle.load(f)
+
+    else:
+        print("Creating dataset mappings...")
+
+        dataset_mapping, path_mapping = create_mappings(processed_dir, temporal_length, test_subject, validation_take)
+
+        with open(opj(processed_dir, f"dataset_mapping_fold{test_subject}.pickle"), "wb") as f:
+            pickle.dump(dataset_mapping, f)
+
+        with open(opj(processed_dir, f"path_mapping_fold{test_subject}.pickle"), "wb") as f:
+            pickle.dump(path_mapping, f)
+
+
+    train_set=BimanualDataset(root, temporal_length, downsample, path_mapping["train"], use_vf)
+    test_set=BimanualDataset(root, temporal_length, downsample, path_mapping["test"], use_vf)
+    val_set=BimanualDataset(root, temporal_length, downsample, path_mapping["val"], use_vf)
+    
+
     return train_set, test_set, val_set
 
-# bm = BimanualDataset(root=".", split="train",  test_subject=1, validation_take=7, is_processed=True, temporal_length=10)
 
-# # train_pseudo=bm[500:]
-# # test_pseudo=bm[:500]
-
-# loader = DataLoader(bm, batch_size=4, shuffle=True)
-# batch=next(iter(loader))
-
-# import numpy as np
-# all=np.zeros((10,4))
-
-# for i, b in enumerate(batch):
-#     # print("\n\n#### batch ####")
-#     for j, g in enumerate(b.to_data_list()):
-#         # print("#### gs ####")
-#         # print(g.y[0,-1].item())
-#         all[i, j]=g.y[0,-1].item()
-
-# print(all)
+# class BimanualRGBDDataset(Dataset):
+#     def __init__(self, root, temporal_length, downsample, mapping, use_vf):
+#         pass

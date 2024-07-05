@@ -1,5 +1,7 @@
 # This file is borrowed from https://github.com/RomeroBarata/human_object_interaction/blob/main/vhoi/visualisation.py
 
+import datetime
+import os
 from itertools import groupby
 from typing import Dict
 
@@ -90,4 +92,87 @@ def plot_segmentation(target: list, *output, class_id_to_label: Dict[int, str], 
         plt.savefig(save_file, bbox_inches='tight', pad_inches=0)
     else:
         plt.show()
+    plt.close()
+
+
+def plot_segmentation_v2(y_true, y_pred, conf, y_pred_M, conf_M, save_file, title):
+    # This is a very custom function to plot the segmentation of the video.
+
+    bar_width = 1
+    bar_height = 300
+
+    # y_true = np.repeat(np.repeat(y_true.reshape(1, -1), bar_height, axis=0), bar_width, axis=1)
+    # y_pred = np.repeat(np.repeat(y_pred.reshape(1, -1), bar_height, axis=0), bar_width, axis=1)
+    # y_pred_M = np.repeat(np.repeat(y_pred_M.reshape(1, -1), bar_height, axis=0), bar_width, axis=1)
+
+    y_true = create_label_bar(y_true, bar_height=bar_height, bar_width=bar_width).astype(np.uint8)
+    y_pred = create_label_bar(y_pred, bar_height=bar_height, bar_width=bar_width).astype(np.uint8)
+    y_pred_M = create_label_bar(y_pred_M, bar_height=bar_height, bar_width=bar_width).astype(np.uint8)
+
+    # Plot the segmentation
+    # plt.figure(figsize=(30, 10))
+    fig, axs = plt.subplots(5, 1, sharex=True, figsize=(30, 10))
+    plt.suptitle(title)
+
+    # Plot the ground truth
+    axs[0].set_title(f'Ground Truth: {title}')
+    axs[0].imshow(y_true, cmap=plt.get_cmap('tab20'), vmin=0, vmax=20, aspect='auto')
+    
+    axs[1].set_title('Pred')
+    axs[1].imshow(y_pred, cmap=plt.get_cmap('tab20'), vmin=0, vmax=20, aspect='auto')
+    
+    axs[2].set_title('Confidence')
+    axs[2].plot(conf, color='black', linewidth=0.7)
+    
+    axs[3].set_title('Pred (M)')
+    axs[3].imshow(y_pred_M, cmap=plt.get_cmap('tab20'), vmin=0, vmax=20, aspect='auto')
+    
+    axs[4].set_title('Confidence')
+    axs[4].plot(conf_M, color='black', linewidth=0.7)
+    
+    
+    fig.tight_layout()
+    fig.savefig(save_file)
+    plt.close()
+
+
+def plot_segmentation_partial(y_pred_dict, y_true, save_dir, title):
+    # This is a very custom function to plot the partial segments, and save it the temp folder.
+    # This function will be called from the training loop.
+
+    # y_pred_dict: [epoch]: [y_true, y_pred]
+
+    save_dir = os.path.join(save_dir, "partial_segments")
+    os.makedirs(save_dir, exist_ok=True)
+
+    bar_width = 1
+    bar_height = 150
+
+    # Plot the segmentation
+    # num_col = 3
+    num_epochs = len(y_pred_dict)
+    # num_row = (num_epochs+num_col-1) // num_col
+
+    # fig, axs = plt.subplots(num_row, num_col, sharex=True, figsize=(30, 10))
+    fig, axs = plt.subplots(num_epochs+1, 1, sharex=True, figsize=(8, (num_epochs+1)*3))
+    plt.suptitle(title)
+
+    # Plot the ground truth
+    y_true = create_label_bar(y_true, bar_height=bar_height, bar_width=bar_width).astype(np.uint8)
+    axs[0].set_title(f'Ground Truth: {title}')
+    axs[0].imshow(y_true, cmap=plt.get_cmap('tab20'), vmin=0, vmax=20, aspect='auto')
+    
+    # epoch starts from 1
+    for e, y_pred in y_pred_dict.items():
+        # x_pos = e % num_col
+        # y_pos = e // num_col
+        # axs[x_pos, y_pos].set_title(f'P{e}')
+        axs[e].set_title(f'P{e}')
+
+        y_pred = create_label_bar(y_pred, bar_height=bar_height, bar_width=bar_width).astype(np.uint8)
+        # axs[x_pos, y_pos].imshow(y_pred, cmap=plt.get_cmap('tab20'), vmin=0, vmax=20, aspect='auto')
+        axs[e].imshow(y_pred, cmap=plt.get_cmap('tab20'), vmin=0, vmax=20, aspect='auto')
+    
+    fig.tight_layout()
+    fig.savefig(os.path.join(save_dir, f"{title}.png"))
     plt.close()
