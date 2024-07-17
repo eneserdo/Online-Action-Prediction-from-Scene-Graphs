@@ -7,6 +7,7 @@ import warnings
 from os.path import join as opj
 
 import matplotlib.pyplot as pyplot
+import matplotlib
 import numpy as np
 import torch
 from torch_geometric.loader import DataLoader
@@ -38,6 +39,7 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 # # An attempt to fix the following error:
 # XIO:  fatal IO error 25 (Inappropriate ioctl for device) on X server "localhost:10.0" after 2627 requests (2627 known processed) with 8 events remaining.
 pyplot.ioff()
+matplotlib.use('Agg')
 
 # To check for NaNs in the gradients
 # torch.autograd.set_detect_anomaly(True)
@@ -245,6 +247,7 @@ if __name__ == "__main__":
     else:
         in_channels = len(OBJECTS)
 
+    # TODO create make_model function
     model = models.ActionRecognition(gnn_type=args.gnn_type,
                                      temporal_type=args.temporal_type,
                                      num_edge_feat=len(RELATIONS),
@@ -270,6 +273,16 @@ if __name__ == "__main__":
                                      num_heads_tr=args.num_heads_tr,
                                      use_pos=args.use_pos,
                                      use_embedding=args.use_embedding).to(device=device)
+
+    # if True:
+    #     checkpoint = torch.load(opj(f"saved_Beta1_10d3_SG_fold{args.test_subject}", "model_epoch0016.pt"))
+    #     # model.gnn.load_state_dict(torch.load(args.pretrained_gnn))
+    #     gnn_net = checkpoint["model_state_dict"]
+    #     gnn_net.pop("temporal_layer.weight")
+    #     gnn_net.pop("temporal_layer.bias")
+    #     model.load_state_dict(gnn_net, strict=False)
+
+
 
     print(model)
     rnn_params = sum(p.numel() for p in model.temporal_layer.parameters() if p.requires_grad)
@@ -305,8 +318,13 @@ if __name__ == "__main__":
     else:
         optimizer = getattr(torch.optim, args.optimizer_type)(model.parameters(), lr=args.learning_rate,
                                                               weight_decay=args.weight_decay)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.scheduler_step_size,
-                                                gamma=args.scheduler_gamma, verbose=True)
+
+    if args.scheduler_step_size != -1:
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.scheduler_step_size,
+                                                    gamma=args.scheduler_gamma, verbose=True)
+    
+    else:
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=args.scheduler_gamma, patience=4, verbose=True)
 
 
     # loss weights can be used to balance the classes using different strategies

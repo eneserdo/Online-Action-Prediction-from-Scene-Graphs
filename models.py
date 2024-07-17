@@ -337,25 +337,34 @@ class ActionRecognition(nn.Module):
             self.temporal_layer = Seq2SeqTransformer(num_of_temp_layers, num_of_temp_layers, effective_out_ch2, num_heads_tr, dim_feedforward, dropout_tr)
             self.decoder_mask = torch.nn.Transformer.generate_square_subsequent_mask(temporal_length)
         
+        elif temporal_type == "none":
+            # self.temporal_layer = torch.nn.Sequential(torch.nn.Linear(effective_out_ch2, effective_out_ch2), 
+            #                                     torch.nn.SELU(),
+            #                                     torch.nn.Linear(effective_out_ch2, num_action_classes))
+            self.temporal_layer = torch.nn.Linear(effective_out_ch2, num_action_classes)
+
         def build_mlp(in_feat,out_feat, hid_feat=None):
             # hid_feat = (in_feat+out_feat)//2 if hid_feat == None else hid_feat
             # return Sequential(nn.Linear(in_feat, hid_feat), nn.SELU(), nn.Linear(hid_feat, out_feat))
             return nn.Linear(in_feat,out_feat)
 
-        if self.merged_pred == "late":
-            # Can this run in parallel? :smile:
-            self.left_mlp = build_mlp(lstm_hidden_size*2, num_action_classes)
-            self.right_mlp = build_mlp(lstm_hidden_size*2, num_action_classes)
-            # self.segment_boundary_detector = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
-        elif self.merged_pred == "early":
-            # self.segment_boundary_detector_L = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
-            # self.segment_boundary_detector_R = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
-            self.left_mlp = build_mlp(lstm_hidden_size, num_action_classes)
-            self.right_mlp = build_mlp(lstm_hidden_size, num_action_classes)
-            # self.mlp = build_mlp(lstm_hidden_size, num_action_classes)
-        elif self.merged_pred in ["none", "attention"]:    
-            self.mlp = build_mlp(lstm_hidden_size, num_action_classes)
-            # self.segment_boundary_detector = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
+        if self.temporal_type != "none":
+            if self.merged_pred == "late":
+                # Can this run in parallel? :smile:
+                self.left_mlp = build_mlp(lstm_hidden_size*2, num_action_classes)
+                self.right_mlp = build_mlp(lstm_hidden_size*2, num_action_classes)
+                # self.segment_boundary_detector = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
+            elif self.merged_pred == "early":
+                # self.segment_boundary_detector_L = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
+                # self.segment_boundary_detector_R = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
+                self.left_mlp = build_mlp(lstm_hidden_size, num_action_classes)
+                self.right_mlp = build_mlp(lstm_hidden_size, num_action_classes)
+                # self.mlp = build_mlp(lstm_hidden_size, num_action_classes)
+            elif self.merged_pred in ["none", "attention"]:    
+                self.mlp = build_mlp(lstm_hidden_size, num_action_classes)
+                # self.segment_boundary_detector = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
+
+
 
     def _hands_pooling(self, x, embeddings, batch):
         labels = torch.argmax(x, dim=1)
@@ -479,115 +488,119 @@ class ActionRecognition(nn.Module):
         left_sequencial_embeddings = torch.stack(left_embedding_list) # Shape: (T, N, F)
         right_sequencial_embeddings = torch.stack(right_embedding_list) # Shape: (T, N, F)
 
+        if self.temporal_type != "none":
+            # Filtering imbalanced data only during training
+            if self.filter_it and self.training:
+                raise NotImplementedError("Filtering may be broken, please check it")
+                # get filters
+                left_filter, right_filter = get_filters_for_imbalance(dataBatchList)
 
-        # Filtering imbalanced data only during training
-        if self.filter_it and self.training:
-            raise NotImplementedError("Filtering may be broken, please check it")
-            # get filters
-            left_filter, right_filter = get_filters_for_imbalance(dataBatchList)
+                # filter it
+                right_sequencial_embeddings[~right_filter] = 0
+                left_sequencial_embeddings[~left_filter] = 0
 
-            # filter it
-            right_sequencial_embeddings[~right_filter] = 0
-            left_sequencial_embeddings[~left_filter] = 0
+                # align non-zero embeddings to the right
+                # TODO: Insert assert statement to make sure it is working as expectedly            
+                right_sequencial_embeddings = align_embeddings_to_right(right_sequencial_embeddings, right_filter)
+                left_sequencial_embeddings = align_embeddings_to_right(left_sequencial_embeddings, left_filter)
 
-            # align non-zero embeddings to the right
-            # TODO: Insert assert statement to make sure it is working as expectedly            
-            right_sequencial_embeddings = align_embeddings_to_right(right_sequencial_embeddings, right_filter)
-            left_sequencial_embeddings = align_embeddings_to_right(left_sequencial_embeddings, left_filter)
+            # padding_mask: (N, T) 
 
-        # padding_mask: (N, T) 
+            # Enabling the information flow between hands
+            if self.merged_pred == "early": # concat in feature dim
+                both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=-1)
+                # shape = (T, N, F*2)
+                if padding_mask is not None:
+                    pass
 
-        # Enabling the information flow between hands
-        if self.merged_pred == "early": # concat in feature dim
-            both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=-1)
-            # shape = (T, N, F*2)
-            if padding_mask is not None:
-                pass
+            elif self.merged_pred == "attention": # concat in time dim
+                both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=0)
+                # shape = (T*2, N, F)
+                # May not work due to weird mask
+                if padding_mask is not None:
+                    padding_mask = torch.concat([padding_mask, padding_mask], dim=1)
 
-        elif self.merged_pred == "attention": # concat in time dim
-            both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=0)
-            # shape = (T*2, N, F)
-            # May not work due to weird mask
-            if padding_mask is not None:
-                padding_mask = torch.concat([padding_mask, padding_mask], dim=1)
+            elif self.merged_pred in ["late", "none"]: # concat in batch dim
+                both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=1) 
+                # shape = (T, N*2, F)
+                if padding_mask is not None:
+                    padding_mask = torch.concat([padding_mask, padding_mask], dim=0)
+            else:
+                raise NotImplementedError(f"merged_pred: {self.merged_pred} is not implemented")
+            
 
-        elif self.merged_pred in ["late", "none"]: # concat in batch dim
-            both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=1) 
-            # shape = (T, N*2, F)
-            if padding_mask is not None:
-                padding_mask = torch.concat([padding_mask, padding_mask], dim=0)
+            #### Temporal part ####
+            if self.temporal_type == "tr":
+
+                both_sequencial_embeddings = self.pos_encoder(both_sequencial_embeddings * self.PE_coef)
+
+                both_out = self.temporal_layer(both_sequencial_embeddings, src_key_padding_mask=padding_mask)
+
+
+            elif self.temporal_type == "bi":
+                both_out, _ = self.temporal_layer(both_sequencial_embeddings)
+                """_, (both_hn, _) = self.temporal_layer(both_sequencial_embeddings)
+                both_hn = torch.cat([both_hn[0], both_hn[1]], dim=1)"""
+            elif self.temporal_type == "lstm":
+                both_out, _ = self.temporal_layer(both_sequencial_embeddings)
+                """_, (both_hn, _) = self.temporal_layer(both_sequencial_embeddings)
+                # assert both_hn.shape[0]==1
+                both_hn = both_hn.squeeze()"""
+            
+            elif self.temporal_type == "edtr":
+                # Encoder-Decoder Transformer, mask the decoder part 
+                both_out = self.temporal_layer(both_sequencial_embeddings, both_sequencial_embeddings, None, self.decoder_mask)
+                
+            
+
+            #### Segmentation part ####
+            # CANCELLED FOR NOW
+
+            # out_s = flatten_seq(both_out)
+            
+            
+
+            #### Prediction part ####
+            if self.merged_pred == "late":
+                # merged_out_s = self._merge_hands(out_s)
+                # action_prediction = torch.cat((self.left_mlp(merged_out_s), self.right_mlp(merged_out_s)),dim=0)
+                # both_out.shape = (T, N*2, F)
+                # both_out_ml.shape = (T, N, F*2)
+                
+                both_out_left, both_out_right = torch.tensor_split(both_out, 2, dim=1) 
+
+                both_out_ml = torch.cat([both_out_left, both_out_right], dim=-1)
+                
+                action_prediction = torch.cat((self.left_mlp(both_out_ml), self.right_mlp(both_out_ml)), dim=1)
+                
+
+            elif self.merged_pred == "early":
+                raise NotImplementedError("Early merge is not implemented yet")
+                # l_out_s, r_out_s = torch.tensor_split(out_s, 2, dim=0)
+                # action_prediction = torch.cat((self.left_mlp(l_out_s), self.right_mlp(r_out_s)),dim=0)
+                # OR
+                #action_prediction = self.mlp(out_s)
+            elif self.merged_pred == "attention":
+
+                # both_out.shape = (T*2, N, F)
+
+                both_out_left, both_out_right = torch.tensor_split(both_out, 2, dim=0)
+
+                both_out = torch.cat([both_out_left, both_out_right], dim=1)
+
+                action_prediction = self.mlp(both_out)
+
+            elif self.merged_pred == "none":
+                # both_out.shape = (T, N*2, F)
+                action_prediction = self.mlp(both_out)
+                
+            else:
+                raise NotImplementedError(f"merged_pred: {self.merged_pred} is not implemented")
+
         else:
-            raise NotImplementedError(f"merged_pred: {self.merged_pred} is not implemented")
-        
-
-        #### Temporal part ####
-        if self.temporal_type == "tr":
-
-            both_sequencial_embeddings = self.pos_encoder(both_sequencial_embeddings * self.PE_coef)
-
-            both_out = self.temporal_layer(both_sequencial_embeddings, src_key_padding_mask=padding_mask)
-
-
-        elif self.temporal_type == "bi":
-            both_out, _ = self.temporal_layer(both_sequencial_embeddings)
-            """_, (both_hn, _) = self.temporal_layer(both_sequencial_embeddings)
-            both_hn = torch.cat([both_hn[0], both_hn[1]], dim=1)"""
-        elif self.temporal_type == "lstm":
-            both_out, _ = self.temporal_layer(both_sequencial_embeddings)
-            """_, (both_hn, _) = self.temporal_layer(both_sequencial_embeddings)
-            # assert both_hn.shape[0]==1
-            both_hn = both_hn.squeeze()"""
-        
-        elif self.temporal_type == "edtr":
-            # Encoder-Decoder Transformer, mask the decoder part 
-            both_out = self.temporal_layer(both_sequencial_embeddings, both_sequencial_embeddings, None, self.decoder_mask)
-            
-        
-
-        #### Segmentation part ####
-        # CANCELLED FOR NOW
-
-        # out_s = flatten_seq(both_out)
-        
-        
-
-        #### Prediction part ####
-        if self.merged_pred == "late":
-            # merged_out_s = self._merge_hands(out_s)
-            # action_prediction = torch.cat((self.left_mlp(merged_out_s), self.right_mlp(merged_out_s)),dim=0)
-            # both_out.shape = (T, N*2, F)
-            # both_out_ml.shape = (T, N, F*2)
-            
-            both_out_left, both_out_right = torch.tensor_split(both_out, 2, dim=1) 
-
-            both_out_ml = torch.cat([both_out_left, both_out_right], dim=-1)
-            
-            action_prediction = torch.cat((self.left_mlp(both_out_ml), self.right_mlp(both_out_ml)), dim=1)
-            
-
-        elif self.merged_pred == "early":
-            raise NotImplementedError("Early merge is not implemented yet")
-            # l_out_s, r_out_s = torch.tensor_split(out_s, 2, dim=0)
-            # action_prediction = torch.cat((self.left_mlp(l_out_s), self.right_mlp(r_out_s)),dim=0)
-            # OR
-            #action_prediction = self.mlp(out_s)
-        elif self.merged_pred == "attention":
-
-            # both_out.shape = (T*2, N, F)
-
-            both_out_left, both_out_right = torch.tensor_split(both_out, 2, dim=0)
-
-            both_out = torch.cat([both_out_left, both_out_right], dim=1)
-
-            action_prediction = self.mlp(both_out)
-
-        elif self.merged_pred == "none":
-            # both_out.shape = (T, N*2, F)
-            action_prediction = self.mlp(both_out)
-            
-        else:
-            raise NotImplementedError(f"merged_pred: {self.merged_pred} is not implemented")
-
+            action_prediction_left = self.temporal_layer(left_sequencial_embeddings)
+            action_prediction_right = self.temporal_layer(right_sequencial_embeddings)
+            action_prediction = torch.cat((action_prediction_left, action_prediction_right), dim=1) 
 
         return action_prediction
 

@@ -67,7 +67,7 @@ def arg_parser_base():
     # Model - Temporal part
     ap.add_argument("--dropout_tr", type=float, default=0.1, help="...")
     ap.add_argument("-hs", "--lstm_hidden_size", type=int, default=128, help="...")
-    ap.add_argument("--temporal_type", type=str, default="tr", choices=["lstm", "bi", "tr", "edtr"], help="...")
+    ap.add_argument("--temporal_type", type=str, default="tr", choices=["lstm", "bi", "tr", "edtr", "none"], help="...")
     ap.add_argument("--norm_first", action="store_true", help="To make norm_first=true in TransformerEncoderLayer")
     ap.add_argument("--pos_enc", type=str, default="original", choices=["original", "learnable", "none"], help="Type of positional encoding")
     ap.add_argument("--num_heads_tr", type=int, default=4, help="...")
@@ -85,7 +85,7 @@ def arg_parser_base():
     ap.add_argument("-lr", "--learning_rate", type=float, default=0.0005, help="...")
     ap.add_argument("-mn", "--momentum", type=float, default=0.9, help="...")
     ap.add_argument("-wd", "--weight_decay", type=float, default=0.0005, help="...")
-    ap.add_argument("--scheduler_step_size", type=int, default=10, help="...")
+    ap.add_argument("--scheduler_step_size", type=int, default=-1, help="...")
     ap.add_argument("--scheduler_gamma", type=float, default=0.5, help="...")
     ap.add_argument("--weighted_loss", type=str, default="none", choices=["none", "inv", "sqrt_inv", "effective"],
                     help="Use class frequencies as weight for loss function")       # :(
