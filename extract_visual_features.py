@@ -1,5 +1,4 @@
 import argparse
-import distutils.core
 import glob
 import json
 import os
