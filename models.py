@@ -20,7 +20,7 @@ from torch.nn import functional as F
 from torch_geometric.data import Batch, Data
 from torch_geometric.utils import dropout_edge
 
-from dataset import OBJECTS
+from dataset import ACTIONS, OBJECTS, RELATIONS
 from utils import (align_embeddings_to_right, flatten_seq,
                    get_filters_for_imbalance, print_warning)
 
@@ -605,111 +605,206 @@ class ActionRecognition(nn.Module):
         return action_prediction
 
 
-# class ViTBased(nn.Module):
-#     def __init__(self, *,
-#                  temporal_type,
-#                  in_channels,
-#                  hidden_channels,
-#                  out_channels,
-#                  num_edge_feat,
-#                  num_action_classes,
-#                  lstm_hidden_size,
-#                  num_heads1,
-#                  num_heads2,
-#                  filter_it,
-#                  use_hand_pooling,
-#                  edge_dropout,
-#                  dropout,
-#                  dropout_tr,
-#                  merged_pred,
-#                  norm_layer,
-#                  norm_first,
-#                  pos_enc,
-#                  temporal_length,
-#                  num_of_temp_layers,
-#                  dim_feedforward,
-#                  num_heads_tr,
-#                  use_pos,
-#                  use_embedding):
-#         """ Accepts kwargs for non-general params of gnns """
-#         super().__init__()
+class ActionRecognitionMonograph(nn.Module):
+    def __init__(self, *, gnn_type,
+                 in_channels,
+                 hidden_channels,
+                 out_channels,
+                 num_edge_feat,
+                 num_action_classes,
+                 num_heads1,
+                 num_heads2,
+                 filter_it,
+                 edge_dropout,
+                 dropout,
+                 merged_pred,
+                 norm_layer,
+                 use_pos,
+                 use_embedding, 
+                 temporal_length):
+        """ Accepts kwargs for non-general params of gnns """
+        super().__init__()
 
-#         self.filter_it = filter_it
-#         self.use_hand_pooling = use_hand_pooling
-#         self.edge_dropout = edge_dropout
-#         self.temporal_type = temporal_type
-#         self.merged_pred = merged_pred
-#         self.use_embedding = use_embedding
-#         self.use_pos = use_pos
+        self.filter_it = filter_it
+        self.edge_dropout = edge_dropout
+        self.merged_pred = merged_pred
+        self.use_embedding = use_embedding
+        self.use_pos = use_pos
+        self.num_actions = num_action_classes
+        self.temporal_length = temporal_length
 
-#         # import pretrained vit from timm
+        if use_embedding:
+            self.embedding = torch.nn.Embedding(in_channels, in_channels)
 
-#         self.vit = timm.create_model('vit_base_patch16_224', pretrained=True)
-#         self.vit.head = nn.Linear(self.vit.head.in_features, out_channels)
+        # Sets Graph Network
+        if gnn_type == "NNConv":
+            nn1 = nn.Sequential(nn.Linear(num_edge_feat, in_channels * hidden_channels), nn.ReLU())
+            self.conv1 = geometric_nn.NNConv(in_channels, hidden_channels, nn1, aggr='mean')
+            nn2 = nn.Sequential(nn.Linear(num_edge_feat, hidden_channels * out_channels), nn.ReLU())
+            self.conv2 = geometric_nn.NNConv(hidden_channels, out_channels, nn2, aggr='mean')
+            effective_out_ch1 = hidden_channels
+            effective_out_ch2 = out_channels
 
+        elif gnn_type in ["GATv2Conv", "TransformerConv", "GATConv"]:
+            self.conv1 = getattr(geometric_nn, gnn_type)(in_channels, hidden_channels, heads=num_heads1,
+                                                         edge_dim=num_edge_feat, dropout=dropout)
+            self.conv2 = getattr(geometric_nn, gnn_type)(hidden_channels * num_heads1, out_channels,
+                                                         heads=num_heads2, edge_dim=num_edge_feat, dropout=dropout)
+            effective_out_ch1 = hidden_channels * num_heads1
+            effective_out_ch2 = out_channels * num_heads2
 
-#         if temporal_type in ["lstm", "bi"]:
-#             if num_of_temp_layers != 1:
-#                 raise NotImplementedError("args.num_of_temp_layers is not 1 as used to be. Are you sure?")
-#             num_rnn_layers = 1  # Lets make it constant
-#             is_bidirectional = ("bi" == temporal_type)
+        else:
+            raise NotImplementedError(f"gnn_type: {gnn_type} is not implemented")
 
-#             # To have approx same number of parameters
-#             lstm_hidden_size = lstm_hidden_size * 2 // 3 if is_bidirectional else lstm_hidden_size
+        self.act1 = nn.SELU()
+        self.act2 = nn.SELU()
 
-#             self.temporal_layer = nn.LSTM(effective_out_ch2, lstm_hidden_size, num_rnn_layers,
-#                                        bidirectional=is_bidirectional, dropout=dropout)
-#             lstm_hidden_size = lstm_hidden_size * 2 if is_bidirectional else lstm_hidden_size
-
-#         elif temporal_type == "tr":
-#             # Default dropout is 0.1
-
-#             self.temporal_layer = nn.TransformerEncoder(nn.TransformerEncoderLayer(effective_out_ch2, num_heads_tr, dim_feedforward, norm_first=norm_first, dropout=dropout_tr), num_of_temp_layers)
-#             self.PE_coef = math.sqrt(effective_out_ch2)
-
-#             if pos_enc == "original":
-#                 # if merged_pred == "attention":
-#                 #     self.pos_encoder = PositionalEncodingPseudo2D(effective_out_ch2)
-#                 # else:
-#                 #     self.pos_encoder = PositionalEncodingPseudo2D(effective_out_ch2)
-#                 self.pos_encoder = PositionalEncoding(effective_out_ch2)
-#                 # self.pos_encoder = PositionalEncoding1D(effective_out_ch2)
-
-#             elif pos_enc == "learnable":
-#                 if merged_pred == "attention":
-#                     self.pos_encoder = LearnablePositionalEncoding(temporal_length*2, effective_out_ch2)
-#                 else:    
-#                     self.pos_encoder = LearnablePositionalEncoding(temporal_length, effective_out_ch2)
+        if norm_layer != "none":
+            NormLayerType = getattr(geometric_nn, norm_layer)
+            
+            if norm_layer == "BatchNorm":
+                bn_transfer_string = "x -> x"
+            else:
+                bn_transfer_string = "x, batch -> x"
+            
+            if norm_layer == "PairNorm":
+                self.bn1 = NormLayerType()
+                self.bn2 = NormLayerType()
+            # elif norm_layer == "InstanceNorm":
+            #     # Somewhat track_running_stats=True and affine=True is NOT default in InstanceNorm both in pytorch and pytorch-geometric
+            #     self.bn1 = NormLayerType(effective_out_ch1, affine=True, track_running_stats=True)
+            #     self.bn2 = NormLayerType(effective_out_ch2, affine=True, track_running_stats=True)
+            else:
+                self.bn1 = NormLayerType(effective_out_ch1)
+                self.bn2 = NormLayerType(effective_out_ch2)
                 
-#                 # raise NotImplementedError("Learnable positional encoding is not implemented yet")
-            
-#             elif pos_enc == "none":
-#                 self.pos_encoder = lambda x: x
-            
-#             else:
-#                 raise NotImplementedError(f"pos_enc: {pos_enc} is not implemented")
-            
-#             # self.cls_tokens = torch.nn.Parameter(torch.randn(1, 1, effective_out_ch2)).expand(self.batch_size, -1, -1)
 
-#             lstm_hidden_size = effective_out_ch2
+            self.gnn = geometric_nn.Sequential("x, edge_index, edge_attr, batch",
+                                               [(self.conv1, "x, edge_index, edge_attr -> x"), self.act1, (self.bn1, bn_transfer_string),
+                                                (self.conv2, "x, edge_index, edge_attr -> x"), self.act2, (self.bn2, bn_transfer_string)])
+        else:
+            self.gnn = geometric_nn.Sequential("x, edge_index, edge_attr",
+                                               [(self.conv1, "x, edge_index, edge_attr -> x"), self.act1,
+                                                (self.conv2, "x, edge_index, edge_attr -> x"), self.act2])
 
-#         elif temporal_type == "edtr":
-#             # Encoder-Decoder Transformer
-#             self.temporal_layer = Seq2SeqTransformer(num_of_temp_layers, num_of_temp_layers, effective_out_ch2, num_heads_tr, dim_feedforward, dropout_tr)
-#             self.decoder_mask = torch.nn.Transformer.generate_square_subsequent_mask(temporal_length)
+        if self.merged_pred == "early":
+            effective_out_ch2 *= 2
+
+        self.head = nn.Sequential(nn.Linear(effective_out_ch2, effective_out_ch2),
+                                  nn.SELU(),
+                                  nn.Linear(effective_out_ch2, num_action_classes))
+
+
+
+    def _hands_pooling(self, x, embeddings):
         
-#         def build_mlp(in_feat,out_feat, hid_feat=None):
-#             # hid_feat = (in_feat+out_feat)//2 if hid_feat == None else hid_feat
-#             # return Sequential(nn.Linear(in_feat, hid_feat), nn.SELU(), nn.Linear(hid_feat, out_feat))
-#             return nn.Linear(in_feat,out_feat)
+        labels = torch.argmax(x, dim=1)
 
-#     def forward(self, x):
+        # Below code is much more optimal, use when data redundancy is fixed.
+        l_emb, r_emb = embeddings[labels == OBJECTS.index("LeftHand")], embeddings[labels == OBJECTS.index("RightHand")]
+        assert l_emb.shape == r_emb.shape
 
-#         x = self.vit(x)
+        # left, right: [batch_size*K, len(embedding)]
+        # K: the number of graphs in a monograph
+        return l_emb, r_emb
 
-#         x = self.temporal_layer(x)
+    
+    def _merge_hands(self, hand_feat):
+        """
+            input:
+                                                    left hand    right hand 
+                hand features shape: (n*b*2, f) -> [s1, s2, ..., s1, s2, ...]
+            output:
+                hand features merged shape: (n*b, f*2)
 
-#         x = self.mlp(x)
+        """
+        return torch.cat(torch.tensor_split(hand_feat, 2, dim=0), dim=-1)
 
-#         return x
+    def forward(self, databatch: Batch, _=None):
 
+        x, edge_attr, edge_index, batch = databatch.x, databatch.edge_attr, databatch.edge_index, databatch.batch
+
+        if self.edge_dropout != 0.0:
+            edge_index, edge_mask = dropout_edge(edge_index, p=self.edge_dropout)
+            edge_attr = edge_attr[edge_mask]
+
+        if self.use_embedding:
+            x_ = self.embedding(x.argmax(dim=1).long())
+        else:
+            x_ = x
+        
+
+        H = self.gnn(x_, edge_index, edge_attr, batch)
+
+        left_embeddings, right_embeddings = self._hands_pooling(x, H)
+        # shape: (n*b, f)
+
+        # assert graph_embedding.shape[0]==self.batch_size and graph_embedding.shape[1]==self.conv_out
+
+        hands_embeddings = torch.cat((left_embeddings, right_embeddings), dim=0) # CHECKME
+        
+        action_prediction = self.head(hands_embeddings)
+
+        left_actions, right_actions = torch.tensor_split(action_prediction, 2, dim=0)
+
+        bs = batch[-1] + 1
+
+        left_actions = left_actions.reshape(self.temporal_length, bs, self.num_actions)
+        right_actions = right_actions.reshape(self.temporal_length, bs, self.num_actions)
+
+        
+        return torch.cat((left_actions, right_actions), dim=1)
+
+
+def make_model(args):
+    if args.use_pos:
+        in_channels = len(OBJECTS) + 3
+    elif args.use_vf:
+        in_channels = 256
+    else:
+        in_channels = len(OBJECTS)
+
+    if args.monograph:
+        model = ActionRecognitionMonograph(gnn_type=args.gnn_type,
+                                           in_channels=in_channels,
+                                           hidden_channels=args.hidden_channels,
+                                           out_channels=args.out_channels,
+                                           num_edge_feat=len(RELATIONS) + 1,
+                                           num_action_classes=len(ACTIONS),
+                                           num_heads1=args.num_heads1,
+                                           num_heads2=args.num_heads2,
+                                           filter_it=args.filter_idle_hold,
+                                           edge_dropout=args.edge_dropout,
+                                           dropout=args.dropout,
+                                           merged_pred=args.merged_pred,
+                                           norm_layer=args.norm_layer,
+                                           use_pos=args.use_pos,
+                                           use_embedding=args.use_embedding,
+                                           temporal_length=args.temporal_length)
+    else:
+        model = ActionRecognition(gnn_type=args.gnn_type,
+                                        temporal_type=args.temporal_type,
+                                        num_edge_feat=len(RELATIONS),
+                                        in_channels=in_channels,
+                                        hidden_channels=args.hidden_channels,
+                                        out_channels=args.out_channels,
+                                        num_action_classes=len(ACTIONS),
+                                        lstm_hidden_size=args.lstm_hidden_size,
+                                        num_heads1=args.num_heads1,
+                                        num_heads2=args.num_heads2,
+                                        filter_it=args.filter_idle_hold,
+                                        use_hand_pooling=not args.use_global_pooling,
+                                        edge_dropout=args.edge_dropout,
+                                        dropout=args.dropout,
+                                        dropout_tr=args.dropout_tr,
+                                        merged_pred=args.merged_pred,
+                                        norm_layer=args.norm_layer,
+                                        norm_first=args.norm_first,
+                                        pos_enc=args.pos_enc,
+                                        temporal_length=args.temporal_length,
+                                        num_of_temp_layers=args.num_of_temp_layers,
+                                        dim_feedforward=args.dim_feedforward,
+                                        num_heads_tr=args.num_heads_tr,
+                                        use_pos=args.use_pos,
+                                        use_embedding=args.use_embedding)
+    return model

@@ -12,20 +12,15 @@ import numpy as np
 import torch
 from torch_geometric.loader import DataLoader
 
-import models
+from models import make_model
 import wandb
 from dataset import (ACTIONS, OBJECTS, RELATIONS, _get_max_length,
                      get_bimanual_dataset_splits, get_processing_dir)
-from utils import (F1_at_k, Metrics, VisIndividualPreds, almost_equal,
-                   arg_parser, assign_seg_labels, calc_metrics_at_once,
-                   combine_predictions, create_ground_truth_segments,
-                   flatten_seq, get_loss_weights, get_minutes, metrics_to_str,
-                   plot_conf_mat, seed_worker, visualize_incorrect_preds,
-                   wandb_logging)
+from utils import (Metrics, VisIndividualPreds,
+                   arg_parser, get_loss_weights, get_minutes, metrics_to_str,
+                   seed_worker, visualize_incorrect_preds, wandb_logging)
 
 # from torch_geometric.explain import Explainer, AttentionExplainer, ModelConfig
-
-
 
 
 torch.backends.cudnn.deterministic = True
@@ -42,7 +37,7 @@ pyplot.ioff()
 matplotlib.use('Agg')
 
 # To check for NaNs in the gradients
-# torch.autograd.set_detect_anomaly(True)
+torch.autograd.set_detect_anomaly(True)
 
 
 def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: int):
@@ -82,12 +77,17 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
         if mode == "train":
             optimizer.zero_grad()
 
-        data = [d.to(device) for d in data]
+        if isinstance(data, list):
+            data = [d.to(device) for d in data]
+            gt_reordered = torch.stack([torch.cat([d.y[::2], d.y[1::2]]) for d in data], dim=0)
+        else:
+            data = data.to(device)
+            gt_reordered = torch.cat([data.y[:,0,:].reshape(args.temporal_length, -1, len(ACTIONS)), 
+                                      data.y[:,1,:].reshape(args.temporal_length, -1, len(ACTIONS))], dim=1)
 
-        gt_reordered = torch.stack([torch.cat([d.y[::2], d.y[1::2]]) for d in data], dim=0)
         # gt_reordered: [temporal_length, 2*batch_size(left, ..., left, right, ..., right) , num_classes]
 
-        batch_size = gt_reordered.shape[1] // 2
+        # batch_size = gt_reordered.shape[1] // 2
 
         pred = model(data, padding_mask)
 
@@ -229,7 +229,8 @@ if __name__ == "__main__":
                                                                validation_take=args.validation_take,
                                                                temporal_length=args.temporal_length,
                                                                downsample=args.downsample,
-                                                               use_vf=args.use_vf)
+                                                               use_vf=args.use_vf,
+                                                               monograph=args.monograph)
 
     train_loader = DataLoader(train_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker, generator=torch_generator)
     
@@ -240,39 +241,7 @@ if __name__ == "__main__":
     training_len = len(train_set)
     val_len = len(val_set)
 
-    if args.use_pos:
-        in_channels = len(OBJECTS) + 3
-    elif args.use_vf:
-        in_channels = 256
-    else:
-        in_channels = len(OBJECTS)
-
-    # TODO create make_model function
-    model = models.ActionRecognition(gnn_type=args.gnn_type,
-                                     temporal_type=args.temporal_type,
-                                     num_edge_feat=len(RELATIONS),
-                                     in_channels=in_channels,
-                                     hidden_channels=args.hidden_channels,
-                                     out_channels=args.out_channels,
-                                     num_action_classes=len(ACTIONS),
-                                     lstm_hidden_size=args.lstm_hidden_size,
-                                     num_heads1=args.num_heads1,
-                                     num_heads2=args.num_heads2,
-                                     filter_it=args.filter_idle_hold,
-                                     use_hand_pooling=not args.use_global_pooling,
-                                     edge_dropout=args.edge_dropout,
-                                     dropout=args.dropout,
-                                     dropout_tr=args.dropout_tr,
-                                     merged_pred=args.merged_pred,
-                                     norm_layer=args.norm_layer,
-                                     norm_first=args.norm_first,
-                                     pos_enc=args.pos_enc,
-                                     temporal_length=args.temporal_length,
-                                     num_of_temp_layers=args.num_of_temp_layers,
-                                     dim_feedforward=args.dim_feedforward,
-                                     num_heads_tr=args.num_heads_tr,
-                                     use_pos=args.use_pos,
-                                     use_embedding=args.use_embedding).to(device=device)
+    model = make_model(args).to(device)
 
     # if True:
     #     checkpoint = torch.load(opj(f"saved_Beta1_10d3_SG_fold{args.test_subject}", "model_epoch0016.pt"))
@@ -283,9 +252,11 @@ if __name__ == "__main__":
     #     model.load_state_dict(gnn_net, strict=False)
 
 
-
     print(model)
-    rnn_params = sum(p.numel() for p in model.temporal_layer.parameters() if p.requires_grad)
+    if args.monograph:
+        rnn_params = sum(p.numel() for p in model.head.parameters() if p.requires_grad)
+    else:
+        rnn_params = sum(p.numel() for p in model.temporal_layer.parameters() if p.requires_grad)
     gnn_params = sum(p.numel() for p in model.gnn.parameters() if p.requires_grad)
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
@@ -353,7 +324,7 @@ if __name__ == "__main__":
     
     # dataset_mapping contains mapping for each sample to its location in the videos. 
     # Also, a mapping from video to ground truth action labels
-    processed_dir = get_processing_dir(args.root, args.temporal_length, args.downsample, args.use_vf)
+    processed_dir = get_processing_dir(args.root, args.temporal_length, args.downsample, args.use_vf, args.monograph)
     dataset_mapping_dir = opj(processed_dir, f"dataset_mapping_fold{args.test_subject}.pickle")
     with open(dataset_mapping_dir, "rb") as f:
         dataset_mapping = pickle.load(f)
