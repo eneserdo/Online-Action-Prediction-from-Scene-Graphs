@@ -78,17 +78,16 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
         if mode == "train":
             optimizer.zero_grad()
 
-        if isinstance(data, list):
+        if not args.monograph:
             data = [d.to(device) for d in data]
             gt_reordered = torch.stack([torch.cat([d.y[::2], d.y[1::2]]) for d in data], dim=0)
         else:
+            batch_size = data.y.shape[0] // args.temporal_length
             data = data.to(device)
-            gt_reordered = torch.cat([data.y[:,0,:].reshape(args.temporal_length, -1, len(ACTIONS)), 
-                                      data.y[:,1,:].reshape(args.temporal_length, -1, len(ACTIONS))], dim=1)
+            gt_reordered = torch.cat([data.y[:,0,:].reshape(batch_size, args.temporal_length, len(ACTIONS)).permute(1, 0, 2), 
+                                      data.y[:,1,:].reshape(batch_size, args.temporal_length, len(ACTIONS)).permute(1, 0, 2)], dim=1)
 
         # gt_reordered: [temporal_length, 2*batch_size(left, ..., left, right, ..., right) , num_classes]
-
-        # batch_size = gt_reordered.shape[1] // 2
 
         pred = model(data, padding_mask)
 

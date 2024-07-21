@@ -749,8 +749,8 @@ class ActionRecognitionMonograph(nn.Module):
 
         bs = batch[-1] + 1
 
-        left_actions = left_actions.reshape(self.temporal_length, bs, self.num_actions)
-        right_actions = right_actions.reshape(self.temporal_length, bs, self.num_actions)
+        left_actions = left_actions.reshape(bs, self.temporal_length, self.num_actions).permute(1, 0, 2)
+        right_actions = right_actions.reshape(bs, self.temporal_length, self.num_actions).permute(1, 0, 2)
 
         
         return torch.cat((left_actions, right_actions), dim=1)
