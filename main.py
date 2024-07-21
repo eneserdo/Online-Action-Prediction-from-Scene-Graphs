@@ -311,7 +311,7 @@ if __name__ == "__main__":
     label_criterion = torch.nn.CrossEntropyLoss(weight=loss_weights, label_smoothing=args.smoothing).to(device=device)
 
 
-    save_dir = f"saved_{args.name}"
+    save_dir = opj("saved_models", f"{args.name}")
     if not os.path.isdir(save_dir):
         os.mkdir(save_dir)
 

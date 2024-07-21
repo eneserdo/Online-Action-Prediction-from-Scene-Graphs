@@ -38,7 +38,7 @@ def main():
               "####### FOLD", i, "########\n",
               "#######################\n")
 
-        saved_dir = f"saved_{args.name}_fold{i}"
+        saved_dir = opj("saved_models", f"{args.name}_fold{i}")
         cv_file = opj(saved_dir, f"cross_validation_fold{i}.pickle")
 
         if os.path.exists(cv_file):
@@ -56,7 +56,7 @@ def main():
 
 
     for i in range(1, 1+args.num_folds):
-        saved_dir = f"saved_{args.name}_fold{i}"
+        saved_dir = opj("saved_models", f"{args.name}_fold{i}")
         cv_file = opj(saved_dir, f"cross_validation_fold{i}.pickle")
 
         with open(cv_file, "rb") as f:
