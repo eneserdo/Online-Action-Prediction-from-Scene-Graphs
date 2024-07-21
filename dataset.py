@@ -773,7 +773,7 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
 
 
         gt_action_json = opj(gt_dir, subject, task, f"{take}.json")
-        act_list=_get_actions_list(gt_action_json, len(relation_json_list))
+        act_list_full=_get_actions_list(gt_action_json, len(relation_json_list))
 
         assert int(pathlib.Path(relation_json_list[0]).stem.split("_")[1]) == 0, f"{relation_json_list[0]=}"
         assert int(pathlib.Path(relation_json_list[-1]).stem.split("_")[1]) == len(relation_json_list) - 1, f"{relation_json_list[-1]=}, {len(relation_json_list)=}"
@@ -784,7 +784,7 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
         # Downsample
         relation_json_list = relation_json_list[::downsample]
         object_json_list = object_json_list[::downsample]
-        act_list = act_list[::downsample]
+        act_list = act_list_full[::downsample]
 
         assert len(relation_json_list) == len(object_json_list)
         assert len(relation_json_list) == len(act_list)
@@ -802,7 +802,7 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
             is_padding_needed = False
 
 
-        dataset_mapping_master["vid"][str(subject_int)+str(task_int)+str(take_int)] = act_list
+        dataset_mapping_master["vid"][str(subject_int)+str(task_int)+str(take_int)] = act_list_full
         sample_count = sample_count + len(act_list) - temporal_length + 1 # This is redundant for whole video processing   
 
         if use_vis_feat:

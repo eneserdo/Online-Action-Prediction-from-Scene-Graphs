@@ -34,7 +34,7 @@ def main():
         raise ValueError("It must be an integer greater than 0")
 
     # check if it is already ready
-    pr_dir = pathlib.Path(get_processing_dir(args.root, args.temporal_length, args.downsample, args.use_vf))
+    pr_dir = pathlib.Path(get_processing_dir(args.root, args.temporal_length, args.downsample, args.use_vf, False))
 
     if pr_dir.exists():
         raise ValueError(f"The dataset is already processed in {pr_dir}\n, (Remove it manually if necessary)")

@@ -48,9 +48,10 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     elif mode == "train":
         model.train()
 
+    loss_cumulative = 0
 
     seg_save_dir = opj(save_dir, f"test_results_{epoch}") if (mode == "test" and args.save_segments) else None
-    metrics = Metrics(len(ACTIONS), args.temporal_length, device, dataset_mapping, mode, seg_save_dir, args.weighted_mv)
+    metrics = Metrics(len(ACTIONS), args.temporal_length, args.downsample, device, dataset_mapping, mode, seg_save_dir, args.weighted_mv)
 
     # exp=Explainer(model.gnn, 
     #               algorithm=AttentionExplainer(), 
@@ -107,6 +108,8 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
         
         # Segmentation is currently removed
         loss = label_loss
+
+        loss_cumulative += loss.item()
         
         if mode == "train":
             loss.backward()
@@ -137,8 +140,11 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     
     metric_dict = metrics.compute()
 
+    loss_cumulative = loss_cumulative / (len(loader.dataset) / args.batch_size)
 
-    return metric_dict
+
+
+    return metric_dict, loss_cumulative
 
 
 def test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of):
@@ -161,7 +167,7 @@ def test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of):
         print(f"TESTING {w_name}:")
         checkpoint = torch.load(w_name)
         model.load_state_dict(checkpoint["model_state_dict"])
-        returned_dict = run_one_epoch(model, test_loader, 'test', epoch=int((w_name[-7:-3])))
+        returned_dict, _ = run_one_epoch(model, test_loader, 'test', epoch=int((w_name[-7:-3])))
         cv_list.append(returned_dict)
         
         print(f'### TEST: ', metrics_to_str(returned_dict))
@@ -295,7 +301,8 @@ if __name__ == "__main__":
                                                     gamma=args.scheduler_gamma, verbose=True)
     
     else:
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=args.scheduler_gamma, patience=4, verbose=True)
+        # TODO: bunu loss a bakmak yerine f1 a bakarak yapmak daha mantıklı olabilir
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=args.scheduler_gamma, patience=4, verbose=True)
 
 
     # loss weights can be used to balance the classes using different strategies
@@ -343,10 +350,10 @@ if __name__ == "__main__":
     for epoch in range(start, start + args.max_epochs):
         start = time.perf_counter()
 
-        train_metrics = run_one_epoch(model, train_loader, 'train', epoch)
+        train_metrics, _ = run_one_epoch(model, train_loader, 'train', epoch)
         wandb_logging(wandb, train_metrics, epoch, "train", whole_mode=args.temporal_length == -1)
         
-        val_metrics = run_one_epoch(model, val_loader, 'val', epoch)
+        val_metrics, val_loss = run_one_epoch(model, val_loader, 'val', epoch)
         wandb_logging(wandb, val_metrics, epoch, "val", whole_mode=args.temporal_length == -1)
 
         # Save model
@@ -355,8 +362,10 @@ if __name__ == "__main__":
                         "scheduler_state_dict": scheduler.state_dict()},
                         opj(save_dir, f"model_epoch{epoch:0>4}.pt"))
 
-
-        scheduler.step()
+        if args.scheduler_step_size == -1:
+            scheduler.step(val_loss)
+        else:
+            scheduler.step()
         stop = time.perf_counter()
 
         print(f'### {epoch:03d}: Time {get_minutes(stop - start)} m ### Train: ', metrics_to_str(train_metrics), ' ### Val: ', metrics_to_str(val_metrics))

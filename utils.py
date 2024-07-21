@@ -674,7 +674,7 @@ def combine_predictions(all_arr, idx, sub_arr, mapping):
     
     return all_arr
 
-def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, weighted_mv, save_dir=None):
+def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, downsample, weighted_mv, save_dir=None):
     # Applies majority voting, calculates metrics, visualizes and saves the all predictions
     
     # In mapping there is no mirrored data, since it is redundant
@@ -701,12 +701,35 @@ def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, weighte
         for y_pred_ in [y_pred__L_all, y_pred__R_all, y_pred_ML_all, y_pred_MR_all]:
             assert -1 not in y_pred_, "Not filled appropriately. There should not be -1 in y_pred"
 
-        y_pred__L, conf_L = majority_voting(y_pred__L_all, total_len=y_true_L.shape[0], buffer_len=temporal_length, weighted=weighted_mv)
-        y_pred__R, conf_R = majority_voting(y_pred__R_all, total_len=y_true_R.shape[0], buffer_len=temporal_length, weighted=weighted_mv)
-        y_pred_ML, conf_ML = majority_voting(y_pred_ML_all, total_len=y_true_L.shape[0], buffer_len=temporal_length, weighted=weighted_mv)
-        y_pred_MR, conf_MR = majority_voting(y_pred_MR_all, total_len=y_true_R.shape[0], buffer_len=temporal_length, weighted=weighted_mv)
+        y_pred__L, conf_L = majority_voting(y_pred__L_all, total_len=y_true_L[::downsample].shape[0], buffer_len=temporal_length, weighted=weighted_mv)
+        y_pred__R, conf_R = majority_voting(y_pred__R_all, total_len=y_true_R[::downsample].shape[0], buffer_len=temporal_length, weighted=weighted_mv)
+        y_pred_ML, conf_ML = majority_voting(y_pred_ML_all, total_len=y_true_L[::downsample].shape[0], buffer_len=temporal_length, weighted=weighted_mv)
+        y_pred_MR, conf_MR = majority_voting(y_pred_MR_all, total_len=y_true_R[::downsample].shape[0], buffer_len=temporal_length, weighted=weighted_mv)
         
         
+        y_pred__L = y_pred__L.repeat(downsample)
+        y_pred__R = y_pred__R.repeat(downsample)
+        y_pred_ML = y_pred_ML.repeat(downsample)
+        y_pred_MR = y_pred_MR.repeat(downsample)
+
+        pred_len = y_pred__L.shape[0]
+        gt_len = y_true_L.shape[0]
+
+        if pred_len - gt_len <= downsample:
+            y_pred__L = y_pred__L[:gt_len]
+            y_pred__R = y_pred__R[:gt_len]
+            y_pred_ML = y_pred_ML[:gt_len]
+            y_pred_MR = y_pred_MR[:gt_len]
+        elif gt_len - pred_len < downsample:
+            y_true_L = y_true_L[:pred_len]
+            y_true_R = y_true_R[:pred_len]
+        else:
+            raise ValueError("gt_len and pred_len must be equal or differ at most by downsample", gt_len, pred_len, video_id)
+        
+        
+
+
+
         # Notice that the convention is (y_true, y_pred)
         f1_at_k(y_true_L, y_pred__L)
         f1_at_k(y_true_R, y_pred__R)
@@ -841,11 +864,12 @@ def get_loss_weights(weighted_loss_type, distribution):
 
 
 class Metrics:
-    def __init__(self, num_classes, temporal_length, device, dataset_mapping, mode, seg_save_dir, weighted_mv) -> None:
+    def __init__(self, num_classes, temporal_length, downsample, device, dataset_mapping, mode, seg_save_dir, weighted_mv) -> None:
         
         self.dataset_mapping = dataset_mapping
         self.mode = mode
         self.temporal_length = temporal_length
+        self.downsample = downsample
         self.seg_save_dir = seg_save_dir 
         self.weighted_mv = weighted_mv 
 
@@ -868,8 +892,8 @@ class Metrics:
         # Dictionaries to store predictions for each sample
         # We will also calculate F1 and CM after MV
         if temporal_length != -1:
-            self.all_predictions_combined_top1 = {vid + m_and_hand_status: - np.ones((act.shape[0] - temporal_length + 1) * temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
-            self.all_predictions_combined_top3 = {vid + m_and_hand_status: - np.ones((act.shape[0] - temporal_length + 1) * temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
+            self.all_predictions_combined_top1 = {vid + m_and_hand_status: - np.ones((act[::downsample].shape[0] - temporal_length + 1) * temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
+            self.all_predictions_combined_top3 = {vid + m_and_hand_status: - np.ones((act[::downsample].shape[0] - temporal_length + 1) * temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
         else:
             self.f1_at_k = F1_at_k(num_classes=num_classes)
 
@@ -934,6 +958,7 @@ class Metrics:
                                                                             self.dataset_mapping[self.mode]["vid"], 
                                                                             num_classes=len(ACTIONS), 
                                                                             temporal_length=self.temporal_length,
+                                                                            downsample=self.downsample,
                                                                             weighted_mv=self.weighted_mv,
                                                                             save_dir=self.seg_save_dir)
 
@@ -941,6 +966,7 @@ class Metrics:
                                                                             self.dataset_mapping[self.mode]["vid"], 
                                                                             num_classes=len(ACTIONS), 
                                                                             temporal_length=self.temporal_length,
+                                                                            downsample=self.downsample,
                                                                             weighted_mv=self.weighted_mv,
                                                                             save_dir=None)
 
