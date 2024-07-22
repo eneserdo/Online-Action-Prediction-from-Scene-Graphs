@@ -229,26 +229,26 @@ class GraphModule(nn.Module):
 
         module_list = []
         # First layer
-        module_list.append((getattr(geometric_nn, gnn_type)(in_channels, hidden_channels, heads=num_heads, edge_dim=num_edge_feat, dropout=dropout), "x, edge_index, edge_attr -> x"), 
+        module_list.extend([(getattr(geometric_nn, gnn_type)(in_channels, hidden_channels, heads=num_heads, edge_dim=num_edge_feat, dropout=dropout), "x, edge_index, edge_attr -> x"), 
                             nn.SELU(), 
-                           (NormLayerType(hc_nh), bn_transfer_string))
+                           (NormLayerType(hc_nh), bn_transfer_string)])
 
 
         # Middle layers
         for _ in range(num_layers-2):
-            module_list.append((getattr(geometric_nn, gnn_type)(hc_nh, hidden_channels, heads=num_heads, edge_dim=num_edge_feat, dropout=dropout), "x, edge_index, edge_attr -> x"), 
+            module_list.extend([(getattr(geometric_nn, gnn_type)(hc_nh, hidden_channels, heads=num_heads, edge_dim=num_edge_feat, dropout=dropout), "x, edge_index, edge_attr -> x"), 
                                nn.SELU(), 
-                               (NormLayerType(hc_nh), bn_transfer_string))
+                               (NormLayerType(hc_nh), bn_transfer_string)])
         
         # Last layer
-        module_list.append((getattr(geometric_nn, gnn_type)(hc_nh, out_channels, heads=num_heads, edge_dim=num_edge_feat, dropout=dropout), "x, edge_index, edge_attr -> x"), 
+        module_list.extend([(getattr(geometric_nn, gnn_type)(hc_nh, out_channels, heads=num_heads, edge_dim=num_edge_feat, dropout=dropout), "x, edge_index, edge_attr -> x"), 
                             nn.SELU(), 
-                           (NormLayerType(hc_nh), bn_transfer_string))
+                           (NormLayerType(hc_nh), bn_transfer_string)])
 
 
         self.gnn = geometric_nn.Sequential("x, edge_index, edge_attr, batch", module_list)
 
-    def _hand_pooling(self, x, embeddings, batch):
+    def _hands_pooling(self, x, embeddings):
         
         labels = torch.argmax(x, dim=1)
 
@@ -280,7 +280,7 @@ class GraphModule(nn.Module):
         H = self.gnn(x_, edge_index, edge_attr, batch)
 
         if self.use_hand_pooling:
-            left_embeddings, right_embeddings = self._hands_pooling(x, H, batch)
+            left_embeddings, right_embeddings = self._hands_pooling(x, H)
         else:
             # A bit inefficient implementation
             graph_embedding = geometric_nn.pool.global_mean_pool(H, batch)
