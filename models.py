@@ -194,13 +194,13 @@ class GraphModule(nn.Module):
                           hidden_channels,
                           out_channels,
                           num_edge_feat,
-                          num_heads: List[int],
+                          num_heads: int,
+                          num_layers: int,
                           filter_it,
                           use_hand_pooling,
                           edge_dropout,
                           dropout,
                           norm_layer,
-                          pos_enc,
                           use_pos,
                           use_embedding):
         super().__init__()
@@ -216,6 +216,7 @@ class GraphModule(nn.Module):
 
         assert norm_layer != "none", "norm_layer should not be none"
         assert norm_layer != "PairNorm", "PairNorm is not implemented yet"
+        assert num_layers >= 2, "num_layers should be at least 2"
 
         NormLayerType = getattr(geometric_nn, norm_layer)
 
@@ -224,53 +225,29 @@ class GraphModule(nn.Module):
         else:
             bn_transfer_string = "x, batch -> x"
 
+        hc_nh = hidden_channels*num_heads
 
         module_list = []
         # First layer
-        module_list.append((getattr(geometric_nn, gnn_type)(in_channels, hidden_channels, heads=num_heads[0], edge_dim=num_edge_feat, dropout=dropout), "x, edge_index, edge_attr -> x"), 
+        module_list.append((getattr(geometric_nn, gnn_type)(in_channels, hidden_channels, heads=num_heads, edge_dim=num_edge_feat, dropout=dropout), "x, edge_index, edge_attr -> x"), 
                             nn.SELU(), 
-                           (NormLayerType(hidden_channels*num_heads[0]), bn_transfer_string))
+                           (NormLayerType(hc_nh), bn_transfer_string))
+
 
         # Middle layers
-        for nh in num_heads[1:-1]:
-            module_list.append((getattr(geometric_nn, gnn_type)(hidden_channels, hidden_channels, heads=nh, edge_dim=num_edge_feat, dropout=dropout), "x, edge_index, edge_attr -> x"), 
+        for _ in range(num_layers-2):
+            module_list.append((getattr(geometric_nn, gnn_type)(hc_nh, hidden_channels, heads=num_heads, edge_dim=num_edge_feat, dropout=dropout), "x, edge_index, edge_attr -> x"), 
                                nn.SELU(), 
-                               (NormLayerType(hidden_channels*nh), bn_transfer_string))
+                               (NormLayerType(hc_nh), bn_transfer_string))
         
         # Last layer
-        module_list.append((getattr(geometric_nn, gnn_type)(hidden_channels, out_channels, heads=num_heads[-1], edge_dim=num_edge_feat, dropout=dropout), "x, edge_index, edge_attr -> x"), 
+        module_list.append((getattr(geometric_nn, gnn_type)(hc_nh, out_channels, heads=num_heads, edge_dim=num_edge_feat, dropout=dropout), "x, edge_index, edge_attr -> x"), 
                             nn.SELU(), 
-                           (NormLayerType(hidden_channels*num_heads[-1]), bn_transfer_string))
+                           (NormLayerType(hc_nh), bn_transfer_string))
 
-                
 
-        # if norm_layer != "none":
-        #     NormLayerType = getattr(geometric_nn, norm_layer)
-            
-        #     if norm_layer == "BatchNorm":
-        #         bn_transfer_string = "x -> x"
-        #     else:
-        #         bn_transfer_string = "x, batch -> x"
-            
-        #     if norm_layer == "PairNorm":
-        #         self.bn1 = NormLayerType()
-        #         self.bn2 = NormLayerType()
-        #     # elif norm_layer == "InstanceNorm":
-        #     #     # Somewhat track_running_stats=True and affine=True is NOT default in InstanceNorm both in pytorch and pytorch-geometric
-        #     #     self.bn1 = NormLayerType(effective_out_ch1, affine=True, track_running_stats=True)
-        #     #     self.bn2 = NormLayerType(effective_out_ch2, affine=True, track_running_stats=True)
-        #     else:
-        #         self.bn1 = NormLayerType(effective_out_ch1)
-        #         self.bn2 = NormLayerType(effective_out_ch2)
-                
+        self.gnn = geometric_nn.Sequential("x, edge_index, edge_attr, batch", module_list)
 
-        #     self.gnn = geometric_nn.Sequential("x, edge_index, edge_attr, batch",
-        #                                        [(self.conv1, "x, edge_index, edge_attr -> x"), self.act1, (self.bn1, bn_transfer_string),
-        #                                         (self.conv2, "x, edge_index, edge_attr -> x"), self.act2, (self.bn2, bn_transfer_string)])
-        # else:
-        #     self.gnn = geometric_nn.Sequential("x, edge_index, edge_attr",
-        #                                        [(self.conv1, "x, edge_index, edge_attr -> x"), self.act1,
-        #                                         (self.conv2, "x, edge_index, edge_attr -> x"), self.act2])
     def _hand_pooling(self, x, embeddings, batch):
         
         labels = torch.argmax(x, dim=1)
