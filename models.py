@@ -188,6 +188,132 @@ class Seq2SeqTransformer(nn.Module):
         return self.transformer.decoder(self.positional_encoding(tgt), memory, tgt_mask)
 
 
+class GraphModule(nn.Module):
+    def __init__(self, *, gnn_type,
+                          in_channels,
+                          hidden_channels,
+                          out_channels,
+                          num_edge_feat,
+                          num_heads: List[int],
+                          filter_it,
+                          use_hand_pooling,
+                          edge_dropout,
+                          dropout,
+                          norm_layer,
+                          pos_enc,
+                          use_pos,
+                          use_embedding):
+        super().__init__()
+        self.filter_it = filter_it
+        self.use_hand_pooling = use_hand_pooling
+        self.edge_dropout = edge_dropout
+        self.use_embedding = use_embedding
+        self.use_pos = use_pos
+
+        if use_embedding:
+            self.embedding = torch.nn.Embedding(in_channels, in_channels)
+
+
+        assert norm_layer != "none", "norm_layer should not be none"
+        assert norm_layer != "PairNorm", "PairNorm is not implemented yet"
+
+        NormLayerType = getattr(geometric_nn, norm_layer)
+
+        if norm_layer == "BatchNorm":
+            bn_transfer_string = "x -> x"
+        else:
+            bn_transfer_string = "x, batch -> x"
+
+
+        module_list = []
+        # First layer
+        module_list.append((getattr(geometric_nn, gnn_type)(in_channels, hidden_channels, heads=num_heads[0], edge_dim=num_edge_feat, dropout=dropout), "x, edge_index, edge_attr -> x"), 
+                            nn.SELU(), 
+                           (NormLayerType(hidden_channels*num_heads[0]), bn_transfer_string))
+
+        # Middle layers
+        for nh in num_heads[1:-1]:
+            module_list.append((getattr(geometric_nn, gnn_type)(hidden_channels, hidden_channels, heads=nh, edge_dim=num_edge_feat, dropout=dropout), "x, edge_index, edge_attr -> x"), 
+                               nn.SELU(), 
+                               (NormLayerType(hidden_channels*nh), bn_transfer_string))
+        
+        # Last layer
+        module_list.append((getattr(geometric_nn, gnn_type)(hidden_channels, out_channels, heads=num_heads[-1], edge_dim=num_edge_feat, dropout=dropout), "x, edge_index, edge_attr -> x"), 
+                            nn.SELU(), 
+                           (NormLayerType(hidden_channels*num_heads[-1]), bn_transfer_string))
+
+                
+
+        # if norm_layer != "none":
+        #     NormLayerType = getattr(geometric_nn, norm_layer)
+            
+        #     if norm_layer == "BatchNorm":
+        #         bn_transfer_string = "x -> x"
+        #     else:
+        #         bn_transfer_string = "x, batch -> x"
+            
+        #     if norm_layer == "PairNorm":
+        #         self.bn1 = NormLayerType()
+        #         self.bn2 = NormLayerType()
+        #     # elif norm_layer == "InstanceNorm":
+        #     #     # Somewhat track_running_stats=True and affine=True is NOT default in InstanceNorm both in pytorch and pytorch-geometric
+        #     #     self.bn1 = NormLayerType(effective_out_ch1, affine=True, track_running_stats=True)
+        #     #     self.bn2 = NormLayerType(effective_out_ch2, affine=True, track_running_stats=True)
+        #     else:
+        #         self.bn1 = NormLayerType(effective_out_ch1)
+        #         self.bn2 = NormLayerType(effective_out_ch2)
+                
+
+        #     self.gnn = geometric_nn.Sequential("x, edge_index, edge_attr, batch",
+        #                                        [(self.conv1, "x, edge_index, edge_attr -> x"), self.act1, (self.bn1, bn_transfer_string),
+        #                                         (self.conv2, "x, edge_index, edge_attr -> x"), self.act2, (self.bn2, bn_transfer_string)])
+        # else:
+        #     self.gnn = geometric_nn.Sequential("x, edge_index, edge_attr",
+        #                                        [(self.conv1, "x, edge_index, edge_attr -> x"), self.act1,
+        #                                         (self.conv2, "x, edge_index, edge_attr -> x"), self.act2])
+    def _hand_pooling(self, x, embeddings, batch):
+        
+        labels = torch.argmax(x, dim=1)
+
+        # Below code is much more optimal, use when data redundancy is fixed.
+        l_emb, r_emb = embeddings[labels == OBJECTS.index("LeftHand")], embeddings[labels == OBJECTS.index("RightHand")]
+        assert l_emb.shape == r_emb.shape
+
+        return l_emb, r_emb
+   
+    def forward(self, dataBatch: Batch, padding_mask=None):
+    
+        x, edge_attr, edge_index, batch = dataBatch.x, dataBatch.edge_attr, dataBatch.edge_index, dataBatch.batch
+
+        if hasattr(dataBatch, "pos"):
+            pos_3d = dataBatch.pos
+
+        if self.edge_dropout != 0.0:
+            edge_index, edge_mask = dropout_edge(edge_index, p=self.edge_dropout)
+            edge_attr = edge_attr[edge_mask]
+
+        if self.use_embedding:
+            x_ = self.embedding(x.argmax(dim=1).long())
+        else:
+            x_ = x
+        
+        if self.use_pos:
+            x_ = torch.cat([x_, pos_3d], dim=-1)
+
+        H = self.gnn(x_, edge_index, edge_attr, batch)
+
+        if self.use_hand_pooling:
+            left_embeddings, right_embeddings = self._hands_pooling(x, H, batch)
+        else:
+            # A bit inefficient implementation
+            graph_embedding = geometric_nn.pool.global_mean_pool(H, batch)
+            left_embeddings = graph_embedding
+            right_embeddings = graph_embedding
+        
+        return left_embeddings, right_embeddings
+
+
+
 class ActionRecognition(nn.Module):
     def __init__(self, *, gnn_type,
                  temporal_type,
@@ -708,17 +834,6 @@ class ActionRecognitionMonograph(nn.Module):
         # K: the number of graphs in a monograph
         return l_emb, r_emb
 
-    
-    def _merge_hands(self, hand_feat):
-        """
-            input:
-                                                    left hand    right hand 
-                hand features shape: (n*b*2, f) -> [s1, s2, ..., s1, s2, ...]
-            output:
-                hand features merged shape: (n*b, f*2)
-
-        """
-        return torch.cat(torch.tensor_split(hand_feat, 2, dim=0), dim=-1)
 
     def forward(self, databatch: Batch, _=None):
 
