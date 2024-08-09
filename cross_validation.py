@@ -20,7 +20,7 @@ def main():
 
     args_str = ""
     for key, value in args.__dict__.items():
-        if key in ["name", "num_folds", "num_sweeps"]:
+        if key in ["name", "num_folds", "num_sweeps", "test_subject"]:
             continue
         
         if value is None:
@@ -34,7 +34,7 @@ def main():
 
 
     for i in range(1, 1+args.num_folds):
-        print(" #######################\n",
+        print("#######################\n",
               "####### FOLD", i, "########\n",
               "#######################\n")
 
@@ -48,7 +48,10 @@ def main():
         subject_arg = f" --test_subject {i}"
         name_arg = f"{args.name}_fold{i}"
 
-        subprocess.call("python main.py " + args_str + subject_arg + f" --name {name_arg}", shell=True)
+        ret = subprocess.call("python main.py " + args_str + subject_arg + f" --name {name_arg}", shell=True)
+        if ret != 0:
+            print("Error occured. Can't continue, exiting cv...")
+            exit(1)
         time.sleep(5)
 
 
