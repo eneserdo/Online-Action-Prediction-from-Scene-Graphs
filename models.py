@@ -188,7 +188,24 @@ class Seq2SeqTransformer(nn.Module):
         return self.transformer.decoder(self.positional_encoding(tgt), memory, tgt_mask)
 
 
-class GraphModule(nn.Module):
+class RolloutAttentionLayer(nn.Module):
+    """
+    A layer to calculate the rollout attention for graph nets
+    """
+    def __init__(self, num_layer):
+        super(RolloutAttentionLayer, self).__init__()
+        self.num_layer = num_layer
+
+    def forward(self, x, *attentions):
+        # x is taken just for convenience
+        att = attentions[0]
+        for attention in attentions[1:]:
+            att = att * attention # FIXME
+        return x, att
+
+  
+
+class GraphModule(nn.Module): # neden geometric_nn dan inherit değil ?
     def __init__(self, *, gnn_type,
                           in_channels,
                           hidden_channels,
@@ -202,13 +219,15 @@ class GraphModule(nn.Module):
                           dropout,
                           norm_layer,
                           use_pos,
-                          use_embedding):
+                          use_embedding,
+                          return_attention=False):
         super().__init__()
         self.filter_it = filter_it
         self.use_hand_pooling = use_hand_pooling
         self.edge_dropout = edge_dropout
         self.use_embedding = use_embedding
         self.use_pos = use_pos
+        self.return_attention = return_attention
 
         if use_embedding:
             self.embedding = torch.nn.Embedding(in_channels, in_channels)
@@ -227,26 +246,56 @@ class GraphModule(nn.Module):
 
         hc_nh = hidden_channels*num_heads
 
+        
+        
+        if return_attention:
+            if gnn_type in ["TransformerConv", "GATv2Conv"]:
+                # extra_str = ", size, flag"
+                layer_str = "x, edge_index, edge_attr, flag -> x, (edge_index, attention_weights{})"
+                module_str = "x, edge_index, edge_attr, batch, flag"
+
+            elif gnn_type == "GATConv":
+                raise NotImplementedError(f"return_attention is not implemented for {gnn_type}")
+                layer_str = "x, edge_index, edge_attr, size, flag -> x, (edge_index, attention_weights{})"
+                module_str = "x, edge_index, edge_attr, batch, size, flag"
+
+            else:
+                raise NotImplementedError(f"return_attention is not implemented for {gnn_type}")
+        else:
+            layer_str = "x, edge_index, edge_attr -> x"
+            module_str = "x, edge_index, edge_attr, batch"
+
         module_list = []
         # First layer
-        module_list.extend([(getattr(geometric_nn, gnn_type)(in_channels, hidden_channels, heads=num_heads, edge_dim=num_edge_feat, dropout=dropout), "x, edge_index, edge_attr -> x"), 
-                            nn.SELU(), 
-                           (NormLayerType(hc_nh), bn_transfer_string)])
+        layer_idx = 0
+        module_list.extend([(getattr(geometric_nn, gnn_type)(in_channels, hidden_channels, heads=num_heads, edge_dim=num_edge_feat, dropout=dropout), layer_str.format(layer_idx)), 
+                            (nn.SELU(), "x -> x"), 
+                            (NormLayerType(hc_nh), bn_transfer_string)])
 
 
         # Middle layers
         for _ in range(num_layers-2):
-            module_list.extend([(getattr(geometric_nn, gnn_type)(hc_nh, hidden_channels, heads=num_heads, edge_dim=num_edge_feat, dropout=dropout), "x, edge_index, edge_attr -> x"), 
-                               nn.SELU(), 
-                               (NormLayerType(hc_nh), bn_transfer_string)])
+            layer_idx += 1
+            module_list.extend([(getattr(geometric_nn, gnn_type)(hc_nh, hidden_channels, heads=num_heads, edge_dim=num_edge_feat, dropout=dropout), layer_str.format(layer_idx)), 
+                                (nn.SELU(), "x -> x"), 
+                                (NormLayerType(hc_nh), bn_transfer_string)])
         
         # Last layer
-        module_list.extend([(getattr(geometric_nn, gnn_type)(hc_nh, out_channels, heads=num_heads, edge_dim=num_edge_feat, dropout=dropout), "x, edge_index, edge_attr -> x"), 
-                            nn.SELU(), 
-                           (NormLayerType(hc_nh), bn_transfer_string)])
+        layer_idx += 1
+        module_list.extend([(getattr(geometric_nn, gnn_type)(hc_nh, out_channels, heads=num_heads, edge_dim=num_edge_feat, dropout=dropout), layer_str.format(layer_idx)), 
+                            (nn.SELU(), "x -> x"),
+                            (NormLayerType(hc_nh), bn_transfer_string)])
 
+        if return_attention:
+            attn_layer_str = ""
+            for i in range(num_layers):
+                attn_layer_str += f"attention_weights{i}, "
+            attn_layer_str = attn_layer_str[:-2]
+            attn_layer_str = f"x, {attn_layer_str} -> x, attention_weights"
 
-        self.gnn = geometric_nn.Sequential("x, edge_index, edge_attr, batch", module_list)
+            module_list.append((RolloutAttentionLayer(num_layers), attn_layer_str))
+
+        self.gnn = geometric_nn.Sequential(module_str, module_list)
 
     def _hands_pooling(self, x, embeddings):
         
@@ -277,7 +326,12 @@ class GraphModule(nn.Module):
         if self.use_pos:
             x_ = torch.cat([x_, pos_3d], dim=-1)
 
-        H = self.gnn(x_, edge_index, edge_attr, batch)
+        if self.return_attention:
+            H, attn_weights = self.gnn(x_, edge_index, edge_attr, batch, True)
+        else:
+            H = self.gnn(x_, edge_index, edge_attr, batch)
+            attn_weights = None
+
 
         if self.use_hand_pooling:
             left_embeddings, right_embeddings = self._hands_pooling(x, H)
@@ -287,7 +341,7 @@ class GraphModule(nn.Module):
             left_embeddings = graph_embedding
             right_embeddings = graph_embedding
         
-        return left_embeddings, right_embeddings
+        return left_embeddings, right_embeddings, attn_weights
 
 
 
@@ -316,7 +370,8 @@ class ActionRecognition(nn.Module):
                  dim_feedforward,
                  num_heads_tr,
                  use_pos,
-                 use_embedding):
+                 use_embedding,
+                 return_attention=False):
         """ Accepts kwargs for non-general params of gnns """
         super().__init__()
 
@@ -326,6 +381,7 @@ class ActionRecognition(nn.Module):
         self.temporal_type = temporal_type
         self.merged_pred = merged_pred
         self.use_embedding = use_embedding
+        self.return_attention = return_attention
 
         
         self.gnn = GraphModule(gnn_type=gnn_type,
@@ -341,7 +397,8 @@ class ActionRecognition(nn.Module):
                                dropout=dropout,
                                norm_layer=norm_layer,
                                use_pos=use_pos,
-                               use_embedding=use_embedding)
+                               use_embedding=use_embedding,
+                               return_attention=return_attention)
         
 
         gnn_output_ch = out_channels * num_heads # aka effective_out_ch2
@@ -439,14 +496,15 @@ class ActionRecognition(nn.Module):
         right_embedding_list = []
 
         #### Graph part ####
-
+        self.attn_weights_list = []
         # processes each frame time-independently
         for databatch in dataBatchList:  
 
-            left_embeddings, right_embeddings = self.gnn(databatch)
+            left_embeddings, right_embeddings, attn_weights = self.gnn(databatch)
 
             left_embedding_list.append(left_embeddings)
             right_embedding_list.append(right_embeddings)
+            self.attn_weights_list.append(attn_weights)
 
 
         left_sequencial_embeddings = torch.stack(left_embedding_list) # Shape: (T, N, F)
@@ -578,7 +636,8 @@ class ActionRecognitionMonograph(nn.Module):
                  norm_layer,
                  use_pos,
                  use_embedding, 
-                 temporal_length):
+                 temporal_length,
+                 return_attention=False):
         """ Accepts kwargs for non-general params of gnns """
         super().__init__()
 
@@ -587,6 +646,7 @@ class ActionRecognitionMonograph(nn.Module):
         self.use_embedding = use_embedding
         self.num_actions = num_action_classes
         self.temporal_length = temporal_length
+        self.return_attention = return_attention
 
         self.gnn = GraphModule(gnn_type=gnn_type,
                                in_channels=in_channels,
@@ -601,7 +661,8 @@ class ActionRecognitionMonograph(nn.Module):
                                dropout=dropout,
                                norm_layer=norm_layer,
                                use_pos=use_pos,
-                               use_embedding=use_embedding)
+                               use_embedding=use_embedding,
+                               return_attention=return_attention)
 
 
         gnn_output_ch = out_channels * num_heads
@@ -628,9 +689,9 @@ class ActionRecognitionMonograph(nn.Module):
     def forward(self, databatch: Batch, _=None):
 
         bs = databatch.batch[-1] + 1
-        left_embeddings, right_embeddings = self.gnn(databatch) 
+        left_embeddings, right_embeddings, attn_weights = self.gnn(databatch) 
         # shape: (n*b, f)
-
+        self.attn_weights = attn_weights
         # assert graph_embedding.shape[0]==self.batch_size and graph_embedding.shape[1]==self.conv_out
 
         hands_embeddings = torch.cat((left_embeddings, right_embeddings), dim=0) # CHECKME
