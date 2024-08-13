@@ -1129,3 +1129,13 @@ def get_bimanual_dataset_splits(*, root: str, process_it_anyway: bool, test_subj
     
 
     return train_set, test_set, val_set
+
+if __name__ == "__main__":
+
+    a, b, c=get_bimanual_dataset_splits(root=".", 
+                                        process_it_anyway=False, 
+                                        test_subject=6, 
+                                        validation_take=7, 
+                                        temporal_length=10, 
+                                        downsample=3, use_vf=False, monograph=False)   
+    print(len(a), len(b), len(c))
