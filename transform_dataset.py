@@ -26,6 +26,7 @@ def transform_datapoint(datapoint_path):
     # ]
           
     monograph_x = []
+    node_counts = []
 
     # create a dict for global idx to node idx
     local2global_idx = {}
@@ -33,6 +34,8 @@ def transform_datapoint(datapoint_path):
     
     # Nodes
     for graph_idx, graph in enumerate(data):
+        node_counts.append(graph.x.shape[0])
+
         for node_idx, node in enumerate(graph.x):
             local2global_idx[(graph_idx, node_idx)] = global_idx
             monograph_x.append(node)
@@ -102,7 +105,7 @@ def transform_datapoint(datapoint_path):
     
     y = torch.stack(y)
     
-    new_data = Data(x=monograph_x, edge_index=monograph_edge_index, edge_attr=monograph_edge_attr, y=y)
+    new_data = Data(x=monograph_x, edge_index=monograph_edge_index, edge_attr=monograph_edge_attr, y=y, node_counts=torch.tensor(node_counts))
 
     torch.save(new_data, datapoint_path)
     

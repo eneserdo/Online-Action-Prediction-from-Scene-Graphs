@@ -111,6 +111,7 @@ def arg_parser_base():
     # Others
     ap.add_argument("--gpu_id", type=int, default=0, help="...")
     ap.add_argument("--seed", type=int, default=34, help="...")
+    ap.add_argument("--return_attention", action="store_true", help="...")
 
     return ap
 
@@ -127,6 +128,70 @@ def arg_parser_cv():
     
     return ap.parse_args()
 
+
+def arg_parser_viz_attn():
+    ap = argparse.ArgumentParser()
+
+    # Dataset
+    ap.add_argument("-rt", "--root", type=str, default='.', help="Root directory of dataset.")
+    ap.add_argument("-p", "--process_it", action="store_true", help="...")
+    ap.add_argument("-tl", "--temporal_length", type=int, default=10, help="...")
+    ap.add_argument("-ts", "--test_subject", type=int, default=1, choices=[1, 2, 3, 4, 5, 6], help="...")
+    ap.add_argument("-vt", "--validation_take", type=int, default=7, choices=[i for i in range(10)], help="...")
+    ap.add_argument("--downsample", type=int, default=1, help="Downsampling ratio")
+    ap.add_argument("--use_vf", action="store_true", help="use visual features")
+    ap.add_argument("--monograph", action="store_true", help="use monograph")
+
+    # Model - GNN part
+    ap.add_argument("-g", "--gnn_type", type=str, default="TransformerConv",
+                    choices=["NNConv", "GATConv", "TransformerConv", "GATv2Conv"], help="...")
+    ap.add_argument("-hc", "--hidden_channels", type=int, default=64, help="...")
+    ap.add_argument("-oc", "--out_channels", type=int, default=64, help="...")
+    ap.add_argument("-nh", "--num_heads", type=int, default=2, help="...")
+    ap.add_argument("-nl", "--num_layers", type=int, default=2, help="...")
+    ap.add_argument("--use_global_pooling", action="store_true", help="...")    # :(
+    ap.add_argument("--edge_dropout", type=float, default=0.0, help="...")
+    ap.add_argument("--dropout", type=float, default=0.0, help="...")
+    ap.add_argument("--norm_layer", type=str, default="LayerNorm", choices=["BatchNorm", "InstanceNorm", "LayerNorm", "GraphNorm", "PairNorm", "none"], help="Normalization  for GNN layer")
+    ap.add_argument("--use_pos", action="store_true", help="Use positions too as node features")
+    ap.add_argument("--use_embedding", action="store_true", help="Instead of one-hot encoded node features, use embedding layer")
+    
+
+    # Model - Temporal part
+    ap.add_argument("--dropout_tr", type=float, default=0.1, help="...")
+    ap.add_argument("-hs", "--lstm_hidden_size", type=int, default=128, help="...")
+    ap.add_argument("--temporal_type", type=str, default="tr", choices=["lstm", "bi", "tr", "edtr", "none"], help="...")
+    ap.add_argument("--norm_first", action="store_true", help="To make norm_first=true in TransformerEncoderLayer")
+    ap.add_argument("--pos_enc", type=str, default="original", choices=["original", "learnable", "none"], help="Type of positional encoding")
+    ap.add_argument("--num_heads_tr", type=int, default=4, help="...")
+    ap.add_argument("--num_of_temp_layers", type=int, default=2, help="...")
+    
+    # Model - Others
+    ap.add_argument("--dim_feedforward", type=int, default=0, help="transformer encoder layer's dim_feedforward, if 0, it is set to lstm_hidden_size//4*3")
+    ap.add_argument("--merged_pred", type=str, default="none", choices=["early", "late", "none", "attention"], help="Merge hands predictions")
+
+
+    # Others
+    ap.add_argument("--gpu_id", type=int, default=0, help="...")
+    ap.add_argument("--seed", type=int, default=34, help="...")
+    
+    # save_dir
+    ap.add_argument("--save_dir", default="debug", type=str, help="...")  # , default="raw"
+    
+    # model_path
+    ap.add_argument("--model_path", type=str, default=None, help="...")
+
+    # discard_ratio
+    ap.add_argument("--discard_ratio", type=float, default=0.1, help="...")
+
+    # fuse method
+    ap.add_argument("--fuse_method", type=str, default="mean", choices=["mean", "min", "max"], help="...")    
+
+    args = ap.parse_args()
+    args.return_attention = True
+    args.filter_idle_hold = False
+
+    return args 
 
 def arg_parser_inference():
     ap = argparse.ArgumentParser()
@@ -670,6 +735,7 @@ def combine_predictions(all_arr, idx, sub_arr, mapping):
             # end frame exclusive i.e. [start_frame, end_frame)
             temp_len = end_frame-start_frame
 
+            assert np.all(all_arr[f"{subject}{task}{take}{is_mirrored}{hand}"][temp_len * start_frame : temp_len * (1+start_frame)] == -1), "Not filled appropriately. There should not be any value in all_arr"
             all_arr[f"{subject}{task}{take}{is_mirrored}{hand}"][temp_len * start_frame : temp_len * (1+start_frame)] = p
     
     return all_arr
