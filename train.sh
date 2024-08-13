@@ -242,7 +242,10 @@
 # python cross_validation.py -g TransformerConv -o Adam -lr 0.001 -wd 0.001 -me 30 --scheduler_step_size 4 --saving_freq 2 --name Beta1_10d3_VF_XL4 -tl 10 --downsample 3 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.15 --use_vf --hidden_channels 96 --out_channels 96 --num_heads1 8 --num_heads2 8 --dim_feedforward 256 --use_global_pooling -bs 32 --dropout 0.05 --num_heads_tr 8 --gpu_id 1
 
 
-python cross_validation.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 2 --name Gamma_R -tl 10 --downsample 3 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.15 --gpu_id 0
+python cross_validation.py --batch_size 256 -tl 10 --downsample 3 -g TransformerConv --saving_freq 2 --edge_dropout 0.15 --dropout 0.0 --norm_layer LayerNorm --dropout_tr 0.1 --lstm_hidden_size 128 --temporal_type tr --merged_pred late -o Adam --learning_rate 0.0005 --momentum 0.9 --weight_decay 0.0005 --max_epochs 40 --name Gamma_fm_Red
+sleep
+
+python cross_validation.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --saving_freq 2 --name Gamma_Red_h8 -tl 10 --downsample 3 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.15 --gpu_id 0 -nh 8
 sleep 5
 
 python cross_validation.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --scheduler_step_size 8 --saving_freq 2 --name Gamma_R_h8_nl3 -tl 10 --downsample 3 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.15 --gpu_id 0 -nh 8 -nl 3
