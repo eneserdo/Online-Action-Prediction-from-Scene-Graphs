@@ -10,10 +10,11 @@ Shape abbreviations:
 import math
 import warnings
 from typing import List
+import copy
 
 import torch
 import torch.nn as nn
-import torch_geometric.nn as geometric_nn
+import torch_geometric.nn as g_nn
 from positional_encodings.torch_encodings import (PositionalEncoding1D,
                                                   PositionalEncoding2D)
 from torch.nn import functional as F
@@ -187,25 +188,9 @@ class Seq2SeqTransformer(nn.Module):
     def decode(self, tgt: torch.Tensor, memory: torch.Tensor, tgt_mask: torch.Tensor):
         return self.transformer.decoder(self.positional_encoding(tgt), memory, tgt_mask)
 
-
-class RolloutAttentionLayer(nn.Module):
-    """
-    A layer to calculate the rollout attention for graph nets
-    """
-    def __init__(self, num_layer):
-        super(RolloutAttentionLayer, self).__init__()
-        self.num_layer = num_layer
-
-    def forward(self, x, *attentions):
-        # x is taken just for convenience
-        att = attentions[0]
-        for attention in attentions[1:]:
-            att = att * attention # FIXME
-        return x, att
-
   
 
-class GraphModule(nn.Module): # neden geometric_nn dan inherit değil ?
+class GraphModule(nn.Module): # neden g_nn dan inherit değil ?
     def __init__(self, *, gnn_type,
                           in_channels,
                           hidden_channels,
@@ -237,7 +222,7 @@ class GraphModule(nn.Module): # neden geometric_nn dan inherit değil ?
         assert norm_layer != "PairNorm", "PairNorm is not implemented yet"
         assert num_layers >= 2, "num_layers should be at least 2"
 
-        NormLayerType = getattr(geometric_nn, norm_layer)
+        NormLayerType = getattr(g_nn, norm_layer)
 
         if norm_layer == "BatchNorm":
             bn_transfer_string = "x -> x"
@@ -268,7 +253,7 @@ class GraphModule(nn.Module): # neden geometric_nn dan inherit değil ?
         module_list = []
         # First layer
         layer_idx = 0
-        module_list.extend([(getattr(geometric_nn, gnn_type)(in_channels, hidden_channels, heads=num_heads, edge_dim=num_edge_feat, dropout=dropout), layer_str.format(layer_idx)), 
+        module_list.extend([(getattr(g_nn, gnn_type)(in_channels, hidden_channels, heads=num_heads, edge_dim=num_edge_feat, dropout=dropout), layer_str.format(layer_idx)), 
                             (nn.SELU(), "x -> x"), 
                             (NormLayerType(hc_nh), bn_transfer_string)])
 
@@ -276,26 +261,18 @@ class GraphModule(nn.Module): # neden geometric_nn dan inherit değil ?
         # Middle layers
         for _ in range(num_layers-2):
             layer_idx += 1
-            module_list.extend([(getattr(geometric_nn, gnn_type)(hc_nh, hidden_channels, heads=num_heads, edge_dim=num_edge_feat, dropout=dropout), layer_str.format(layer_idx)), 
+            module_list.extend([(getattr(g_nn, gnn_type)(hc_nh, hidden_channels, heads=num_heads, edge_dim=num_edge_feat, dropout=dropout), layer_str.format(layer_idx)), 
                                 (nn.SELU(), "x -> x"), 
                                 (NormLayerType(hc_nh), bn_transfer_string)])
         
         # Last layer
         layer_idx += 1
-        module_list.extend([(getattr(geometric_nn, gnn_type)(hc_nh, out_channels, heads=num_heads, edge_dim=num_edge_feat, dropout=dropout), layer_str.format(layer_idx)), 
+        module_list.extend([(getattr(g_nn, gnn_type)(hc_nh, out_channels, heads=num_heads, edge_dim=num_edge_feat, dropout=dropout), layer_str.format(layer_idx)), 
                             (nn.SELU(), "x -> x"),
                             (NormLayerType(hc_nh), bn_transfer_string)])
 
-        if return_attention:
-            attn_layer_str = ""
-            for i in range(num_layers):
-                attn_layer_str += f"attention_weights{i}, "
-            attn_layer_str = attn_layer_str[:-2]
-            attn_layer_str = f"x, {attn_layer_str} -> x, attention_weights"
 
-            module_list.append((RolloutAttentionLayer(num_layers), attn_layer_str))
-
-        self.gnn = geometric_nn.Sequential(module_str, module_list)
+        self.gnn = g_nn.Sequential(module_str, module_list)
 
     def _hands_pooling(self, x, embeddings):
         
@@ -327,17 +304,17 @@ class GraphModule(nn.Module): # neden geometric_nn dan inherit değil ?
             x_ = torch.cat([x_, pos_3d], dim=-1)
 
         if self.return_attention:
-            H, attn_weights = self.gnn(x_, edge_index, edge_attr, batch, True)
+            H = self.gnn(x_, edge_index, edge_attr, batch, True)
         else:
             H = self.gnn(x_, edge_index, edge_attr, batch)
-            attn_weights = None
+        attn_weights = None
 
 
         if self.use_hand_pooling:
             left_embeddings, right_embeddings = self._hands_pooling(x, H)
         else:
             # A bit inefficient implementation
-            graph_embedding = geometric_nn.pool.global_mean_pool(H, batch)
+            graph_embedding = g_nn.pool.global_mean_pool(H, batch)
             left_embeddings = graph_embedding
             right_embeddings = graph_embedding
         
@@ -729,7 +706,8 @@ def make_model(args):
                                            norm_layer=args.norm_layer,
                                            use_pos=args.use_pos,
                                            use_embedding=args.use_embedding,
-                                           temporal_length=args.temporal_length)
+                                           temporal_length=args.temporal_length,
+                                           return_attention=args.return_attention)
     else:
         model = ActionRecognition(gnn_type=args.gnn_type,
                                         temporal_type=args.temporal_type,
@@ -755,5 +733,7 @@ def make_model(args):
                                         dim_feedforward=args.dim_feedforward,
                                         num_heads_tr=args.num_heads_tr,
                                         use_pos=args.use_pos,
-                                        use_embedding=args.use_embedding)
+                                        use_embedding=args.use_embedding,
+                                        return_attention=args.return_attention)
+
     return model
