@@ -5,16 +5,21 @@ import os
 import pickle
 import random
 from os.path import join as opj
+from typing import List
 
 import matplotlib.pyplot as plt
 import matplotlib
+from natsort import natsorted
 import numpy as np
 import torch
 import cv2
 
-from model import make_model
-from dataset import get_bimanual_dataset_splits, ACTIONS
+from models import make_model
+from dataset import get_bimanual_dataset_splits, ACTIONS, get_processing_dir, OBJECTS
 from utils import arg_parser_viz_attn as arg_parser
+
+import torch_geometric.nn as g_nn
+from torch_geometric.data import Batch, Data
 
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
@@ -25,60 +30,103 @@ matplotlib.use("Agg")
 # To check for NaNs in the gradients
 torch.autograd.set_detect_anomaly(True)
 
-SEQ_LEN = 16
+IN_LEN = None  # will be set later
+
 # TRAIN_SUBSET = [150, 500, 1500]
 # VAL_SUBSET = [50, 100, 200]
 TRAIN_SUBSET = [150]
 TEST_SUBSET = [50]
 
+IMG_DATASET_DIR = ...
+
+
+def get_imgs(sb, task, take, sfr, efr, mir, downsample):
+    return None
+
 
 def get_sample_batch(args):
 
-    train_set, test_set, val_set = train_set, test_set, val_set = (
-        get_bimanual_dataset_splits(
-            root=args.root,
-            process_it_anyway=args.process_it,
-            test_subject=args.test_subject,
-            validation_take=args.validation_take,
-            temporal_length=args.temporal_length,
-            downsample=args.downsample,
-            use_vf=args.use_vf,
-            monograph=args.monograph,
-        )
+    assert not args.monograph, "This script is only for gt+tr"
+
+    train_set, test_set, val_set = get_bimanual_dataset_splits(
+        root=args.root,
+        process_it_anyway=args.process_it,
+        test_subject=args.test_subject,
+        validation_take=args.validation_take,
+        temporal_length=args.temporal_length,
+        downsample=args.downsample,
+        use_vf=args.use_vf,
+        monograph=args.monograph,
     )
 
-    with open(f"data/sample_dict_fold{args.test_subject}.pickle", "rb") as f:
-        sample_dict = pickle.load(f)
+    processed_dir = get_processing_dir(
+        args.root, args.temporal_length, args.downsample, args.use_vf, args.monograph
+    )
+    dataset_mapping_dir = opj(
+        processed_dir, f"dataset_mapping_fold{args.test_subject}.pickle"
+    )
+    with open(dataset_mapping_dir, "rb") as f:
+        dataset_mapping = pickle.load(f)
+
+    # with open(f"data/sample_dict_fold{args.test_subject}.pickle", "rb") as f:
+    #     sample_dict = pickle.load(f)
 
     samples, labels, names, original = [], [], [], []
 
-    for i in TRAIN_SUBSET:
-        samples.append(train_set[i][0])  # bu zaten ds oluyor modelin içinde
-        original.append(train_set.get_original_imgs(i)[::2])  # Downsample
-        labels.append(train_set[i][1][::2])
+    # TODO load original images
 
-        sb, task, take, fr, act = sample_dict["train"][i]
-        names.append(f"{sb}{task}{take}_{fr}")
+    for i in TRAIN_SUBSET:
+        global_idx, graph = train_set[i]
+
+        samples.append(graph)
+        labels.append(torch.stack([g.y.argmax(-1) for g in graph]))
+
+        sb, task, take, sfr, efr, mir = dataset_mapping["train"]["sample"][global_idx]
+        original.append(get_imgs(sb, task, take, sfr, efr, mir, args.downsample))
+        names.append(f"{sb}{task}{take}_{sfr}_{efr}_{mir}")
 
     for i in TEST_SUBSET:
-        samples.append(test_set[i][0])
-        labels.append(test_set[i][1][::2])
-        original.append(test_set.get_original_imgs(i)[::2])
+        global_idx, graph = test_set[i]
 
-        sb, task, take, fr, act = sample_dict["test"][i]
-        names.append(f"{sb}{task}{take}_{fr}")
+        samples.append(graph)
+        labels.append(torch.stack([g.y.argmax(-1) for g in graph]))
 
-    samples = torch.stack(samples)
+        sb, task, take, sfr, efr, mir = dataset_mapping["test"]["sample"][global_idx]
+        original.append(get_imgs(sb, task, take, sfr, efr, mir, args.downsample))
+        names.append(f"{sb}{task}{take}_{sfr}_{efr}_{mir}")
 
     return samples, labels, names, original
 
 
-ATTENTION = {"s": [], "t": []}
+ATTENTION = {}
+# ATTENTION["g"]:
+#   edge_indicies: [...]
+#   t_layer_i: [s1_attn, ...]
+#   g_layer_i: [s1_attn, ...]
+# si_attn: attention of sample i
 
 
-def getAttentionHook(name):
-    # print(f"Hook for {name} is set")
-    def hook(model, input, output):
+def getAttentionHook(layer_name, mode):
+
+    def hook_graph(model, input, output):
+        assert isinstance(model, g_nn.TransformerConv)
+
+        edge_indicies, attn = output[1]
+        # attn: num_edges x num_heads
+        # edge_indicies: 2 x num_edges
+        # edge_indicies[:, i]: [source, target] of the i-th edge
+        # sum of attentions to target is 1
+
+        ATTENTION[layer_name].append(attn.detach().cpu())
+
+        if layer_name == "g_layer_0":
+            ATTENTION["edge_indicies"].append(edge_indicies.detach().cpu())
+
+        # Just to be sure
+        if layer_name == "g_layer_1":
+            assert torch.all(edge_indicies.cpu() == ATTENTION["edge_indicies"][-1])
+
+    def hook_transformer(model, input, output):
         assert isinstance(model, torch.nn.MultiheadAttention)
 
         num_heads = model.num_heads
@@ -125,35 +173,41 @@ def getAttentionHook(name):
         # # Make sure you set the dropout to 0.0
         # assert torch.allclose(output[0], y, atol=1e-7) # Sometimes it fails due to numerical precision somehow, so set it somethign like 1e-4
 
-        s_or_t = name[0]
-        layer = int(name.split("_")[-1])
-        ATTENTION[name[0]][layer].append(attn_reshaped.detach().cpu())
+        ATTENTION[layer_name].append(attn_reshaped.detach().cpu())
 
-    return hook
+    if mode == "g":
+        return hook_graph
+    elif mode == "t":
+        return hook_transformer
+    else:
+        raise "Mode not supported"
 
 
 def set_hooks(model):
-    # spatial attention
-    for i in range(len(model.spatial_model.encoder.layers)):
-        model.spatial_model.encoder.layers[i].self_attention.register_forward_hook(
-            getAttentionHook(f"s_layer_{i}")
+    ATTENTION["edge_indicies"] = []
+
+    for i in range(args.num_layers):
+        j = 3 * i
+        layer_name = f"g_layer_{i}"
+
+        getattr(model.gnn.gnn, f"module_{j}").register_forward_hook(
+            getAttentionHook(f"g_layer_{i}", mode="g")
         )
-        ATTENTION["s"].append([])
+        ATTENTION[layer_name] = []
 
-    # temporal attention
-    for i in range(len(model.temporal_model.layers)):
-        model.temporal_model.layers[i].self_attn.register_forward_hook(
-            getAttentionHook(f"t_layer_{i}")
+    for i in range(len(model.temporal_layer.layers)):
+        layer_name = f"t_layer_{i}"
+        model.temporal_layer.layers[i].self_attn.register_forward_hook(
+            getAttentionHook(layer_name, mode="t")
         )
-        ATTENTION["t"].append([])
+        ATTENTION[layer_name] = []
 
 
-def rollout(attentions, discard_ratio, head_fusion, has_cls_token=True):
-    # attentions: [A_l1, A_l2, ..., A_ln]
-    # A_li: [bs, num_heads, num_token, num_token]
-    bs, _, num_token = attentions[0].shape[:3]
-    device = attentions[0].device
-    result = torch.eye(num_token).to(device)
+def rollout_graph(edges_to_preserve, attentions, discard_ratio, head_fusion):
+    # attentions: List of tensor of shape [num_edges, num_heads]
+
+    result = torch.ones(attentions[0].size(0))
+    edges_to_preserve = torch.tensor(edges_to_preserve).reshape(-1, 1)
 
     with torch.no_grad():
         for attention in attentions:
@@ -166,143 +220,229 @@ def rollout(attentions, discard_ratio, head_fusion, has_cls_token=True):
             else:
                 raise "Attention head fusion type Not supported"
 
+            # attention_heads_fused: [num_edges]
+
+            # Drop the lowest attentions, but
+            # don't drop the class token
+            # flat = attention_heads_fused.view(bs, -1)
+            _, indices = attention_heads_fused.topk(
+                int(attention_heads_fused.size(-1) * discard_ratio), -1, False
+            )
+
+            # remove hands_indicies from indices
+            indices = indices[
+                ~torch.any(indices.unsqueeze(0) == edges_to_preserve, dim=0)
+            ]
+
+            attention_heads_fused[indices] = 0
+
+            result = attention_heads_fused * result
+
+    return result
+
+
+def rollout_temporal(attentions, discard_ratio, head_fusion, has_cls_token=True):
+    # attentions: [A_l1, A_l2, ..., A_ln]
+    # A_li: [bs, num_heads, num_token, num_token] 
+    bs, _, num_token = attentions[0].shape[:3]
+    result = torch.eye(num_token)
+
+    with torch.no_grad():
+        for attention in attentions:
+            if head_fusion == "mean":
+                attention_heads_fused = attention.mean(axis=1)
+            elif head_fusion == "max":
+                attention_heads_fused = attention.max(axis=1)[0]
+            elif head_fusion == "min":
+                attention_heads_fused = attention.min(axis=1)[0]
+            else:
+                raise "Attention head fusion type Not supported"
+            
+
             # Drop the lowest attentions, but
             # don't drop the class token
             flat = attention_heads_fused.view(bs, -1)
-            _, indices = flat.topk(int(flat.size(-1) * discard_ratio), -1, False)
+            _, indices = flat.topk(int(flat.size(-1)*discard_ratio), -1, False)
 
             row_indices = torch.arange(bs).unsqueeze(1).expand(bs, indices.shape[1])
 
-            if (
-                has_cls_token
-            ):  # to preserve the class token (but this is actually cls-cls attention ???)
+            if has_cls_token: # to preserve the class token (but this is actually cls-cls attention ???)
                 first_col = copy.deepcopy(flat[:, 0])
                 flat[row_indices, indices] = 0
                 flat[:, 0] = first_col
             else:
                 flat[row_indices, indices] = 0
 
-            Identity = torch.eye(attention_heads_fused.size(-1)).to(device)
-            a = (attention_heads_fused + 1.0 * Identity) / 2
+
+            Identity = torch.eye(attention_heads_fused.size(-1))
+            a = (attention_heads_fused + 1.0*Identity)/2
             a = a / a.sum(dim=-1, keepdim=True)
 
             result = torch.matmul(a, result)
-
+    
     return result
 
 
-def get_attentioned_image(images, attns):
-    # Look at the total attention between the class token,
-    # and the image patches
-    im_size = images[0].shape[0]
-    attn_size = np.sqrt(attns.shape[-1]).astype(np.int32)
-    repeat_count = im_size // attn_size
 
-    ret = []
-    for img, attn in zip(images, attns):
-
-        # Patches are visible
-        mask = attn[0, 1:].reshape(attn_size, attn_size).numpy()
-        mask = np.clip(mask / np.max(mask) * 255, 0, 255).astype(np.uint8)
-        mask = mask.repeat(repeat_count, axis=0).repeat(repeat_count, axis=1)  # 224x224
-        mask = cv2.applyColorMap(mask, cv2.COLORMAP_JET)[:, :, ::-1]
-        combined = cv2.addWeighted(img.numpy(), 0.4, mask, 0.6, 0)
-
-        # Alternative: Patches are kinda blurred
-        # mask = mask / np.max(mask)
-        # mask = cv2.resize(mask, (224, 224))
-        # img = np.float32(img) / 255
-        # heatmap = cv2.applyColorMap(np.uint8(255 * mask), cv2.COLORMAP_JET)[:, :, ::-1]
-        # heatmap = np.float32(heatmap) / 255
-        # combined = heatmap + np.float32(img)
-        # combined = combined / np.max(combined)
-        # combined = np.uint8(255 * combined)
-
-        ret.append(combined)
-
-    return ret
+def get_attn_of_an_edge(attn, edge_index, src_obj, trg_obj):
+    if [src_obj, trg_obj] in edge_index:
+        idx = edge_index.index([src_obj, trg_obj])
+        return attn[idx]
+    else:
+        return 0
 
 
 def viz_attn(
     save_dir,
-    spacial_rollout_attn,
-    temporal_rollout_attn,
+    graph_rollout_attn,
     original_images,
     preds,
     labels,
     names,
+    sample,
+    edge_index,
 ):
-    # There are 2N samples (N train, N test), save each of them separately
-    # For each sample, there are 16 frames
-    # There is two hand for each hand
-    selected_frame_idx = 8
-    bs_sl, num_tokens, _ = (
-        spacial_rollout_attn.shape
-    )  # [bs*num_frames, num_token, num_token]
-    bs = bs_sl // SEQ_LEN
-    spacial_rollout_attn = spacial_rollout_attn.reshape(
-        bs, SEQ_LEN, num_tokens, num_tokens
+    selected_frame_idx = 5
+    edge_index = edge_index.t().tolist()
+
+    # For each hand there will be one table with size of NxT.
+    # N is the number of objects available in the scene (in T frame)
+    # and T is the number of frames in the sequence.
+
+    # First find the number of objects in the scene
+    objects = sample.x.argmax(1)
+    node_counts = sample.node_counts
+    prev = 0
+    N = []
+
+    # The following two list of lists are used to keep track of the objects in the mono graph
+    seperated = []  # To keep track of the objects with a type and unique name
+    seperated_idx = []  # To keep track of the objects indecies in the mono graph
+
+    for nc in node_counts:  # iter over each graph
+        seperated.append([])
+        local_list = []
+        seperated_idx.append([i for i in range(prev, prev + nc)])
+        for obj in objects[
+            prev : prev + nc
+        ].tolist():  # iter over each object in the graph
+            if obj not in local_list:
+                seperated[-1].append(f"{OBJECTS[obj]}_0")
+                local_list.append(obj)
+            else:
+                seperated[-1].append(f"{OBJECTS[obj]}_{local_list.count(obj)}")
+        prev += nc
+
+    # N: List of unique objects in the scene
+    N = list(set([item for sublist in seperated for item in sublist]))  #
+    N = natsorted(N)
+
+    # Construct the attention tables
+    target_left_idx = (
+        (objects == OBJECTS.index("LeftHand")).nonzero()[selected_frame_idx]
+    ).item()
+    target_right_idx = (
+        (objects == OBJECTS.index("RightHand")).nonzero()[selected_frame_idx]
+    ).item()
+
+    left_attns = np.zeros((len(N), IN_LEN))
+    right_attns = np.zeros((len(N), IN_LEN))
+
+    # iter over each object and find the corresponding attention, and fill the table
+    # with the attention values
+
+    # Higly Very Immensely inefficient
+    for i, graph_i in enumerate(seperated_idx):
+        for j, obj in enumerate(graph_i):
+            # obj: index of the object in the graph
+
+            # obj_type_id: corresponding row in the attention table
+            obj_type_id = N.index(seperated[i][j])
+
+            # left hand
+            left_attns[obj_type_id, i] = get_attn_of_an_edge(
+                graph_rollout_attn, edge_index, obj, target_left_idx
+            )
+
+            # right hand
+            right_attns[obj_type_id, i] = get_attn_of_an_edge(
+                graph_rollout_attn, edge_index, obj, target_right_idx
+            )
+
+    # for obj_i, obj_j in edge_index:
+    #     # left hand
+    #     left_attns[N.index(f"{OBJECTS[obj_j]}_{seperated[obj_i].count(OBJECTS[obj_j])}"), obj_i] = get_attn_of_an_edge(graph_rollout_attn, edge_index, obj_i, target_left_idx)
+
+    #     # right hand
+    #     right_attns[N.index(f"{OBJECTS[obj_j]}_{seperated[obj_i].count(OBJECTS[obj_j])}"), obj_i] = get_attn_of_an_edge(graph_rollout_attn, edge_index, obj_i, target_right_idx)
+
+    # Normalize the attention tables
+    max_val = max(left_attns.max(), right_attns.max())
+    left_attns = left_attns / max_val
+    right_attns = right_attns / max_val
+
+    pL, pR = preds[selected_frame_idx]
+    tL, tR = labels[selected_frame_idx]
+    pL, pR, tL, tR = (
+        ACTIONS[pL][:2].upper(),
+        ACTIONS[pR][:2].upper(),
+        ACTIONS[tL][:2].upper(),
+        ACTIONS[tR][:2].upper(),
     )
 
-    pred_left, pred_right = torch.split(preds, 2, dim=0)
+    # Plot the attention tables
+    fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+    ax[0].imshow(left_attns, cmap="hot", interpolation="nearest", vmin=0, vmax=1)
+    # fig.colorbar(ax[0].imshow(left_attns, cmap="hot", interpolation="nearest", vmin=0, vmax=1), ax=ax[0])
+    ax[0].set_title(f"Left F{selected_frame_idx} p({pL}) g({tL})")
+    ax[0].set_yticks(np.arange(len(N)))
+    ax[0].set_yticklabels(N)
+    ax[0].set_xticks(np.arange(IN_LEN))
+    ax[0].set_xticklabels(np.arange(IN_LEN) + 1)
 
-    for i in range(len(names)):  # for each sample in the batch
+    # ax[1].imshow(right_attns, cmap="hot", interpolation="nearest")
+    fig.colorbar(
+        ax[1].imshow(right_attns, cmap="hot", interpolation="nearest", vmin=0, vmax=1),
+        ax=ax[1],
+    )
+    ax[1].set_title(f"Right F{selected_frame_idx} p({pR}) g({tR})")
+    ax[1].set_yticks(np.arange(len(N)))
+    ax[1].set_yticklabels(N)
+    ax[1].set_xticks(np.arange(IN_LEN))
+    ax[1].set_xticklabels(np.arange(IN_LEN) + 1)
 
-        s_attn = spacial_rollout_attn[i]  # [SEQ_LEN, num_token, num_token]
-        t_attn = temporal_rollout_attn[i]  # [SEQ_LEN, SEQ_LEN]
-        t_attn = t_attn[selected_frame_idx]  # [SEQ_LEN]
-        t_attn = (t_attn * 100).to(torch.long).tolist()
+    plt.tight_layout()
+    plt.savefig(opj(save_dir, f"{names}_attention_tables.png"))
+    plt.close()
 
-        original = original_images[i]  # [SEQ_LEN, im_size, im_size, 3]
+    # TODO images?
 
-        pl_str = [ACTIONS[p][:2] for p in pred_left[i]]
-        pr_str = [ACTIONS[p][:2] for p in pred_right[i]]
 
-        gtl_str = [ACTIONS[p][:2] for p in labels[i][:, 0]]
-        gtr_str = [ACTIONS[p][:2] for p in labels[i][:, 1]]
 
-        # pl_str = pred_left[i]
-        # pr_str = pred_right[i]
+def get_edges_of_hands(sample, edge_index):
+    # get index of hands in the graph
+    # and find the index of edges that are connected to hands
+    left_idx = OBJECTS.index("LeftHand")
+    right_idx = OBJECTS.index("RightHand")
 
-        # gtl_str = labels[i][:, 0]
-        # gtr_str = labels[i][:, 1]
+    hands = torch.logical_or(
+        sample.x.argmax(1) == right_idx, sample.x.argmax(1) == left_idx
+    ).nonzero()
+    assert hands.shape == (2, 1)
 
-        subtitles = [
-            f"A{t_attn[j]} t({gtl_str[j]}, {gtr_str[j]}), p({pl_str[j]}, {pr_str[j]})"
-            for j in range(16)
-        ]
+    edge_index = edge_index.t().tolist()
+    edges_to_preserve = []
+    for idx, (i, j) in enumerate(edge_index):
+        if i in hands or j in hands:
+            edges_to_preserve.append(idx)
 
-        n = names[i]
-
-        s_attn_imgs = get_attentioned_image(original, s_attn)
-
-        fig_size = np.ceil(np.sqrt(SEQ_LEN)).astype(np.int32)
-
-        fig, axes = plt.subplots(
-            fig_size, fig_size, figsize=(fig_size * 3, fig_size * 3)
-        )
-        axes = axes.flatten()
-
-        for idx, (ax, img, subtitle) in enumerate(zip(axes, s_attn_imgs, subtitles)):
-            if idx == selected_frame_idx:
-                # put a frame around the selected frame
-                background = np.ones(
-                    (img.shape[0] + 10, img.shape[1] + 10, 3), dtype=np.uint8
-                ) * np.array([255, 0, 0])
-                background[5:-5, 5:-5] = img
-                img = background
-
-            ax.imshow(img)
-            ax.set_title(subtitle)
-            ax.axis("off")
-
-        # plt.title(f"Selected frame: {selected_frame_idx}th frame")
-        plt.tight_layout()
-        plt.savefig(opj(save_dir, f"attn_{n}.png"))
-        plt.close()
+    return edges_to_preserve
 
 
 def main(args):
+    global IN_LEN
+    IN_LEN = args.temporal_length
+
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -316,7 +456,8 @@ def main(args):
     save_dir = opj("attention_maps", args.save_dir)
     os.makedirs(save_dir, exist_ok=True)
 
-    model = make_model(args, device)
+    model = make_model(args).to(device)
+
     if args.model_path is not None:
         model.load_state_dict(torch.load(args.model_path)["model_state_dict"])
     else:
@@ -331,35 +472,40 @@ def main(args):
     # it may not fit to the memory
     preds = []
     for sample in samples:
-        preds.append(
-            model(sample.unsqueeze(0).to(device)).detach().cpu().argmax(axis=-1)
+        sample = [Batch.from_data_list([s]).to(device) for s in sample]
+        preds.append(model(sample).detach().cpu().argmax(axis=-1))
+
+    num_data = len(samples)
+
+    # indecies of edges that are connected to hands (preserve them in the attention during discard)
+    flattened_graphs = [g for sample in samples for g in sample]
+    edges_to_preserve = [
+        get_edges_of_hands(g, ei)
+        for g, ei in zip(flattened_graphs, ATTENTION["edge_indicies"])
+    ]
+
+    # Each sample processed separately
+    for i in range(num_data):
+
+        graph_rollout_attn = []
+        
+        for j in range(IN_LEN):
+            attentions = [ATTENTION[f"g_layer_{k}"][i*10+ j] for k in range(args.num_layers)]
+            edge_index = ATTENTION["edge_indicies"][i*10+j]
+            e2p = edges_to_preserve[i*10+j]
+
+            graph_rollout_attn.append(rollout_graph(e2p, attentions, args.discard_ratio, args.fuse_method))
+
+        viz_attn(
+            save_dir,
+            graph_rollout_attn,
+            originals[i],
+            preds[i],
+            labels[i],
+            names[i],
+            samples[i],
+            edge_index,
         )
-
-    preds = torch.cat(preds, dim=0)
-
-    for i in range(len(ATTENTION["s"])):
-        ATTENTION["s"][i] = torch.cat(ATTENTION["s"][i], dim=0)
-    for i in range(len(ATTENTION["t"])):
-        ATTENTION["t"][i] = torch.cat(ATTENTION["t"][i], dim=0)
-
-    spatial_rollout_attn = rollout(
-        ATTENTION["s"], args.discard_ratio, args.fuse_method
-    )  # her bir vid için 16 tane ?
-    # spatial_rollout_attn: [bs*num_frames, num_token, num_token]
-
-    temporal_rollout_attn = rollout(
-        ATTENTION["t"], args.discard_ratio, args.fuse_method, False
-    )
-    # temporal_rollout_attn: [bs, num_token, num_token]
-    viz_attn(
-        save_dir,
-        spatial_rollout_attn,
-        temporal_rollout_attn,
-        originals,
-        preds,
-        labels,
-        names,
-    )
 
 
 if __name__ == "__main__":

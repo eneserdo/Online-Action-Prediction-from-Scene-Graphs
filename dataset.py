@@ -265,13 +265,9 @@ def _get_graph(relation_json, object_json, vf_path, gt_actions, frame, subject, 
 
     edge_index = []
     edge_index_mirrored = []
-    edge_index = []
-    edge_index_mirrored = []
 
     num_possible_relations = len(curr_objects)*(len(curr_objects)-1)
 
-    edge_attr = torch.zeros((int(num_possible_relations), len(RELATIONS)))
-    edge_attr_mirrored = torch.zeros((int(num_possible_relations), len(RELATIONS)))
     edge_attr = torch.zeros((int(num_possible_relations), len(RELATIONS)))
     edge_attr_mirrored = torch.zeros((int(num_possible_relations), len(RELATIONS)))
 
@@ -337,14 +333,9 @@ def _get_graph(relation_json, object_json, vf_path, gt_actions, frame, subject, 
 
         oi = relation["object_index"]
         si = relation["subject_index"]
-        oi = relation["object_index"]
-        si = relation["subject_index"]
 
         edge=[oi, si]
-        edge=[oi, si]
 
-        if edge not in edge_index:
-            edge_index.append(edge)
         if edge not in edge_index:
             edge_index.append(edge)
 
@@ -374,12 +365,7 @@ def _get_graph(relation_json, object_json, vf_path, gt_actions, frame, subject, 
     edge_attr_mirrored=edge_attr_mirrored[:len(edge_index_mirrored)]
     edge_index_mirrored=torch.tensor(edge_index_mirrored, dtype=torch.long)
     # # # # # # # # # # # #
-    # # # Mirrorred # # #
-    edge_attr_mirrored=edge_attr_mirrored[:len(edge_index_mirrored)]
-    edge_index_mirrored=torch.tensor(edge_index_mirrored, dtype=torch.long)
-    # # # # # # # # # # # #
 
-    left_act, right_act = gt_actions
     left_act, right_act = gt_actions
 
     # subject, task, take were just added for debugging purposes, and will be removed
@@ -397,9 +383,6 @@ def _get_graph(relation_json, object_json, vf_path, gt_actions, frame, subject, 
         # y_mirrored[1, -1]=int("2"+graph_str)
 
 
-    if right_act != -1:
-        y[1, right_act] = 1
-        y_mirrored[0, right_act] = 1
     if right_act != -1:
         y[1, right_act] = 1
         y_mirrored[0, right_act] = 1
@@ -1094,7 +1077,7 @@ def get_bimanual_dataset_splits(*, root: str, process_it_anyway: bool, test_subj
     #                    "test":{"vid":{}, "sample":{}},
     #                    "val":{"vid":{}, "sample":{}}}
     
-    # path_mapping = {"train": {}, "test": {}, "val": {}} # [split]: idx -> path
+    # path_mapping = {"train": {}, "test": {}, "val": {}} # [split]: idx -> path, global_idx
 
     processed_dir = get_processing_dir(root, temporal_length, downsample, use_vf, monograph)
 

@@ -15,7 +15,7 @@ import torch
 import cv2
 
 from models import make_model
-from dataset import get_bimanual_dataset_splits, ACTIONS, get_processing_dir, OBJECTS, CLIP_LEN, STRIDE
+from dataset import get_bimanual_dataset_splits, ACTIONS, get_processing_dir, OBJECTS
 from utils import arg_parser_viz_attn as arg_parser
 
 import torch_geometric.nn as g_nn
@@ -30,10 +30,11 @@ matplotlib.use("Agg")
 # To check for NaNs in the gradients
 torch.autograd.set_detect_anomaly(True)
 
-IN_LEN = CLIP_LEN//STRIDE
+IN_LEN = None # will be set later
+
 # TRAIN_SUBSET = [150, 500, 1500]
 # VAL_SUBSET = [50, 100, 200]
-TRAIN_SUBSET = [21018]
+TRAIN_SUBSET = [150]
 TEST_SUBSET = [50]
 
 IMG_DATASET_DIR = ...
@@ -42,6 +43,8 @@ def get_imgs(sb, task, take, sfr, efr, mir, downsample):
     return None
 
 def get_sample_batch(args):
+    
+    assert args.monograph, "This script is only for monograph"
 
     train_set, test_set, val_set = get_bimanual_dataset_splits(
         root=args.root,
@@ -71,60 +74,56 @@ def get_sample_batch(args):
     # TODO load original images
 
     for i in TRAIN_SUBSET:
-        _, graph = train_set[i]
+        global_idx, graph = train_set[i]
 
         samples.append(graph)
-        labels.append(graph.y)
+        labels.append(graph.y.argmax(-1))
 
-        sb, task, take, sfr, efr, mir = dataset_mapping["train"]["sample"][i]
+        sb, task, take, sfr, efr, mir = dataset_mapping["train"]["sample"][global_idx]
         original.append(get_imgs(sb, task, take, sfr, efr, mir, args.downsample))
         names.append(f"{sb}{task}{take}_{sfr}_{efr}_{mir}")
 
     for i in TEST_SUBSET:
-        _, graph = train_set[i]
+        global_idx, graph = test_set[i]
 
         samples.append(graph)
-        labels.append(graph.y)
+        labels.append(graph.y.argmax(-1))
 
-        sb, task, take, sfr, efr, mir = dataset_mapping["test"]["sample"][i]
+        sb, task, take, sfr, efr, mir = dataset_mapping["test"]["sample"][global_idx]
         original.append(get_imgs(sb, task, take, sfr, efr, mir, args.downsample))
         names.append(f"{sb}{task}{take}_{sfr}_{efr}_{mir}")
 
     return samples, labels, names, original
 
-# TODO assert that in same network, edge indices are the same
+
 ATTENTION = {"edge_indicies": []}  # {l1: [s1_attn, ...], ..., ln: [...]}
 # li : layer i
 # si_attn: attention of sample j
-
+# CHECKME: Keeping the edge indicies might be unnecessary and redundant
 
 def getAttentionHook(layer_name):
-    # print(f"Hook for {name} is set")
     def hook(model, input, output):
         assert isinstance(model, g_nn.TransformerConv)
 
         edge_indicies, attn = output[1]
+        # attn: num_edges x num_heads
+        # edge_indicies: 2 x num_edges
+        # edge_indicies[:, i]: [source, target] of the i-th edge
+        # sum of attentions to target is 1
 
         ATTENTION[layer_name].append(attn.detach().cpu())
 
         if layer_name == "g_layer_0":
             ATTENTION["edge_indicies"].append(edge_indicies.detach().cpu())
         
+        # Just to be sure
         if layer_name == "g_layer_1":
             assert torch.all(edge_indicies.cpu() == ATTENTION["edge_indicies"][-1])
-        
-
-        # prev_ei = ATTENTION.get("edge_indices", None)
-        # if prev_ei is None:
-        #     ATTENTION["edge_indices"] = edge_indicies
-        # else:
-        #     assert torch.all(prev_ei == edge_indicies)
 
     return hook
 
 
 def set_hooks(model):
-    # spatial attention
     for i in range(args.num_layers):
         j=3*i
         layer_name = f"g_layer_{i}"
@@ -170,36 +169,13 @@ def rollout_graph(edges_to_preserve, attentions, discard_ratio, head_fusion):
     return result
 
 
-def get_attentioned_image(images, attns):
-    # Look at the total attention between the class token,
-    # and the image patches
-    im_size = images[0].shape[0]
-    attn_size = np.sqrt(attns.shape[-1]).astype(np.int32)
-    repeat_count = im_size // attn_size
 
-    ret = []
-    for img, attn in zip(images, attns):
-
-        # Patches are visible
-        mask = attn[0, 1:].reshape(attn_size, attn_size).numpy()
-        mask = np.clip(mask / np.max(mask) * 255, 0, 255).astype(np.uint8)
-        mask = mask.repeat(repeat_count, axis=0).repeat(repeat_count, axis=1)  # 224x224
-        mask = cv2.applyColorMap(mask, cv2.COLORMAP_JET)[:, :, ::-1]
-        combined = cv2.addWeighted(img.numpy(), 0.4, mask, 0.6, 0)
-
-        # Alternative: Patches are kinda blurred
-        # mask = mask / np.max(mask)
-        # mask = cv2.resize(mask, (224, 224))
-        # img = np.float32(img) / 255
-        # heatmap = cv2.applyColorMap(np.uint8(255 * mask), cv2.COLORMAP_JET)[:, :, ::-1]
-        # heatmap = np.float32(heatmap) / 255
-        # combined = heatmap + np.float32(img)
-        # combined = combined / np.max(combined)
-        # combined = np.uint8(255 * combined)
-
-        ret.append(combined)
-
-    return ret
+def get_attn_of_an_edge(attn, edge_index, src_obj, trg_obj):
+    if [src_obj, trg_obj] in edge_index:
+        idx = edge_index.index([src_obj, trg_obj])
+        return attn[idx]
+    else:
+        return 0
 
 
 def viz_attn(
@@ -213,6 +189,7 @@ def viz_attn(
     edge_index,
 ):
     selected_frame_idx = 5
+    edge_index = edge_index.t().tolist()
 
     # For each hand there will be one table with size of NxT. 
     # N is the number of objects available in the scene (in T frame) 
@@ -224,8 +201,9 @@ def viz_attn(
     prev = 0
     N = []
     
-    seperated = []
-    seperated_idx = []
+    # The following two list of lists are used to keep track of the objects in the mono graph
+    seperated = [] # To keep track of the objects with a type and unique name
+    seperated_idx = [] # To keep track of the objects indecies in the mono graph
 
     for nc in node_counts: # iter over each graph
         seperated.append([])
@@ -233,13 +211,13 @@ def viz_attn(
         seperated_idx.append([i for i in range(prev, prev+nc)])
         for obj in objects[prev:prev+nc].tolist(): # iter over each object in the graph
             if obj not in local_list:
-                seperated[-1].append(f"{obj}_0")
+                seperated[-1].append(f"{OBJECTS[obj]}_0")
                 local_list.append(obj)
             else:
-                seperated[-1].append(f"{obj}_{local_list.count(obj)}")
+                seperated[-1].append(f"{OBJECTS[obj]}_{local_list.count(obj)}")
         prev += nc
     
-    # Union seperated lists is N
+    # N: List of unique objects in the scene
     N = list(set([item for sublist in seperated for item in sublist])) # 
     N = natsorted(N)
 
@@ -253,31 +231,54 @@ def viz_attn(
     # iter over each object and find the corresponding attention, and fill the table
     # with the attention values
 
+    # Higly Very Immensely inefficient
     for i, graph_i in enumerate(seperated_idx):
         for j, obj in enumerate(graph_i):
+            # obj: index of the object in the graph
+
+            # obj_type_id: corresponding row in the attention table
+            obj_type_id = N.index(seperated[i][j])
+
             # left hand
-            attn_idx = edge_index.index(obj, target_left_idx) # or vice versa, or right hand    
-            left_attns[j, i] = graph_rollout_attn[attn_idx] # CHECKME
+            left_attns[obj_type_id, i] = get_attn_of_an_edge(graph_rollout_attn, edge_index, obj, target_left_idx)
 
             # right hand
-            attn_idx = edge_index.index(obj, target_right_idx) # or vice versa, or right hand
-            right_attns[j, i] = graph_rollout_attn[attn_idx] # CHECKME
+            right_attns[obj_type_id, i] = get_attn_of_an_edge(graph_rollout_attn, edge_index, obj, target_right_idx)
+
+
+    # for obj_i, obj_j in edge_index:
+    #     # left hand
+    #     left_attns[N.index(f"{OBJECTS[obj_j]}_{seperated[obj_i].count(OBJECTS[obj_j])}"), obj_i] = get_attn_of_an_edge(graph_rollout_attn, edge_index, obj_i, target_left_idx)
+
+    #     # right hand
+    #     right_attns[N.index(f"{OBJECTS[obj_j]}_{seperated[obj_i].count(OBJECTS[obj_j])}"), obj_i] = get_attn_of_an_edge(graph_rollout_attn, edge_index, obj_i, target_right_idx)
+
+    # Normalize the attention tables
+    max_val = max(left_attns.max(), right_attns.max())
+    left_attns = left_attns / max_val
+    right_attns = right_attns / max_val
+
+    pL, pR = preds[selected_frame_idx]
+    tL, tR = labels[selected_frame_idx]
+    pL, pR, tL, tR = ACTIONS[pL][:2].upper(), ACTIONS[pR][:2].upper(), ACTIONS[tL][:2].upper(), ACTIONS[tR][:2].upper()
 
     # Plot the attention tables
-    fig, ax = plt.subplots(2, 1, figsize=(10, 10))
-    ax[0].imshow(left_attns, cmap="hot", interpolation="nearest")
-    ax[0].set_title(f"Left P{preds} L{labels}")
+    fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+    ax[0].imshow(left_attns, cmap="hot", interpolation="nearest", vmin=0, vmax=1)
+    # fig.colorbar(ax[0].imshow(left_attns, cmap="hot", interpolation="nearest", vmin=0, vmax=1), ax=ax[0])
+    ax[0].set_title(f"Left F{selected_frame_idx} p({pL}) g({tL})")
     ax[0].set_yticks(np.arange(len(N)))
     ax[0].set_yticklabels(N)
     ax[0].set_xticks(np.arange(IN_LEN))
-    ax[0].set_xticklabels(np.arange(IN_LEN))
+    ax[0].set_xticklabels(np.arange(IN_LEN)+1)
 
-    ax[1].imshow(right_attns, cmap="hot", interpolation="nearest")
-    ax[1].set_title(f"Right P{preds} L{labels}")
+    # ax[1].imshow(right_attns, cmap="hot", interpolation="nearest")
+    fig.colorbar(ax[1].imshow(right_attns, cmap="hot", interpolation="nearest", vmin=0, vmax=1), ax=ax[1])
+    ax[1].set_title(f"Right F{selected_frame_idx} p({pR}) g({tR})")
     ax[1].set_yticks(np.arange(len(N)))
     ax[1].set_yticklabels(N)
     ax[1].set_xticks(np.arange(IN_LEN))
-    ax[1].set_xticklabels(np.arange(IN_LEN))
+    ax[1].set_xticklabels(np.arange(IN_LEN)+1)
 
     plt.tight_layout()
     plt.savefig(opj(save_dir, f"{names}_attention_tables.png"))
@@ -286,20 +287,6 @@ def viz_attn(
     # TODO images?
 
     
-
-
-def split_monograph(monograph: Data) -> List[List[int]]:
-    # Monograph -> List of List objects
-    
-    objects = monograph.x.argmax(1)
-    node_counts = monograph.node_counts
-    obj_seperated = []
-    prev = 0
-    for nc in node_counts:
-        obj_seperated.append(objects[prev:prev+nc].tolist())
-        prev += nc
-    
-    return obj_seperated
 
 
 def get_edges_of_hands(sample, edge_index):
@@ -321,6 +308,9 @@ def get_edges_of_hands(sample, edge_index):
 
 
 def main(args):
+    global IN_LEN
+    IN_LEN = args.temporal_length
+
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -355,11 +345,12 @@ def main(args):
 
     num_data = len(samples)
 
-    # Each sample processed separately
+    # indecies of edges that are connected to hands (preserve them in the attention during discard)
     edges_to_preserve = [get_edges_of_hands(sample, edge_index) for sample, edge_index in zip(samples, ATTENTION["edge_indicies"])]
 
+    # Each sample processed separately
     for i in range(num_data):
-        attentions = [ATTENTION[f"g_layer_{j}"][i] for j in range(args.num_layers)]
+        attentions = [ATTENTION[f"g_layer_{j}"][i] for j in range(args.num_layers)] 
         edge_index = ATTENTION["edge_indicies"][i]
 
         graph_rollout_attn = rollout_graph(edges_to_preserve[i], attentions, args.discard_ratio, args.fuse_method)
@@ -370,3 +361,4 @@ def main(args):
 if __name__ == "__main__":
     args = arg_parser()
     main(args)
+
