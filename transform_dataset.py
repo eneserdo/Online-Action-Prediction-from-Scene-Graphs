@@ -63,6 +63,7 @@ def transform_datapoint(datapoint_path):
             monograph_edge_attr.append(attribute)
         
     n_spatial_attr = monograph_edge_attr[0].shape[0] - 1
+    temporal_edge_attr = torch.tensor([0]*n_spatial_attr + [1])
 
     # Edges between nodes of consecutive graphs
     for graph_idx in range(1, len(data)-1):
@@ -92,7 +93,10 @@ def transform_datapoint(datapoint_path):
                     g_cnode = local2global_idx[(graph_idx, cnidx)]
 
                     monograph_edge_index.append([g_pnode, g_cnode])
-                    monograph_edge_attr.append(torch.tensor([0]*n_spatial_attr + [1]))
+                    monograph_edge_attr.append(temporal_edge_attr)
+                    # symmetric
+                    monograph_edge_index.append([g_cnode, g_pnode])
+                    monograph_edge_attr.append(temporal_edge_attr)
 
 
     monograph_edge_index = torch.tensor(monograph_edge_index).t().contiguous()
