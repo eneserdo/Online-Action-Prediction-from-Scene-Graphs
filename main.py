@@ -237,11 +237,11 @@ if __name__ == "__main__":
                                                                use_vf=args.use_vf,
                                                                monograph=args.monograph)
 
-    train_loader = DataLoader(train_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker, generator=torch_generator)
+    train_loader = DataLoader(train_set, args.batch_size, num_workers=5, shuffle=True, worker_init_fn=seed_worker, generator=torch_generator)
     
-    test_loader = DataLoader(test_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker, generator=torch_generator)
+    test_loader = DataLoader(test_set, args.batch_size, num_workers=5, shuffle=True, worker_init_fn=seed_worker, generator=torch_generator)
 
-    val_loader = DataLoader(val_set, args.batch_size, num_workers=3, shuffle=True, worker_init_fn=seed_worker, generator=torch_generator)
+    val_loader = DataLoader(val_set, args.batch_size, num_workers=5, shuffle=True, worker_init_fn=seed_worker, generator=torch_generator)
 
     training_len = len(train_set)
     val_len = len(val_set)

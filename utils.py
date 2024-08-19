@@ -1108,3 +1108,23 @@ def wandb_logging(wandb, metric_dict, epoch, mode, whole_mode=False):
         plt3 = plot_conf_mat(metric_dict["cm_top3_once"], f"{mode}_CM_top3_e{epoch:0>4}", do_return_plot=True)
         wandb.log({f"{mode}/confusion_matrix": {'top3': wandb.Image(plt3)}})
         plt3.close()
+
+from torch_geometric.data import Batch
+
+def get_attn_dist_loss(graph_list: list[Batch]):
+    # Read attentions.
+    # Calculate the distance between objects.
+
+    for graph_batch in graph_list: # temporal
+        list_of_graphs = graph_batch.to_data_list()
+        for graph in list_of_graphs:
+            distances = ... # distance between each hand and the object in the graph
+            # graph-wise normalize the distances
+            
+            attns = ...
+            
+            # 
+            
+
+    # graphList-> to list of graphs 
+    ...

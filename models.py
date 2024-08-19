@@ -215,7 +215,7 @@ class GraphModule(nn.Module): # neden g_nn dan inherit değil ?
         self.return_attention = return_attention
 
         if use_embedding:
-            self.embedding = torch.nn.Embedding(in_channels, in_channels)
+            self.embedding = torch.nn.Embedding(in_channels, in_channels) # CHECKME: Second arg might be different than in_channels
 
 
         assert norm_layer != "none", "norm_layer should not be none"
@@ -289,7 +289,7 @@ class GraphModule(nn.Module): # neden g_nn dan inherit değil ?
         x, edge_attr, edge_index, batch = dataBatch.x, dataBatch.edge_attr, dataBatch.edge_index, dataBatch.batch
 
         if hasattr(dataBatch, "pos"):
-            pos_3d = dataBatch.pos
+            pos_3d = dataBatch.pos.to(torch.float32) # somehow it is float64
 
         if self.edge_dropout != 0.0:
             edge_index, edge_mask = dropout_edge(edge_index, p=self.edge_dropout)
