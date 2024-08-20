@@ -5,6 +5,7 @@ from math import ceil
 import os
 import random
 import shutil
+from typing import List
 import warnings
 from os.path import join as opj
 
@@ -63,6 +64,9 @@ def arg_parser_base():
     ap.add_argument("--norm_layer", type=str, default="LayerNorm", choices=["BatchNorm", "InstanceNorm", "LayerNorm", "GraphNorm", "PairNorm", "none"], help="Normalization  for GNN layer")
     ap.add_argument("--use_pos", action="store_true", help="Use positions too as node features")
     ap.add_argument("--use_embedding", action="store_true", help="Instead of one-hot encoded node features, use embedding layer")
+    ap.add_argument("--use_pos_edge", action="store_true", help="Use positions too as edge features")
+    ap.add_argument("--use_embedding_edge", action="store_true", help="Instead of one-hot encoded edge features, use embedding layer")
+    ap.add_argument("--dist_threshold", type=float, default=None, help="...")
     
 
     # Model - Temporal part
@@ -1110,21 +1114,76 @@ def wandb_logging(wandb, metric_dict, epoch, mode, whole_mode=False):
         plt3.close()
 
 from torch_geometric.data import Batch
+import torch_geometric.nn as g_nn
 
-def get_attn_dist_loss(graph_list: list[Batch]):
-    # Read attentions.
-    # Calculate the distance between objects.
+ATTENTION = {}
+def set_hooks_for_dist_loss(model):
+    def make_hook_fn(name):
+        def hook(module, input, output):
+            assert isinstance(module, g_nn.TransformerConv)
 
-    for graph_batch in graph_list: # temporal
-        list_of_graphs = graph_batch.to_data_list()
-        for graph in list_of_graphs:
-            distances = ... # distance between each hand and the object in the graph
-            # graph-wise normalize the distances
+            edge_indicies, attn = output[1]
+            # attn: num_edges x num_heads
+            # edge_indicies: 2 x num_edges
+            # edge_indicies[:, i]: [source, target] of the i-th edge
+            # sum of attentions to target is 1
+
+            ATTENTION[name].append(attn)
+
+            if name == "g_layer_0":
+                ATTENTION["edge_indicies"].append(edge_indicies.detach().cpu())
+
+            # Just to be sure
+            # if name == "g_layer_1":
+                # assert torch.all(edge_indicies.cpu() == ATTENTION["edge_indicies"][])
+
+        return hook
+
+    for i in range(len(model.gnn.gnn) // 3):
+        j = 3 * i
+        layer_name = f"g_layer_{i}"
+        getattr(model.gnn.gnn, f"module_{j}").register_forward_hook(make_hook_fn(layer_name))
+        ATTENTION[layer_name] = []
+    
+    ATTENTION["edge_indicies"] = []
+
+
+def get_dists_btw_obj(graph_batch: Batch):
+    list_of_graphs = graph_batch.to_data_list()
+    dists = []
+    for graph in list_of_graphs:
+        for edge in graph.edge_index.T:
+            pos1 = graph.pos[edge[0]]
+            pos2 = graph.pos[edge[1]]
+            dists.append(torch.dist(pos1, pos2))
             
-            attns = ...
+    dists = torch.tensor(dists)    
+    return dists
+
+# def get_attn_dist_loss(graph_list: List[Batch]):
+#     # Read attentions.
+#     # Calculate the distance between objects.
+#     assert len(ATTENTION["edge_indicies"]) == len(ATTENTION["g_layer_0"]) == len(ATTENTION["g_layer_1"]) == 10
+
+#     for graph_batch in graph_list: # temporal
+#         list_of_graphs = graph_batch.to_data_list()
+#         for graph in list_of_graphs:
+#             dists = []
+#             for edge_idx, edge in enumerate(graph.edge_index.T):
+#                 pos1 = graph.pos[edge[0]]
+#                 pos2 = graph.pos[edge[1]]
+#                 dists.append(torch.dist(pos1, pos2))
             
-            # 
+#             dists = torch.tensor(dists)
+#             graph.dists = dists
+#             # graph-wise normalize the distances
+        
+#         batch = Batch.from_data_list(list_of_graphs)
+
+#         attns = ...
+            
+#         # define a loss 
             
 
-    # graphList-> to list of graphs 
-    ...
+#     # graphList-> to list of graphs 
+#     ...

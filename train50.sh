@@ -248,3 +248,9 @@
 
 # python cross_validation.py -g TransformerConv -o Adam -lr 0.001 -wd 0.001 -me 30 --scheduler_step_size 4 --saving_freq 2 --name Beta1_10d3_VF_XL4 -tl 10 --downsample 3 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.15 --use_vf --hidden_channels 96 --out_channels 96 --num_heads1 8 --num_heads2 8 --dim_feedforward 256 --use_global_pooling -bs 32 --dropout 0.05 --num_heads_tr 8 --gpu_id 1
 # sleep 5
+
+python cross_validation.py -g TransformerConv -o Adam -lr 0.001 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 2 --name Alpha -tl 10 --downsample 3 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.15 --weighted_mv auto --gpu_id 1
+sleep 5
+
+python cross_validation.py -g TransformerConv -o Adam -lr 0.001 -wd 0.0005 -me 40 --saving_freq 2 --name Alpha1 -tl 10 --downsample 3 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.15 --weighted_mv auto --gpu_id 1
+sleep 5

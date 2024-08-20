@@ -18,7 +18,7 @@ from dataset import (ACTIONS, OBJECTS, RELATIONS, _get_max_length,
                      get_bimanual_dataset_splits, get_processing_dir)
 from utils import (Metrics, VisIndividualPreds,
                    arg_parser, get_loss_weights, get_minutes, metrics_to_str,
-                   seed_worker, visualize_incorrect_preds, wandb_logging)
+                   seed_worker, set_hooks_for_dist_loss, visualize_incorrect_preds, wandb_logging)
 
 # from torch_geometric.explain import Explainer, AttentionExplainer, ModelConfig
 
@@ -105,8 +105,10 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
         
         label_loss = label_criterion(pred_flattened, gt_flattened)
         
+        # attn_reg = get_attn_dist_loss(data)
+
         # Segmentation is currently removed
-        loss = label_loss
+        loss = label_loss # + attn_reg*args.attn_reg
 
         loss_cumulative += loss.item()
         
@@ -129,8 +131,8 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
         if mode == "test" and args.save_incorrects:
             raise NotImplementedError("save_incorrects may be broken, please check it")
-            visualize_incorrect_preds(pred_top_1, ground_truth, idxes, num_of_samples=4, 
-                                        test_idx_sample_mapping=dataset_mapping["test"]["sample"])
+            # visualize_incorrect_preds(pred_top_1, ground_truth, idxes, num_of_samples=4, test_idx_sample_mapping=dataset_mapping["test"]["sample"])
+        
         # if (step+1)%20==0:
         #     print("20 BATCH ÇALIŞIYOR SADECE")
         #     break
@@ -247,6 +249,8 @@ if __name__ == "__main__":
     val_len = len(val_set)
 
     model = make_model(args).to(device)
+
+    # set_hooks_for_dist_loss(model)
 
     # if True:
     #     checkpoint = torch.load(opj(f"saved_Beta1_10d3_SG_fold{args.test_subject}", "model_epoch0016.pt"))
