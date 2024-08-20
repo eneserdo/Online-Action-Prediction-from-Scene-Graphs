@@ -22,7 +22,7 @@ from torch_geometric.data import Batch, Data
 from torch_geometric.utils import dropout_edge
 
 from dataset import ACTIONS, OBJECTS, RELATIONS
-from utils import (align_embeddings_to_right, flatten_seq,
+from utils import (get_dists_btw_obj, align_embeddings_to_right, flatten_seq,
                    get_filters_for_imbalance, print_warning)
 
 
@@ -190,62 +190,58 @@ class Seq2SeqTransformer(nn.Module):
 
   
 
-class GraphModule(nn.Module): # neden g_nn dan inherit değil ?
-    def __init__(self, *, gnn_type,
-                          in_channels,
-                          hidden_channels,
-                          out_channels,
-                          num_edge_feat,
-                          num_heads: int,
-                          num_layers: int,
-                          filter_it,
-                          use_hand_pooling,
-                          edge_dropout,
-                          dropout,
-                          norm_layer,
-                          use_pos,
-                          use_embedding,
-                          return_attention=False):
+class GraphModule(nn.Module):
+    def __init__(self, args):
         super().__init__()
-        self.filter_it = filter_it
-        self.use_hand_pooling = use_hand_pooling
-        self.edge_dropout = edge_dropout
-        self.use_embedding = use_embedding
-        self.use_pos = use_pos
-        self.return_attention = return_attention
+        self.filter_it = args.filter_it
+        self.use_hand_pooling = args.use_hand_pooling
+        self.edge_dropout = args.edge_dropout
+        self.use_embedding = args.use_embedding
+        self.use_pos = args.use_pos
 
-        if use_embedding:
-            self.embedding = torch.nn.Embedding(in_channels, in_channels) # CHECKME: Second arg might be different than in_channels
+        self.use_embedding_edge = args.use_embedding_edge
+        self.use_pos_edge = args.use_pos_edge
 
+        self.return_attention = args.return_attention
+        self.dist_threshold = args.dist_threshold
 
-        assert norm_layer != "none", "norm_layer should not be none"
-        assert norm_layer != "PairNorm", "PairNorm is not implemented yet"
-        assert num_layers >= 2, "num_layers should be at least 2"
+        if args.use_embedding:
+            self.embedding = torch.nn.Embedding(len(OBJECTS), len(OBJECTS)) # CHECKME: Second arg might be different than in_channels
 
-        NormLayerType = getattr(g_nn, norm_layer)
+        if args.use_embedding_edge:
+            # not reasonable
+            raise NotImplementedError("use_embedding_edge is not implemented yet")
+            # self.edge_embedding = torch.nn.Embedding(2**num_edge_feat, num_edge_feat)
+                    
 
-        if norm_layer == "BatchNorm":
+        assert args.norm_layer != "none", "norm_layer should not be none"
+        assert args.norm_layer != "PairNorm", "PairNorm is not implemented yet"
+        assert args.num_layers >= 2, "num_layers should be at least 2"
+
+        NormLayerType = getattr(g_nn, args.norm_layer)
+
+        if args.norm_layer == "BatchNorm":
             bn_transfer_string = "x -> x"
         else:
             bn_transfer_string = "x, batch -> x"
 
-        hc_nh = hidden_channels*num_heads
+        hc_nh = args.hidden_channels*args.num_heads
 
         
         
-        if return_attention:
-            if gnn_type in ["TransformerConv", "GATv2Conv"]:
+        if args.return_attention:
+            if args.gnn_type in ["TransformerConv", "GATv2Conv"]:
                 # extra_str = ", size, flag"
                 layer_str = "x, edge_index, edge_attr, flag -> x, (edge_index, attention_weights{})"
                 module_str = "x, edge_index, edge_attr, batch, flag"
 
-            elif gnn_type == "GATConv":
-                raise NotImplementedError(f"return_attention is not implemented for {gnn_type}")
+            elif args.gnn_type == "GATConv":
+                raise NotImplementedError(f"return_attention is not implemented for {args.gnn_type}")
                 layer_str = "x, edge_index, edge_attr, size, flag -> x, (edge_index, attention_weights{})"
                 module_str = "x, edge_index, edge_attr, batch, size, flag"
 
             else:
-                raise NotImplementedError(f"return_attention is not implemented for {gnn_type}")
+                raise NotImplementedError(f"return_attention is not implemented for {args.gnn_type}")
         else:
             layer_str = "x, edge_index, edge_attr -> x"
             module_str = "x, edge_index, edge_attr, batch"
@@ -253,21 +249,21 @@ class GraphModule(nn.Module): # neden g_nn dan inherit değil ?
         module_list = []
         # First layer
         layer_idx = 0
-        module_list.extend([(getattr(g_nn, gnn_type)(in_channels, hidden_channels, heads=num_heads, edge_dim=num_edge_feat, dropout=dropout), layer_str.format(layer_idx)), 
+        module_list.extend([(getattr(g_nn, args.gnn_type)(args.in_channels, args.hidden_channels, heads=args.num_heads, edge_dim=args.num_edge_feat, dropout=args.dropout), layer_str.format(layer_idx)), 
                             (nn.SELU(), "x -> x"), 
                             (NormLayerType(hc_nh), bn_transfer_string)])
 
 
         # Middle layers
-        for _ in range(num_layers-2):
+        for _ in range(args.num_layers-2):
             layer_idx += 1
-            module_list.extend([(getattr(g_nn, gnn_type)(hc_nh, hidden_channels, heads=num_heads, edge_dim=num_edge_feat, dropout=dropout), layer_str.format(layer_idx)), 
+            module_list.extend([(getattr(g_nn, args.gnn_type)(hc_nh, args.hidden_channels, heads=args.num_heads, edge_dim=args.num_edge_feat, dropout=args.dropout), layer_str.format(layer_idx)), 
                                 (nn.SELU(), "x -> x"), 
                                 (NormLayerType(hc_nh), bn_transfer_string)])
         
         # Last layer
         layer_idx += 1
-        module_list.extend([(getattr(g_nn, gnn_type)(hc_nh, out_channels, heads=num_heads, edge_dim=num_edge_feat, dropout=dropout), layer_str.format(layer_idx)), 
+        module_list.extend([(getattr(g_nn, args.gnn_type)(hc_nh, args.out_channels, heads=args.num_heads, edge_dim=args.num_edge_feat, dropout=args.dropout), layer_str.format(layer_idx)), 
                             (nn.SELU(), "x -> x"),
                             (NormLayerType(hc_nh), bn_transfer_string)])
 
@@ -285,8 +281,17 @@ class GraphModule(nn.Module): # neden g_nn dan inherit değil ?
         return l_emb, r_emb
    
     def forward(self, dataBatch: Batch):
-    
+        
+        
         x, edge_attr, edge_index, batch = dataBatch.x, dataBatch.edge_attr, dataBatch.edge_index, dataBatch.batch
+
+        # filter distant edges
+        if self.dist_threshold is not None:
+            dists = get_dists_btw_obj(dataBatch)
+            edge_mask_dist = dists < self.dist_threshold
+        
+            edge_attr = edge_attr[edge_mask_dist]
+            edge_index = edge_index[:, edge_mask_dist]
 
         if hasattr(dataBatch, "pos"):
             pos_3d = dataBatch.pos.to(torch.float32) # somehow it is float64
@@ -303,12 +308,19 @@ class GraphModule(nn.Module): # neden g_nn dan inherit değil ?
         if self.use_pos:
             x_ = torch.cat([x_, pos_3d], dim=-1)
 
+        if self.use_embedding_edge:
+            # array -> bits -> int -> embedding
+            bit_mask = torch.tensor([2**i for i in range(edge_attr.shape[-1])], device=edge_attr.device).to(torch.float32)
+            edge_attr = self.edge_embedding((edge_attr @ bit_mask).long())
+        
+        if self.use_pos_edge:
+            edge_attr = torch.cat([edge_attr, pos_3d[edge_index[0]] - pos_3d[edge_index[1]]], dim=-1)
+
+
         if self.return_attention:
             H = self.gnn(x_, edge_index, edge_attr, batch, True)
         else:
             H = self.gnn(x_, edge_index, edge_attr, batch)
-        attn_weights = None
-
 
         if self.use_hand_pooling:
             left_embeddings, right_embeddings = self._hands_pooling(x, H)
@@ -318,96 +330,56 @@ class GraphModule(nn.Module): # neden g_nn dan inherit değil ?
             left_embeddings = graph_embedding
             right_embeddings = graph_embedding
         
-        return left_embeddings, right_embeddings, attn_weights
+        return left_embeddings, right_embeddings
 
 
 
 class ActionRecognition(nn.Module):
-    def __init__(self, *, gnn_type,
-                 temporal_type,
-                 in_channels,
-                 hidden_channels,
-                 out_channels,
-                 num_edge_feat,
-                 num_action_classes,
-                 lstm_hidden_size,
-                 num_heads,
-                 num_layers,
-                 filter_it,
-                 use_hand_pooling,
-                 edge_dropout,
-                 dropout,
-                 dropout_tr,
-                 merged_pred,
-                 norm_layer,
-                 norm_first,
-                 pos_enc,
-                 temporal_length,
-                 num_of_temp_layers,
-                 dim_feedforward,
-                 num_heads_tr,
-                 use_pos,
-                 use_embedding,
-                 return_attention=False):
-        """ Accepts kwargs for non-general params of gnns """
+    def __init__(self, args):
         super().__init__()
 
-        self.filter_it = filter_it
-        self.use_hand_pooling = use_hand_pooling
-        self.edge_dropout = edge_dropout
-        self.temporal_type = temporal_type
-        self.merged_pred = merged_pred
-        self.use_embedding = use_embedding
-        self.return_attention = return_attention
+        self.filter_it = args.filter_it
+        self.use_hand_pooling = args.use_hand_pooling
+        self.edge_dropout = args.edge_dropout
+        self.temporal_type = args.temporal_type
+        self.merged_pred = args.merged_pred
+        self.use_embedding = args.use_embedding
+        self.return_attention = args.return_attention
 
         
-        self.gnn = GraphModule(gnn_type=gnn_type,
-                               in_channels=in_channels,
-                               hidden_channels=hidden_channels,
-                               out_channels=out_channels,
-                               num_edge_feat=num_edge_feat,
-                               num_heads=num_heads,
-                               num_layers=num_layers,
-                               filter_it=filter_it,
-                               use_hand_pooling=use_hand_pooling,
-                               edge_dropout=edge_dropout,
-                               dropout=dropout,
-                               norm_layer=norm_layer,
-                               use_pos=use_pos,
-                               use_embedding=use_embedding,
-                               return_attention=return_attention)
+        self.gnn = GraphModule(args)
         
 
-        gnn_output_ch = out_channels * num_heads # aka effective_out_ch2
+        gnn_output_ch = args.out_channels * args.num_heads # aka effective_out_ch2
 
         if self.merged_pred == "early":
             gnn_output_ch *= 2
 
-        if dim_feedforward == 0:
+        if args.dim_feedforward == 0:
             # This is was the previous default value, so I am keeping it
             # But this makes the embedding size > dim_feedforward, which is not good
-            dim_feedforward = lstm_hidden_size // 4 * 3
+            dim_feedforward = args.lstm_hidden_size // 4 * 3
 
-        if temporal_type in ["lstm", "bi"]:
-            if num_of_temp_layers != 1:
+        if args.temporal_type in ["lstm", "bi"]:
+            if args.num_of_temp_layers != 1:
                 raise NotImplementedError("args.num_of_temp_layers is not 1 as used to be. Are you sure?")
             num_rnn_layers = 1  # Lets make it constant
-            is_bidirectional = ("bi" == temporal_type)
+            is_bidirectional = ("bi" == args.temporal_type)
 
             # To have approx same number of parameters
-            lstm_hidden_size = lstm_hidden_size * 2 // 3 if is_bidirectional else lstm_hidden_size
+            lstm_hidden_size = args.lstm_hidden_size * 2 // 3 if is_bidirectional else args.lstm_hidden_size
 
             self.temporal_layer = nn.LSTM(gnn_output_ch, lstm_hidden_size, num_rnn_layers,
-                                       bidirectional=is_bidirectional, dropout=dropout)
+                                       bidirectional=is_bidirectional, dropout=args.dropout)
             lstm_hidden_size = lstm_hidden_size * 2 if is_bidirectional else lstm_hidden_size
 
-        elif temporal_type == "tr":
+        elif args.temporal_type == "tr":
             # Default dropout is 0.1
 
-            self.temporal_layer = nn.TransformerEncoder(nn.TransformerEncoderLayer(gnn_output_ch, num_heads_tr, dim_feedforward, norm_first=norm_first, dropout=dropout_tr), num_of_temp_layers)
+            self.temporal_layer = nn.TransformerEncoder(nn.TransformerEncoderLayer(gnn_output_ch, args.num_heads_tr, dim_feedforward, norm_first=args.norm_first, dropout=args.dropout_tr), args.num_of_temp_layers)
             self.PE_coef = math.sqrt(gnn_output_ch)
 
-            if pos_enc == "original":
+            if args.pos_enc == "original":
                 # if merged_pred == "attention":
                 #     self.pos_encoder = PositionalEncodingPseudo2D(effective_out_ch2)
                 # else:
@@ -415,34 +387,34 @@ class ActionRecognition(nn.Module):
                 self.pos_encoder = PositionalEncoding(gnn_output_ch)
                 # self.pos_encoder = PositionalEncoding1D(effective_out_ch2)
 
-            elif pos_enc == "learnable":
-                if merged_pred == "attention":
-                    self.pos_encoder = LearnablePositionalEncoding(temporal_length*2, gnn_output_ch)
+            elif args.pos_enc == "learnable":
+                if args.merged_pred == "attention":
+                    self.pos_encoder = LearnablePositionalEncoding(args.temporal_length*2, gnn_output_ch)
                 else:    
-                    self.pos_encoder = LearnablePositionalEncoding(temporal_length, gnn_output_ch)
+                    self.pos_encoder = LearnablePositionalEncoding(args.temporal_length, gnn_output_ch)
                 
                 # raise NotImplementedError("Learnable positional encoding is not implemented yet")
             
-            elif pos_enc == "none":
+            elif args.pos_enc == "none":
                 self.pos_encoder = lambda x: x
             
             else:
-                raise NotImplementedError(f"pos_enc: {pos_enc} is not implemented")
+                raise NotImplementedError(f"pos_enc: {args.pos_enc} is not implemented")
             
             # self.cls_tokens = torch.nn.Parameter(torch.randn(1, 1, effective_out_ch2)).expand(self.batch_size, -1, -1)
 
             lstm_hidden_size = gnn_output_ch
 
-        elif temporal_type == "edtr":
+        elif args.temporal_type == "edtr":
             # Encoder-Decoder Transformer
-            self.temporal_layer = Seq2SeqTransformer(num_of_temp_layers, num_of_temp_layers, gnn_output_ch, num_heads_tr, dim_feedforward, dropout_tr)
-            self.decoder_mask = torch.nn.Transformer.generate_square_subsequent_mask(temporal_length)
+            self.temporal_layer = Seq2SeqTransformer(args.num_of_temp_layers, args.num_of_temp_layers, gnn_output_ch, args.num_heads_tr, dim_feedforward, args.dropout_tr)
+            self.decoder_mask = torch.nn.Transformer.generate_square_subsequent_mask(args.temporal_length)
         
-        elif temporal_type == "none":
+        elif args.temporal_type == "none":
             # self.temporal_layer = torch.nn.Sequential(torch.nn.Linear(effective_out_ch2, effective_out_ch2), 
             #                                     torch.nn.SELU(),
             #                                     torch.nn.Linear(effective_out_ch2, num_action_classes))
-            self.temporal_layer = torch.nn.Linear(gnn_output_ch, num_action_classes)
+            self.temporal_layer = torch.nn.Linear(gnn_output_ch, args.num_action_classes)
 
         def build_mlp(in_feat,out_feat, hid_feat=None):
             # hid_feat = (in_feat+out_feat)//2 if hid_feat == None else hid_feat
@@ -452,17 +424,17 @@ class ActionRecognition(nn.Module):
         if self.temporal_type != "none":
             if self.merged_pred == "late":
                 # Can this run in parallel? :smile:
-                self.left_mlp = build_mlp(lstm_hidden_size*2, num_action_classes)
-                self.right_mlp = build_mlp(lstm_hidden_size*2, num_action_classes)
+                self.left_mlp = build_mlp(lstm_hidden_size*2, args.num_action_classes)
+                self.right_mlp = build_mlp(lstm_hidden_size*2, args.num_action_classes)
                 # self.segment_boundary_detector = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
             elif self.merged_pred == "early":
                 # self.segment_boundary_detector_L = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
                 # self.segment_boundary_detector_R = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
-                self.left_mlp = build_mlp(lstm_hidden_size, num_action_classes)
-                self.right_mlp = build_mlp(lstm_hidden_size, num_action_classes)
+                self.left_mlp = build_mlp(lstm_hidden_size, args.num_action_classes)
+                self.right_mlp = build_mlp(lstm_hidden_size, args.num_action_classes)
                 # self.mlp = build_mlp(lstm_hidden_size, num_action_classes)
             elif self.merged_pred in ["none", "attention"]:    
-                self.mlp = build_mlp(lstm_hidden_size, num_action_classes)
+                self.mlp = build_mlp(lstm_hidden_size, args.num_action_classes)
                 # self.segment_boundary_detector = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
 
 
@@ -473,15 +445,14 @@ class ActionRecognition(nn.Module):
         right_embedding_list = []
 
         #### Graph part ####
-        self.attn_weights_list = []
         # processes each frame time-independently
         for databatch in dataBatchList:  
 
-            left_embeddings, right_embeddings, attn_weights = self.gnn(databatch)
+            left_embeddings, right_embeddings = self.gnn(databatch)
 
             left_embedding_list.append(left_embeddings)
             right_embedding_list.append(right_embeddings)
-            self.attn_weights_list.append(attn_weights)
+
 
 
         left_sequencial_embeddings = torch.stack(left_embedding_list) # Shape: (T, N, F)
@@ -599,76 +570,33 @@ class ActionRecognition(nn.Module):
 
 
 class ActionRecognitionMonograph(nn.Module):
-    def __init__(self, *, gnn_type,
-                 in_channels,
-                 hidden_channels,
-                 out_channels,
-                 num_edge_feat,
-                 num_action_classes,
-                 num_heads,
-                 num_layers,
-                 filter_it,
-                 edge_dropout,
-                 dropout,
-                 norm_layer,
-                 use_pos,
-                 use_embedding, 
-                 temporal_length,
-                 return_attention=False):
+    def __init__(self, args):
         """ Accepts kwargs for non-general params of gnns """
         super().__init__()
 
-        self.filter_it = filter_it
-        self.edge_dropout = edge_dropout
-        self.use_embedding = use_embedding
-        self.num_actions = num_action_classes
-        self.temporal_length = temporal_length
-        self.return_attention = return_attention
+        self.filter_it = args.filter_it
+        self.edge_dropout = args.edge_dropout
+        self.use_embedding = args.use_embedding
+        self.num_actions = args.num_action_classes
+        self.temporal_length = args.temporal_length
+        self.return_attention = args.return_attention
 
-        self.gnn = GraphModule(gnn_type=gnn_type,
-                               in_channels=in_channels,
-                               hidden_channels=hidden_channels,
-                               out_channels=out_channels,
-                               num_edge_feat=num_edge_feat,
-                               num_heads=num_heads,
-                               num_layers=num_layers,
-                               filter_it=filter_it,
-                               use_hand_pooling=True,
-                               edge_dropout=edge_dropout,
-                               dropout=dropout,
-                               norm_layer=norm_layer,
-                               use_pos=use_pos,
-                               use_embedding=use_embedding,
-                               return_attention=return_attention)
+        self.gnn = GraphModule(args)
 
 
-        gnn_output_ch = out_channels * num_heads
+        gnn_output_ch = args.out_channels * args.num_heads
 
         self.head = nn.Sequential(nn.Linear(gnn_output_ch, gnn_output_ch),
                                   nn.SELU(),
-                                  nn.Linear(gnn_output_ch, num_action_classes))
+                                  nn.Linear(gnn_output_ch, args.num_action_classes))
 
-
-
-    def _hands_pooling(self, x, embeddings):
-        
-        labels = torch.argmax(x, dim=1)
-
-        # Below code is much more optimal, use when data redundancy is fixed.
-        l_emb, r_emb = embeddings[labels == OBJECTS.index("LeftHand")], embeddings[labels == OBJECTS.index("RightHand")]
-        assert l_emb.shape == r_emb.shape
-
-        # left, right: [batch_size*K, len(embedding)]
-        # K: the number of graphs in a monograph
-        return l_emb, r_emb
 
 
     def forward(self, databatch: Batch, _=None):
 
         bs = databatch.batch[-1] + 1
-        left_embeddings, right_embeddings, attn_weights = self.gnn(databatch) 
+        left_embeddings, right_embeddings = self.gnn(databatch) 
         # shape: (n*b, f)
-        self.attn_weights = attn_weights
         # assert graph_embedding.shape[0]==self.batch_size and graph_embedding.shape[1]==self.conv_out
 
         hands_embeddings = torch.cat((left_embeddings, right_embeddings), dim=0) # CHECKME
@@ -691,49 +619,26 @@ def make_model(args):
     else:
         in_channels = len(OBJECTS)
 
-    if args.monograph:
-        model = ActionRecognitionMonograph(gnn_type=args.gnn_type,
-                                           in_channels=in_channels,
-                                           hidden_channels=args.hidden_channels,
-                                           out_channels=args.out_channels,
-                                           num_edge_feat=len(RELATIONS) + 1,
-                                           num_action_classes=len(ACTIONS),
-                                           num_heads=args.num_heads,
-                                           num_layers=args.num_layers,
-                                           filter_it=args.filter_idle_hold,
-                                           edge_dropout=args.edge_dropout,
-                                           dropout=args.dropout,
-                                           norm_layer=args.norm_layer,
-                                           use_pos=args.use_pos,
-                                           use_embedding=args.use_embedding,
-                                           temporal_length=args.temporal_length,
-                                           return_attention=args.return_attention)
+    if args.use_pos_edge:
+        num_edge_feat = len(RELATIONS) + 3
     else:
-        model = ActionRecognition(gnn_type=args.gnn_type,
-                                        temporal_type=args.temporal_type,
-                                        num_edge_feat=len(RELATIONS),
-                                        in_channels=in_channels,
-                                        hidden_channels=args.hidden_channels,
-                                        out_channels=args.out_channels,
-                                        num_action_classes=len(ACTIONS),
-                                        lstm_hidden_size=args.lstm_hidden_size,
-                                        num_heads=args.num_heads,
-                                        num_layers=args.num_layers,
-                                        filter_it=args.filter_idle_hold,
-                                        use_hand_pooling=not args.use_global_pooling,
-                                        edge_dropout=args.edge_dropout,
-                                        dropout=args.dropout,
-                                        dropout_tr=args.dropout_tr,
-                                        merged_pred=args.merged_pred,
-                                        norm_layer=args.norm_layer,
-                                        norm_first=args.norm_first,
-                                        pos_enc=args.pos_enc,
-                                        temporal_length=args.temporal_length,
-                                        num_of_temp_layers=args.num_of_temp_layers,
-                                        dim_feedforward=args.dim_feedforward,
-                                        num_heads_tr=args.num_heads_tr,
-                                        use_pos=args.use_pos,
-                                        use_embedding=args.use_embedding,
-                                        return_attention=args.return_attention)
+        num_edge_feat = len(RELATIONS)
+    
+    if args.monograph:
+        args.num_action_classes = len(ACTIONS)
+        args.use_hand_pooling = not args.use_global_pooling
+        args.filter_it = args.filter_idle_hold
+        args.num_edge_feat = num_edge_feat + 1
+        args.in_channels = in_channels
+
+        model = ActionRecognitionMonograph(args)
+    else:
+        args.num_action_classes = len(ACTIONS)
+        args.use_hand_pooling = not args.use_global_pooling
+        args.filter_it = args.filter_idle_hold
+        args.num_edge_feat = num_edge_feat
+        args.in_channels = in_channels
+
+        model = ActionRecognition(args)
 
     return model
