@@ -160,7 +160,7 @@ def _get_norm_func(root: str) -> Callable:
 
     def normalize(pos):
         assert isinstance(pos, torch.Tensor) and pos.shape[1] == 3
-        min_depth = -3500
+        min_depth = -4000
         pos[:, 2] = torch.clip(pos[:, 2], min_depth, max_pos[2]) # clip out the outliers
         min_pos[2] = min_depth
         return (pos - min_pos) / (max_pos - min_pos)
