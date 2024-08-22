@@ -96,6 +96,10 @@ def arg_parser_base():
                     help="Use class frequencies as weight for loss function")       # :(
     ap.add_argument("--smoothing", type=float, default=0.0, help="Label smoothing weight")
 
+    ap.add_argument("--num_acc", type=int, default=1, help="Number of grad accumulation steps")
+    ap.add_argument("--no_amp", action="store_true", help="Disable automatic mixed precision")
+
+
     # Metrics
     ap.add_argument("--weighted_mv", type=str, default="none", choices=["none", "w1", "w2", "auto"], help="...")
 

@@ -3,7 +3,6 @@ import os
 import pickle
 import random
 import time
-import warnings
 from os.path import join as opj
 
 import matplotlib.pyplot as pyplot
@@ -14,11 +13,11 @@ from torch_geometric.loader import DataLoader
 
 from models import make_model
 import wandb
-from dataset import (ACTIONS, OBJECTS, RELATIONS, _get_max_length,
+from dataset import (ACTIONS, _get_max_length,
                      get_bimanual_dataset_splits, get_processing_dir)
 from utils import (Metrics, VisIndividualPreds,
                    arg_parser, get_loss_weights, get_minutes, metrics_to_str,
-                   seed_worker, set_hooks_for_dist_loss, visualize_incorrect_preds, wandb_logging)
+                   seed_worker, visualize_incorrect_preds, wandb_logging)
 
 # from torch_geometric.explain import Explainer, AttentionExplainer, ModelConfig
 
@@ -41,7 +40,6 @@ torch.autograd.set_detect_anomaly(True)
 
 
 def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: int):
-    global step
 
     if mode in ["test", "val"]:
         model.eval()
@@ -52,14 +50,9 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
     seg_save_dir = opj(save_dir, f"test_results_{epoch}") if (mode == "test" and args.save_segments) else None
     metrics = Metrics(len(ACTIONS), args.temporal_length, args.downsample, device, dataset_mapping, mode, seg_save_dir, args.weighted_mv)
-
-    # exp=Explainer(model.gnn, 
-    #               algorithm=AttentionExplainer(), 
-    #               model_config=ModelConfig(mode="multiclass_classification", task_level="node", return_type="raw"),
-    #               explanation_type="model")
     
 
-    for unpackable in loader:
+    for step, unpackable in enumerate(loader):
         if args.temporal_length == -1:
             vid_lens, idxes, data = unpackable
             # Create a padding masks, since the temporal length is not fixed
@@ -73,10 +66,6 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             padding_mask = None
             padding_mask_reshaped = None
 
-        step += 1
-
-        if mode == "train":
-            optimizer.zero_grad()
 
         if not args.monograph:
             data = [d.to(device) for d in data]
@@ -89,32 +78,36 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
         # gt_reordered: [temporal_length, 2*batch_size(left, ..., left, right, ..., right) , num_classes]
 
-        pred = model(data, padding_mask)
+        with torch.cuda.amp.autocast(enabled=not args.no_amp):
+            pred = model(data, padding_mask)
+
+            pred_flattened = pred.flatten(0, 1)
+            gt_flattened = gt_reordered.flatten(0, 1)
+            
+            if padding_mask is not None:
+                # Arange the padding mask to match the pred_flattened and gt_flattened
+                padding_mask_reshaped=padding_mask.T
+                padding_mask_reshaped= torch.cat([padding_mask_reshaped, padding_mask_reshaped], dim=1)
+                padding_mask_reshaped=padding_mask_reshaped.flatten()
+                pred_flattened = pred_flattened[~padding_mask_reshaped]
+                gt_flattened = gt_flattened[~padding_mask_reshaped]
+            
+            loss = loss_criterion(pred_flattened, gt_flattened)
+            loss = loss / args.num_acc
 
         
-        pred_flattened = pred.flatten(0, 1)
-        gt_flattened = gt_reordered.flatten(0, 1)
-        
-        if padding_mask is not None:
-            # Arange the padding mask to match the pred_flattened and gt_flattened
-            padding_mask_reshaped=padding_mask.T
-            padding_mask_reshaped= torch.cat([padding_mask_reshaped, padding_mask_reshaped], dim=1)
-            padding_mask_reshaped=padding_mask_reshaped.flatten()
-            pred_flattened = pred_flattened[~padding_mask_reshaped]
-            gt_flattened = gt_flattened[~padding_mask_reshaped]
-        
-        label_loss = label_criterion(pred_flattened, gt_flattened)
-        
-        # attn_reg = get_attn_dist_loss(data)
-
-        # Segmentation is currently removed
-        loss = label_loss # + attn_reg*args.attn_reg
-
         loss_cumulative += loss.item()
         
         if mode == "train":
-            loss.backward()
-            optimizer.step()
+            # loss.backward()
+            scaler.scale(loss).backward()
+            
+            # optimizer.step()
+            if (step + 1) % args.num_acc == 0 or step == len(loader) - 1:
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad()
+        
 
 
         if mode != "test" and args.save_individual:
@@ -171,7 +164,7 @@ def test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of):
         returned_dict, _ = run_one_epoch(model, test_loader, 'test', epoch=int((w_name[-7:-3])))
         cv_list.append(returned_dict)
         
-        print(f'### TEST: ', metrics_to_str(returned_dict))
+        print('### TEST: ', metrics_to_str(returned_dict))
 
         results.append(returned_dict)        
         if best_metric < returned_dict[comparison_metric]:
@@ -181,7 +174,7 @@ def test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of):
     with open(cv_file, "wb") as f:
         pickle.dump(cv_list, f)
 
-    print(f'### BEST: ', metrics_to_str(results[best_i]))
+    print('### BEST: ', metrics_to_str(results[best_i]))
     return results[best_i]
 
 
@@ -308,10 +301,12 @@ if __name__ == "__main__":
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=args.scheduler_gamma, patience=4, verbose=True)
 
 
+    scaler = torch.cuda.amp.GradScaler()
+
     # loss weights can be used to balance the classes using different strategies
     loss_weights = get_loss_weights(args.weighted_loss, train_set.distribution)
 
-    label_criterion = torch.nn.CrossEntropyLoss(weight=loss_weights, label_smoothing=args.smoothing).to(device=device)
+    loss_criterion = torch.nn.CrossEntropyLoss(weight=loss_weights, label_smoothing=args.smoothing).to(device=device)
 
 
     save_dir = opj("saved_models", f"{args.name}")
@@ -346,7 +341,6 @@ if __name__ == "__main__":
         MAX_VID_LEN = _get_max_length(args.root, args.downsample)
 
     # STARTS TRAINING AND VALIDATION
-    step = 0
     print("Starts training...")
     start = 1 if args.restore is None else args.restore
     epoch = start
