@@ -266,5 +266,14 @@
 # python cross_validation.py -g TransformerConv -o Adam -lr 0.0005 -wd 0.0005 -me 20 --saving_freq 2 --name Gamma_G_h16_l4 -tl 10 --downsample 3 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.15 --gpu_id 0 -nh 16 -nl 4 --monograph -bs 64 
 # sleep 5
 
-python cross_validation.py -g TransformerConv -o Adam -lr 0.001 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 2 --name Alpha -tl 10 --downsample 3 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.15 --weighted_mv auto --gpu_id 1
+python cross_validation.py -g TransformerConv -o Adam -lr 0.001 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 2 --name Alpha -tl 10 --downsample 3 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.15 --weighted_mv auto
 sleep 5
+
+python cross_validation.py -g TransformerConv -o Adam -lr 0.001 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 2 --name Alpha_p -tl 10 --downsample 3 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.15 --weighted_mv auto --use_pos
+sleep 5
+
+python cross_validation.py -g TransformerConv -o Adam -lr 0.001 -wd 0.0005 -me 40 --scheduler_step_size 8 --saving_freq 2 --name Alpha_edge_p -tl 10 --downsample 3 --merged_pred late --temporal_type tr --norm_layer LayerNorm --edge_dropout 0.15 --weighted_mv auto --use_pos_edge
+sleep 5
+
+
+
