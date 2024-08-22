@@ -98,6 +98,8 @@ def arg_parser_base():
 
     ap.add_argument("--num_acc", type=int, default=1, help="Number of grad accumulation steps")
     ap.add_argument("--no_amp", action="store_true", help="Disable automatic mixed precision")
+    # num worker
+    ap.add_argument("--num_workers", type=int, default=5, help="Number of workers for dataloader")
 
 
     # Metrics

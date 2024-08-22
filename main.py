@@ -19,8 +19,6 @@ from utils import (Metrics, VisIndividualPreds,
                    arg_parser, get_loss_weights, get_minutes, metrics_to_str,
                    seed_worker, visualize_incorrect_preds, wandb_logging)
 
-# from torch_geometric.explain import Explainer, AttentionExplainer, ModelConfig
-
 
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
@@ -232,18 +230,16 @@ if __name__ == "__main__":
                                                                use_vf=args.use_vf,
                                                                monograph=args.monograph)
 
-    train_loader = DataLoader(train_set, args.batch_size, num_workers=5, shuffle=True, worker_init_fn=seed_worker, generator=torch_generator)
+    train_loader = DataLoader(train_set, args.batch_size, num_workers=args.num_workers, shuffle=True, worker_init_fn=seed_worker, generator=torch_generator)
     
-    test_loader = DataLoader(test_set, args.batch_size, num_workers=5, shuffle=True, worker_init_fn=seed_worker, generator=torch_generator)
+    test_loader = DataLoader(test_set, args.batch_size, num_workers=args.num_workers, shuffle=True, worker_init_fn=seed_worker, generator=torch_generator)
 
-    val_loader = DataLoader(val_set, args.batch_size, num_workers=5, shuffle=True, worker_init_fn=seed_worker, generator=torch_generator)
+    val_loader = DataLoader(val_set, args.batch_size, num_workers=args.num_workers, shuffle=True, worker_init_fn=seed_worker, generator=torch_generator)
 
     training_len = len(train_set)
     val_len = len(val_set)
 
     model = make_model(args).to(device)
-
-    # set_hooks_for_dist_loss(model)
 
     # if True:
     #     checkpoint = torch.load(opj(f"saved_Beta1_10d3_SG_fold{args.test_subject}", "model_epoch0016.pt"))
