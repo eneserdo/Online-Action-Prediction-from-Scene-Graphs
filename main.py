@@ -361,7 +361,7 @@ if __name__ == "__main__":
             scheduler.step()
         stop = time.perf_counter()
 
-        print(f'### {epoch:03d}: Time {get_minutes(stop - start)} m ### Train: ', metrics_to_str(train_metrics), ' ### Val: ', metrics_to_str(val_metrics))
+        print(f'### {epoch:03d}: Time {get_minutes(stop - start)} m ### Train: ', metrics_to_str(train_metrics), ' ### Val: ', metrics_to_str(val_metrics), flush=True)
 
 
     # save the individual predictions
