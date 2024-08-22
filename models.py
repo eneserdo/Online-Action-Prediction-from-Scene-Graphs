@@ -8,9 +8,7 @@ Shape abbreviations:
 """
 
 import math
-import warnings
 from typing import List
-import copy
 
 import torch
 import torch.nn as nn
@@ -22,7 +20,7 @@ from torch_geometric.data import Batch, Data
 from torch_geometric.utils import dropout_edge
 
 from dataset import ACTIONS, OBJECTS, RELATIONS
-from utils import (get_dists_btw_obj, align_embeddings_to_right, flatten_seq,
+from utils import (align_embeddings_to_right,
                    get_filters_for_imbalance, print_warning)
 
 
@@ -287,8 +285,7 @@ class GraphModule(nn.Module):
 
         # filter distant edges
         if self.dist_threshold is not None:
-            dists = get_dists_btw_obj(dataBatch)
-            edge_mask_dist = dists < self.dist_threshold
+            edge_mask_dist = torch.norm(dataBatch.dists, dim=1) < self.dist_threshold
         
             edge_attr = edge_attr[edge_mask_dist]
             edge_index = edge_index[:, edge_mask_dist]

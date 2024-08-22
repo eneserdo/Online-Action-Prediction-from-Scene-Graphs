@@ -394,18 +394,29 @@ def _get_graph(relation_json, object_json, vf_path, gt_actions, frame, subject, 
         # y[1, -1] = int("1"+graph_str)
         # y_mirrored[0, -1] = int("2"+graph_str)
     
+    dists = []
+    for edge in edge_index:
+        dists.append(pos[edge[0]] - pos[edge[1]])
+    dists = torch.stack(dists)
+
+    dists_mirrored = []
+    for edge in edge_index_mirrored:
+        dists_mirrored.append(pos_mirrored[edge[0]] - pos_mirrored[edge[1]])
+    dists_mirrored = torch.stack(dists_mirrored)
 
     data = gData(x=x,
-                edge_index=edge_index.t().contiguous(),
-                edge_attr=edge_attr, 
-                y=y,
-                pos=pos)
+                 edge_index=edge_index.t().contiguous(),
+                 edge_attr=edge_attr,
+                 y=y,
+                 pos=pos,
+                 dists=dists)
 
     data_mirrored = gData(x=x_mirrored, 
-                         edge_index=edge_index_mirrored.t().contiguous(),
-                         edge_attr=edge_attr_mirrored, 
-                         y=y_mirrored,
-                         pos=pos_mirrored)
+                          edge_index=edge_index_mirrored.t().contiguous(),
+                          edge_attr=edge_attr_mirrored, 
+                          y=y_mirrored,
+                          pos=pos_mirrored,
+                          dists=dists_mirrored)
 
     return data, data_mirrored
 
@@ -541,7 +552,7 @@ def download_bimanual_dataset(raw_dir: str, fix_null, fix_fps, download_anyway) 
         none_found=False
         act_labels = the_dict[hand][1::2]
         for i in act_labels:
-            if i==None:
+            if i is None:
                 none_found=True
                 break
         
@@ -984,7 +995,7 @@ class BimanualDataset(gDataset):
 
 
 
-def create_mappings(processed_dir: str, temporal_length: int, test_subject: int, validation_take: int) -> [dict, dict]:
+def create_mappings(processed_dir: str, temporal_length: int, test_subject: int, validation_take: int) -> Tuple[dict, dict]:
     
     path_mapping = {"train": {}, "test": {}, "val": {}} # [split]: local idx -> path, global idx (i.e. idx = local; train_idx,val_idx,test_idx = global)
 
