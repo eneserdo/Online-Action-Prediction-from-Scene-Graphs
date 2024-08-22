@@ -103,16 +103,19 @@ def main():
                 best_score = final_metrics[e][COMPARISON_METRIC]["mean"]
                 best_e = e
 
-        metrics= final_metrics[best_e]
+        metrics = final_metrics[best_e]
         for key in metrics.keys():
             mean = metrics[key]["mean"]
             std = metrics[key]["std"]
 
             # I preferred them to appear under the same column in wandb 
             # even though they have different number of folds 
-            key = "CV_" + key
-            print(f"{key} mean: {mean}, std: {std}")
-            wandb.log({f"{key}_mean": mean, f"{key}_std": std})
+            cv_key = "CV_" + key
+            print(f"{cv_key} mean: {mean}, std: {std}")
+            wandb.log({f"{cv_key}_mean": mean, f"{cv_key}_std": std})
+
+            if key == COMPARISON_METRIC:            
+                wandb.log({f"{key}_f{f+1}": processed_outputs[best_e][key][f] for f in range(args.num_folds)})
 
         wandb.finish()
 
