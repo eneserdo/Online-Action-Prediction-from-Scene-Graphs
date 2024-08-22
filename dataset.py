@@ -105,7 +105,7 @@ def __is_list_valid(nums):
     return True
 
 
-def _get_norm_func(root: str) -> Callable:
+def _get_norm_func(root: str, test_subject, validation_take) -> Callable:
     # returns the normalization function for the position
 
     min_x, min_y, min_z = np.inf, np.inf, np.inf
@@ -118,6 +118,9 @@ def _get_norm_func(root: str) -> Callable:
     counter = 0
 
     for subject, task, take in crawl_dataset():     # among all the videos
+        if subject == test_subject or take == validation_take:
+            continue
+
         object_dir = opj(root, "raw", "bimacs_derived_data", subject, task, take, "3d_objects")
         object_json_list = natsort.natsorted(glob.glob(opj(object_dir, "*.json")))
         for object_json in object_json_list:        # among all the frames in a video
@@ -129,6 +132,8 @@ def _get_norm_func(root: str) -> Callable:
                 # TODO handle the nans, infs
 
                 if not __is_list_valid(bbox.values()):
+                    print("ERROR "*10)
+                    print("Invalid bbox: ", subject, task, take, object_json)
                     continue
 
                 cx = (bbox["x1"] + bbox["x0"]) / 2
@@ -286,6 +291,10 @@ def _get_graph(relation_json, object_json, vf_path, gt_actions, frame, subject, 
         pos[i, 0] = (obj["bounding_box"]["x1"] + obj["bounding_box"]["x0"]) / 2
         pos[i, 1] = (obj["bounding_box"]["y1"] + obj["bounding_box"]["y0"]) / 2
         pos[i, 2] = (obj["bounding_box"]["z1"] + obj["bounding_box"]["z0"]) / 2
+
+        if not __is_list_valid(obj["bounding_box"].values()):
+            return None, None
+
 
         # # # Mirrorred # # #
         if vf_path is None:
@@ -716,7 +725,6 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
     else:
         process_whole_video = False
 
-    pos_normalizer = _get_norm_func(root)
 
     for subject in ['subject_{}'.format(i) for i in range(1, 7)]:
         os.mkdir(opj(processed_dir, subject))
@@ -750,6 +758,9 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
     for subject, task, take in crawl_dataset():
 
         subject_int, task_int, take_int = int(subject[-1]), int(task[5]), int(take[-1])
+        
+        if take_int == 0 and task_int == 1: # For every subject re-create the normalizer (task idx starts from 1)
+            pos_normalizer = _get_norm_func(root, subject, take)
         # Sometimes initial graphs are invalid, so imputation is not working. This is to fix that
         prepend_count=0
 
