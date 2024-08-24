@@ -319,7 +319,6 @@ if __name__ == "__main__":
         scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
         print(f"Model is restored successfully from epoch {args.restore}!")
         
-        # FIXME: It overrides the scheduler. Is it desired?
         print("Optimizer and scheduler are overwritten with the restored ones")
 
     
