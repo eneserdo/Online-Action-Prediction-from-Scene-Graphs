@@ -1138,12 +1138,55 @@ def get_bimanual_dataset_splits(*, root: str, process_it_anyway: bool, test_subj
 
     return train_set, test_set, val_set
 
+def upper_bound(temp_len):
+
+    from torchmetrics.classification import MulticlassF1Score
+    f1_metric_middle=MulticlassF1Score(num_classes=len(ACTIONS), average='macro')
+    f1_metric_mode=MulticlassF1Score(num_classes=len(ACTIONS), average='macro')
+
+    gt_dir = opj("raw", "bimacs_rgbd_data_ground_truth")
+
+    for subject, task, take in crawl_dataset():
+        print(".", end="", flush=True)
+        gt_action_json=opj(gt_dir, subject, task, f"{take}.json")
+        
+        with open(gt_action_json) as f:
+            actions = json.load(f)
+
+        assert actions["right_hand"][-1] == actions["left_hand"][-1]
+        T=actions["right_hand"][-1]
+
+        act_list=_get_actions_list(gt_action_json, T)
+
+        for t in range(temp_len, len(act_list)):
+            
+            sub_act_list=act_list[t-temp_len:t]
+            # read N action labels
+
+            middle_pick_left, middle_pick_right = sub_act_list[temp_len//2]
+            mode_left, mode_right = np.argmax(np.bincount(sub_act_list[:, 0])), np.argmax(np.bincount(sub_act_list[:, 1]))
+
+            f1_metric_middle(torch.tensor(sub_act_list[:, 0]), torch.ones((temp_len))*middle_pick_left)
+            f1_metric_middle(torch.tensor(sub_act_list[:, 1]), torch.ones((temp_len))*middle_pick_right)
+
+            f1_metric_mode(torch.tensor(sub_act_list[:, 0]), torch.ones((temp_len))*mode_left)
+            f1_metric_mode(torch.tensor(sub_act_list[:, 1]), torch.ones((temp_len))*mode_right)
+
+    print(f"middle pick f1 score: {f1_metric_middle.compute()}")
+    print(f"mode pick f1 score: {f1_metric_mode.compute()}")
+    print("Done")
+
+
 if __name__ == "__main__":
 
-    a, b, c=get_bimanual_dataset_splits(root=".", 
-                                        process_it_anyway=False, 
-                                        test_subject=6, 
-                                        validation_take=7, 
-                                        temporal_length=10, 
-                                        downsample=3, use_vf=False, monograph=False)   
-    print(len(a), len(b), len(c))
+    # a, b, c=get_bimanual_dataset_splits(root=".", 
+    #                                     process_it_anyway=False, 
+    #                                     test_subject=6, 
+    #                                     validation_take=7, 
+    #                                     temporal_length=10, 
+    #                                     downsample=3, use_vf=False, monograph=False)   
+    # print(len(a), len(b), len(c))
+
+    upper_bound(10)
+    upper_bound(30)
+
