@@ -349,6 +349,9 @@ class ActionRecognition(nn.Module):
 
         gnn_output_ch = args.out_channels * args.num_heads # aka effective_out_ch2
 
+        self.left_cls_token = torch.nn.Parameter(torch.randn(1, 1, gnn_output_ch))
+        self.right_cls_token = torch.nn.Parameter(torch.randn(1, 1, gnn_output_ch))
+
         if self.merged_pred == "early":
             gnn_output_ch *= 2
 
@@ -423,13 +426,10 @@ class ActionRecognition(nn.Module):
                 # Can this run in parallel? :smile:
                 self.left_mlp = build_mlp(lstm_hidden_size*2, args.num_action_classes)
                 self.right_mlp = build_mlp(lstm_hidden_size*2, args.num_action_classes)
-                # self.segment_boundary_detector = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
             elif self.merged_pred == "early":
-                # self.segment_boundary_detector_L = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
-                # self.segment_boundary_detector_R = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
-                self.left_mlp = build_mlp(lstm_hidden_size, args.num_action_classes)
-                self.right_mlp = build_mlp(lstm_hidden_size, args.num_action_classes)
-                # self.mlp = build_mlp(lstm_hidden_size, num_action_classes)
+                # self.left_mlp = build_mlp(lstm_hidden_size, args.num_action_classes)
+                # self.right_mlp = build_mlp(lstm_hidden_size, args.num_action_classes)
+                self.mlp = build_mlp(lstm_hidden_size, args.num_action_classes)
             elif self.merged_pred in ["none", "attention"]:    
                 self.mlp = build_mlp(lstm_hidden_size, args.num_action_classes)
                 # self.segment_boundary_detector = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
@@ -437,6 +437,7 @@ class ActionRecognition(nn.Module):
 
 
     def forward(self, dataBatchList: List[Batch], padding_mask=None):
+        assert padding_mask is None, "padding_mask is not implemented yet"
 
         left_embedding_list = []
         right_embedding_list = []
@@ -451,6 +452,8 @@ class ActionRecognition(nn.Module):
             right_embedding_list.append(right_embeddings)
 
 
+        left_embedding_list.append(self.left_cls_token) # TODO check if this is really updated
+        right_embedding_list.append(self.right_cls_token)
 
         left_sequencial_embeddings = torch.stack(left_embedding_list) # Shape: (T, N, F)
         right_sequencial_embeddings = torch.stack(right_embedding_list) # Shape: (T, N, F)
@@ -475,7 +478,7 @@ class ActionRecognition(nn.Module):
 
             # Enabling the information flow between hands
             if self.merged_pred == "early": # concat in feature dim
-                both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=-1)
+                both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=2)
                 # shape = (T, N, F*2)
                 if padding_mask is not None:
                     pass
@@ -517,39 +520,52 @@ class ActionRecognition(nn.Module):
             elif self.temporal_type == "edtr":
                 # Encoder-Decoder Transformer, mask the decoder part 
                 both_out = self.temporal_layer(both_sequencial_embeddings, both_sequencial_embeddings, None, self.decoder_mask)
-                
-            
             
 
             #### Prediction part ####
             if self.merged_pred == "late":
-                # merged_out_s = self._merge_hands(out_s)
-                # action_prediction = torch.cat((self.left_mlp(merged_out_s), self.right_mlp(merged_out_s)),dim=0)
-                # both_out.shape = (T, N*2, F)
-                # both_out_ml.shape = (T, N, F*2)
-                
                 both_out_left, both_out_right = torch.tensor_split(both_out, 2, dim=1) 
+                
+                left_tokens = both_out_left[-1]
+                right_tokens = both_out_right[-1]
 
-                both_out_ml = torch.cat([both_out_left, both_out_right], dim=-1)
+                both_out_ml = torch.cat([left_tokens, right_tokens], dim=-1) # concat in feature dim 
                 
                 action_prediction = torch.cat((self.left_mlp(both_out_ml), self.right_mlp(both_out_ml)), dim=1)
                 
 
             elif self.merged_pred == "early":
-                raise NotImplementedError("Early merge is not implemented yet")
+                raise NotImplementedError("early is not implemented yet")
                 # l_out_s, r_out_s = torch.tensor_split(out_s, 2, dim=0)
                 # action_prediction = torch.cat((self.left_mlp(l_out_s), self.right_mlp(r_out_s)),dim=0)
                 # OR
                 #action_prediction = self.mlp(out_s)
-            elif self.merged_pred == "attention":
+                both_out_left, both_out_right = torch.tensor_split(both_out, 2, dim=2) 
+                
+                left_tokens = both_out_left[-1]
+                right_tokens = both_out_right[-1]
 
+                left_right = torch.cat([left_tokens, right_tokens], dim=...) # concat in batch dim
+                
+                action_prediction = self.mlp(left_right)
+                
+            elif self.merged_pred == "attention":
+                raise NotImplementedError("attention is not implemented yet")
                 # both_out.shape = (T*2, N, F)
 
-                both_out_left, both_out_right = torch.tensor_split(both_out, 2, dim=0)
+                # both_out_left, both_out_right = torch.tensor_split(both_out, 2, dim=0)
 
-                both_out = torch.cat([both_out_left, both_out_right], dim=1)
+                # both_out = torch.cat([both_out_left, both_out_right], dim=1)
 
-                action_prediction = self.mlp(both_out)
+                # action_prediction = self.mlp(both_out)
+                both_out_left, both_out_right = torch.tensor_split(both_out, 2, dim=0) 
+                
+                left_tokens = both_out_left[-1]
+                right_tokens = both_out_right[-1]
+
+                left_right = torch.cat([left_tokens, right_tokens], dim=...) # concat in batch dim
+                
+                action_prediction = self.mlp(left_right)
 
             elif self.merged_pred == "none":
                 # both_out.shape = (T, N*2, F)
