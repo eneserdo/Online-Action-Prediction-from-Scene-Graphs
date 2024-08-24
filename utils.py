@@ -796,15 +796,9 @@ def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, downsam
             y_pred__R = y_pred__R[:gt_len]
             y_pred_ML = y_pred_ML[:gt_len]
             y_pred_MR = y_pred_MR[:gt_len]
-        elif gt_len - pred_len < downsample:
-            y_true_L = y_true_L[:pred_len]
-            y_true_R = y_true_R[:pred_len]
         else:
             raise ValueError("gt_len and pred_len must be equal or differ at most by downsample", gt_len, pred_len, video_id)
         
-        
-
-
 
         # Notice that the convention is (y_true, y_pred)
         f1_at_k(y_true_L, y_pred__L)
@@ -842,7 +836,8 @@ def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, downsam
 
 
 def metrics_to_str(metrics):
-    selected=["f1_top1", "f1_top3", "f1_top1_once", "f1_top3_once", "f1@10", "f1@25", "f1@50"]
+    # selected=["f1_top1", "f1_top3", "f1_top1_once", "f1_top3_once", "f1@10", "f1@25", "f1@50"]
+    selected=["f1_top1_once", "f1_top3_once"]
     return " ".join([f"{k}: {v:.4f}" for k, v in metrics.items() if k in selected])
     # return " ".join([f"{k}: {v:.4f}" for k, v in metrics.items() if "cm" not in k])
 
@@ -974,54 +969,59 @@ class Metrics:
             self.f1_at_k = F1_at_k(num_classes=num_classes)
 
 
-    def update(self, pred, gt_ohe, idxes, mask=None):
-        # gt_ohe: [T, B, C] (one hot encoded)
-        # pred: [T, B, C]
+        self.cm_top1 = MulticlassConfusionMatrix(num_classes=num_classes, normalize="true").to(device)
+        self.cm_top3 = MulticlassConfusionMatrix(num_classes=num_classes, normalize="true").to(device)
 
-        gt = gt_ohe.argmax(dim=-1)
-        gt_flattened = gt.flatten(start_dim=0, end_dim=1)
+    def update(self, pred, gt, idxes, mask=None):
+        # gt: [B]
+        # pred: [B, C]
 
-        pred_flattened = pred.flatten(start_dim=0, end_dim=1)
+        # if mask is not None:
+        #     gt_flattened = gt_flattened[~mask]
+        #     pred_flattened = pred_flattened[~mask]
 
-        if mask is not None:
-            gt_flattened = gt_flattened[~mask]
-            pred_flattened = pred_flattened[~mask]
-
-        pred_top_3 = torch.argsort(pred_flattened, dim=-1, descending=True)[:, :3]
+        pred_top_3 = torch.argsort(pred, dim=-1, descending=True)[:, :3]
         pred_top_1 = pred_top_3[:,0]
 
         # This magical function ...
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', '.*There is a performance drop.*', UserWarning)
-            pred_top_3 = torch.where(torch_vmap(lambda t1, t2: torch.isin(t1, t2))(gt_flattened, pred_top_3), gt_flattened, pred_top_1)
+            pred_top_3 = torch.where(torch_vmap(lambda t1, t2: torch.isin(t1, t2))(gt, pred_top_3), gt, pred_top_1)
         
         
         # torchmetric
-        step_f1_top1 = self.f1_top1(pred_top_1, gt_flattened)
-        step_f1_top3 = self.f1_top3(pred_top_3, gt_flattened)
+        step_f1_top1 = self.f1_top1(pred_top_1, gt)
+        step_f1_top3 = self.f1_top3(pred_top_3, gt)
 
-        if self.temporal_length == -1:
-            with warnings.catch_warnings():
-                warnings.filterwarnings('ignore', '.*NaN values found in confusion matrix have been replaced with zeros.*', UserWarning)
-                self.conf_mat_top1_whole(pred_top_1, gt_flattened)
-                self.conf_mat_top3_whole(pred_top_3, gt_flattened)
+        # Confusion matrix
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', '.*NaN values found in confusion matrix.*', UserWarning)
+            self.cm_top1(pred_top_1, gt)
+            self.cm_top3(pred_top_3, gt)
+
+
+        # if self.temporal_length == -1:
+        #     with warnings.catch_warnings():
+        #         warnings.filterwarnings('ignore', '.*NaN values found in confusion matrix have been replaced with zeros.*', UserWarning)
+        #         self.conf_mat_top1_whole(pred_top_1, gt_flattened)
+        #         self.conf_mat_top3_whole(pred_top_3, gt_flattened)
             # for _ in range(idxes.shape[0]):
             #     self.f1_at_k(, , segment_name="top1")
             
 
 
-        if self.temporal_length != -1:
-            pred_top_1_unf = pred_top_1.unflatten(0, (self.temporal_length, -1))
-            pred_top_3_unf = pred_top_3.unflatten(0, (self.temporal_length, -1))
+        # if self.temporal_length != -1:
+        #     pred_top_1_unf = pred_top_1.unflatten(0, (self.temporal_length, -1))
+        #     pred_top_3_unf = pred_top_3.unflatten(0, (self.temporal_length, -1))
 
-            # Window-location-sensitive metrics
-            for i in range(self.temporal_length):
-                self.win_f1_calc_top1[i](pred_top_1_unf[i, :], gt[i])
-                self.win_f1_calc_top3[i](pred_top_3_unf[i, :], gt[i])
+        #     # Window-location-sensitive metrics
+        #     for i in range(self.temporal_length):
+        #         self.win_f1_calc_top1[i](pred_top_1_unf[i, :], gt[i])
+        #         self.win_f1_calc_top3[i](pred_top_3_unf[i, :], gt[i])
 
-            # These are expects non-flattened tensors
-            combine_predictions(self.all_predictions_combined_top1, idxes.numpy(), pred_top_1_unf.cpu(), self.dataset_mapping[self.mode]["sample"])
-            combine_predictions(self.all_predictions_combined_top3, idxes.numpy(), pred_top_3_unf.cpu(), self.dataset_mapping[self.mode]["sample"])
+        #     # These are expects non-flattened tensors
+        #     combine_predictions(self.all_predictions_combined_top1, idxes.numpy(), pred_top_1_unf.cpu(), self.dataset_mapping[self.mode]["sample"])
+        #     combine_predictions(self.all_predictions_combined_top3, idxes.numpy(), pred_top_3_unf.cpu(), self.dataset_mapping[self.mode]["sample"])
 
         # Only these are matters (actually they don't but whatever)
         return step_f1_top1.cpu().item(), step_f1_top3.cpu().item()
@@ -1030,39 +1030,41 @@ class Metrics:
     def compute(self):
 
         if self.temporal_length != -1:
-            f1_at_10, f1_at_25, f1_at_50, f1_top1_mv, cm_top1_mv = calc_metrics_at_once(self.all_predictions_combined_top1, 
-                                                                            self.dataset_mapping[self.mode]["vid"], 
-                                                                            num_classes=len(ACTIONS), 
-                                                                            temporal_length=self.temporal_length,
-                                                                            downsample=self.downsample,
-                                                                            weighted_mv=self.weighted_mv,
-                                                                            save_dir=self.seg_save_dir)
+            # f1_at_10, f1_at_25, f1_at_50, f1_top1_mv, cm_top1_mv = calc_metrics_at_once(self.all_predictions_combined_top1, 
+            #                                                                 self.dataset_mapping[self.mode]["vid"], 
+            #                                                                 num_classes=len(ACTIONS), 
+            #                                                                 temporal_length=self.temporal_length,
+            #                                                                 downsample=self.downsample,
+            #                                                                 weighted_mv=self.weighted_mv,
+            #                                                                 save_dir=self.seg_save_dir)
 
-            _, _, _, f1_top3_mv, cm_top3_mv = calc_metrics_at_once(self.all_predictions_combined_top3, 
-                                                                            self.dataset_mapping[self.mode]["vid"], 
-                                                                            num_classes=len(ACTIONS), 
-                                                                            temporal_length=self.temporal_length,
-                                                                            downsample=self.downsample,
-                                                                            weighted_mv=self.weighted_mv,
-                                                                            save_dir=None)
+            # _, _, _, f1_top3_mv, cm_top3_mv = calc_metrics_at_once(self.all_predictions_combined_top3, 
+            #                                                                 self.dataset_mapping[self.mode]["vid"], 
+            #                                                                 num_classes=len(ACTIONS), 
+            #                                                                 temporal_length=self.temporal_length,
+            #                                                                 downsample=self.downsample,
+            #                                                                 weighted_mv=self.weighted_mv,
+            #                                                                 save_dir=None)
 
-            self.win_f1_calc_top1_results = [f1_calc.compute().item() for f1_calc in self.win_f1_calc_top1]
-            self.win_f1_calc_top3_results = [f1_calc.compute().item() for f1_calc in self.win_f1_calc_top3]
+            # self.win_f1_calc_top1_results = [f1_calc.compute().item() for f1_calc in self.win_f1_calc_top1]
+            # self.win_f1_calc_top3_results = [f1_calc.compute().item() for f1_calc in self.win_f1_calc_top3]
+            cm_top1_mv = self.cm_top1.compute().cpu()
+            cm_top3_mv = self.cm_top3.compute().cpu()
 
             ret = {
-                "f1_top1": self.f1_top1.compute().item(),
-                "f1_top3": self.f1_top3.compute().item(),
+                "f1_top1": 0,
+                "f1_top3": 0,
                 # "cm_top1": self.conf_mat_top1.compute().cpu(),
                 # "cm_top3": self.conf_mat_top3.compute().cpu(),
-                "f1_top1_once": f1_top1_mv,
-                "f1_top3_once": f1_top3_mv,
+                "f1_top1_once": self.f1_top1.compute().item(),
+                "f1_top3_once": self.f1_top3.compute().item(),
                 "cm_top1_once": cm_top1_mv,
                 "cm_top3_once": cm_top3_mv,
-                "f1@10": f1_at_10,
-                "f1@25": f1_at_25,
-                "f1@50": f1_at_50,
-                "win_f1_top1": self.win_f1_calc_top1_results,
-                "win_f1_top3": self.win_f1_calc_top3_results,
+                "f1@10": 0,
+                "f1@25": 0,
+                "f1@50": 0,
+                "win_f1_top1": [0]*self.temporal_length,
+                "win_f1_top3": [0]*self.temporal_length,
             }
         else:
             ret = {

@@ -349,8 +349,8 @@ class ActionRecognition(nn.Module):
 
         gnn_output_ch = args.out_channels * args.num_heads # aka effective_out_ch2
 
-        self.left_cls_token = torch.nn.Parameter(torch.randn(1, 1, gnn_output_ch))
-        self.right_cls_token = torch.nn.Parameter(torch.randn(1, 1, gnn_output_ch))
+        self.left_cls_token = torch.nn.Parameter(torch.randn(1, gnn_output_ch))
+        self.right_cls_token = torch.nn.Parameter(torch.randn(1, gnn_output_ch))
 
         if self.merged_pred == "early":
             gnn_output_ch *= 2
@@ -451,9 +451,11 @@ class ActionRecognition(nn.Module):
             left_embedding_list.append(left_embeddings)
             right_embedding_list.append(right_embeddings)
 
+        batch_left_cls_tokens = self.left_cls_token.expand(len(databatch), -1)
+        batch_right_cls_tokens = self.right_cls_token.expand(len(databatch), -1)
 
-        left_embedding_list.append(self.left_cls_token) # TODO check if this is really updated
-        right_embedding_list.append(self.right_cls_token)
+        left_embedding_list.append(batch_left_cls_tokens) # TODO check if this is really updated
+        right_embedding_list.append(batch_right_cls_tokens)
 
         left_sequencial_embeddings = torch.stack(left_embedding_list) # Shape: (T, N, F)
         right_sequencial_embeddings = torch.stack(right_embedding_list) # Shape: (T, N, F)
@@ -531,7 +533,7 @@ class ActionRecognition(nn.Module):
 
                 both_out_ml = torch.cat([left_tokens, right_tokens], dim=-1) # concat in feature dim 
                 
-                action_prediction = torch.cat((self.left_mlp(both_out_ml), self.right_mlp(both_out_ml)), dim=1)
+                action_prediction = torch.cat((self.left_mlp(both_out_ml), self.right_mlp(both_out_ml)), dim=0)
                 
 
             elif self.merged_pred == "early":

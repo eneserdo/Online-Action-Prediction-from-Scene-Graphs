@@ -75,22 +75,24 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                                       data.y[:,1,:].reshape(batch_size, args.temporal_length, len(ACTIONS)).permute(1, 0, 2)], dim=1)
 
         # gt_reordered: [temporal_length, 2*batch_size(left, ..., left, right, ..., right) , num_classes]
+        
+        gt_final = gt_reordered.argmax(2)[args.temporal_length//2]
+
+
 
         with torch.cuda.amp.autocast(enabled=not args.no_amp):
             pred = model(data, padding_mask)
 
-            pred_flattened = pred.flatten(0, 1)
-            gt_flattened = gt_reordered.flatten(0, 1)
             
-            if padding_mask is not None:
-                # Arange the padding mask to match the pred_flattened and gt_flattened
-                padding_mask_reshaped=padding_mask.T
-                padding_mask_reshaped= torch.cat([padding_mask_reshaped, padding_mask_reshaped], dim=1)
-                padding_mask_reshaped=padding_mask_reshaped.flatten()
-                pred_flattened = pred_flattened[~padding_mask_reshaped]
-                gt_flattened = gt_flattened[~padding_mask_reshaped]
+            # if padding_mask is not None:
+            #     # Arange the padding mask to match the pred_flattened and gt_flattened
+            #     padding_mask_reshaped=padding_mask.T
+            #     padding_mask_reshaped= torch.cat([padding_mask_reshaped, padding_mask_reshaped], dim=1)
+            #     padding_mask_reshaped=padding_mask_reshaped.flatten()
+            #     pred_flattened = pred_flattened[~padding_mask_reshaped]
+            #     gt_flattened = gt_flattened[~padding_mask_reshaped]
             
-            loss = loss_criterion(pred_flattened, gt_flattened)
+            loss = loss_criterion(pred, gt_final)
             loss = loss / args.num_acc
 
         
@@ -114,7 +116,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             VIP.pick_samples(y_true=gt_reordered.cpu().argmax(2), y_pred=pred.detach().cpu(), idx=idxes, epoch=epoch, mode=mode)
 
 
-        step_f1_top1, step_f1_top3 = metrics.update(pred.detach(), gt_reordered, idxes, padding_mask_reshaped)
+        step_f1_top1, step_f1_top3 = metrics.update(pred.detach(), gt_final, idxes, padding_mask_reshaped)
 
 
         if mode != "test":
@@ -128,7 +130,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
         #     print("20 BATCH ÇALIŞIYOR SADECE")
         #     break
 
-    # End of for loop
+    # End of loader loop
     
     metric_dict = metrics.compute()
 
