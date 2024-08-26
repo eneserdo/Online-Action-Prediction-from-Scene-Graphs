@@ -1116,16 +1116,97 @@ def upper_bound(temp_len):
     print("Done")
 
 
+def save_stats(temp_len=10, step=1):
+    gt_dir = opj("raw", "bimacs_rgbd_data_ground_truth")
+    stats = {"right": {}, "left": {}}
+
+
+    for subject, task, take in crawl_dataset():
+        gt_action_json=opj(gt_dir, subject, task, f"{take}.json")
+        
+        with open(gt_action_json) as f:
+            actions = json.load(f)
+
+        assert actions["right_hand"][-1] == actions["left_hand"][-1]
+        T=actions["right_hand"][-1]
+
+        act_list=_get_actions_list(gt_action_json, T)
+
+        act_list = act_list[::temp_len]
+
+        for idx in range(0, len(act_list)-step, step):
+            prev_act = act_list[idx:idx+step]
+            curr_act = act_list[idx+step]
+
+            for hand_id, hand in enumerate(["left", "right"]):
+                prev = "".join([ACTIONS[a][:2] for a in prev_act[:, hand_id]])
+                curr = ACTIONS[curr_act[hand_id]][:2]
+
+                if prev not in stats[hand]:
+                    stats[hand][prev] = {}
+
+                if curr not in stats[hand][prev]:
+                    stats[hand][prev][curr] = 0
+
+                stats[hand][prev][curr] += 1
+
+    # normalize
+    from pprint import pprint
+    for hand in ["left", "right"]:
+        for prev in stats[hand]:
+            total = sum(stats[hand][prev].values())
+            for curr in stats[hand][prev]:
+                stats[hand][prev][curr] = 100*stats[hand][prev][curr] / total
+    
+    from matplotlib import pyplot as plt
+
+    # # left hand
+    # fig, ax = plt.subplots(1, 2, figsize=(20, 10))
+    # ax[0].set_title("Left hand")
+    # ax[1].set_title("Right hand")
+
+
+    # # show as stacked bar
+    # for i, hand in enumerate(["left", "right"]):
+    #     bottom = np.zeros(len(ACTIONS))
+    #     data = stats[hand]
+
+    #     acts = [ac[:2] for ac in ACTIONS]
+
+
+    #     for prev in acts:
+    #         curr = [data[prev][ac] if ac in data[prev] else 0 for ac in acts]
+
+    #         ax[i].bar(acts, curr, bottom=bottom, label=prev)
+    #         bottom += np.array(curr)
+    #         break
+    #     ax[i].legend()
+    #     ax[i].set_xlabel("Previous action")
+    #     ax[i].set_ylabel("Percentage")
+    #     ax[i].set_title(f"{hand.capitalize()} hand")
+
+
+
+
+        
+    # plt.savefig("stats.png")
+
+    # print("Done")
+    pprint(stats)
+
+
+
 if __name__ == "__main__":
 
     # a, b, c=get_bimanual_dataset_splits(root=".", 
-    #                                     process_it_anyway=False, 
+    #                                      process_it_anyway=False, 
     #                                     test_subject=6, 
     #                                     validation_take=7, 
     #                                     temporal_length=10, 
     #                                     downsample=3, use_vf=False, monograph=False)   
     # print(len(a), len(b), len(c))
 
-    upper_bound(10)
-    upper_bound(30)
+    # upper_bound(10)
+    # upper_bound(30)
+    save_stats(10, 1)
 
