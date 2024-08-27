@@ -667,7 +667,9 @@ def majority_voting(arr, total_len, buffer_len, weighted):
     #                       [3, 4, 5], 
     #                          [4, 5, 6]])
     # [1...6] <= majority_voting(arr)
-
+    num_arr = arr.shape[0]//buffer_len 
+    assert num_arr + buffer_len - 1 == total_len, f"Something is wrong, arr shape: {arr.shape}, total_len: {total_len}, buffer_len: {buffer_len}"  
+    # assert num_arr > buffer_len, f"Current implementation only works if num_arr must be greater than buffer_len, num_arr: {num_arr}, buffer_len: {buffer_len}"
 
     result = np.zeros((total_len), dtype=np.int32)
     confidences = np.zeros((total_len))
@@ -710,7 +712,7 @@ def majority_voting(arr, total_len, buffer_len, weighted):
         
         sub_arr = arr[j : j + repeat * (buffer_len - 1) : buffer_len - 1]
 
-        assert sub_arr.shape[0] == repeat
+        assert sub_arr.shape[0] == repeat, f"num_arr: {num_arr}, buffer_len: {buffer_len}, sub_arr shape: {sub_arr.shape}"
 
         if weighted != "none":
             if sub_arr.shape[0] == vote_weights.shape[0]: 
@@ -725,6 +727,29 @@ def majority_voting(arr, total_len, buffer_len, weighted):
         result[i], confidences[i] = elected, counts[ind] / sub_arr.shape[0]
 
     return result, confidences
+
+def test_majority_voting():
+    arrs = []
+
+    T = 5
+    N = 3
+
+    for i in range(N):
+        arr = np.arange(i, i+T)
+        arrs.append(arr)
+
+    arrs = np.concatenate(arrs, 0)
+
+    total_len = N + T - 1
+
+    print(f"shapes: in_len: {arrs.shape}, out_len: {total_len}, buffer_len: {T}")
+    res, conf = majority_voting(arrs, total_len, buffer_len=T, weighted="none")
+
+    assert np.all(res == np.arange(total_len)), "Majority voting failed"
+    assert np.all(conf==1), "Confidence must be 1"
+
+    print("ok")
+
 
 
 def combine_predictions(all_arr, idx, sub_arr, mapping):
@@ -777,11 +802,14 @@ def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, downsam
         for y_pred_ in [y_pred__L_all, y_pred__R_all, y_pred_ML_all, y_pred_MR_all]:
             assert -1 not in y_pred_, "Not filled appropriately. There should not be -1 in y_pred"
 
-        y_pred__L, conf_L = majority_voting(y_pred__L_all, total_len=y_true_L[::downsample].shape[0], buffer_len=temporal_length, weighted=weighted_mv)
-        y_pred__R, conf_R = majority_voting(y_pred__R_all, total_len=y_true_R[::downsample].shape[0], buffer_len=temporal_length, weighted=weighted_mv)
-        y_pred_ML, conf_ML = majority_voting(y_pred_ML_all, total_len=y_true_L[::downsample].shape[0], buffer_len=temporal_length, weighted=weighted_mv)
-        y_pred_MR, conf_MR = majority_voting(y_pred_MR_all, total_len=y_true_R[::downsample].shape[0], buffer_len=temporal_length, weighted=weighted_mv)
-        
+        try:
+            y_pred__L, conf_L = majority_voting(y_pred__L_all, total_len=y_true_L[::downsample].shape[0], buffer_len=temporal_length, weighted=weighted_mv)
+            y_pred__R, conf_R = majority_voting(y_pred__R_all, total_len=y_true_R[::downsample].shape[0], buffer_len=temporal_length, weighted=weighted_mv)
+            y_pred_ML, conf_ML = majority_voting(y_pred_ML_all, total_len=y_true_L[::downsample].shape[0], buffer_len=temporal_length, weighted=weighted_mv)
+            y_pred_MR, conf_MR = majority_voting(y_pred_MR_all, total_len=y_true_R[::downsample].shape[0], buffer_len=temporal_length, weighted=weighted_mv)
+        except Exception as e:
+            raise ValueError(f"Majority voting failed, {video_id}", e)
+            
         
         y_pred__L = y_pred__L.repeat(downsample)
         y_pred__R = y_pred__R.repeat(downsample)
@@ -1193,3 +1221,7 @@ def get_dists_btw_obj(graph_batch: Batch):
 
 #     # graphList-> to list of graphs 
 #     ...
+
+
+if __name__ == "__main__":
+    test_majority_voting()
