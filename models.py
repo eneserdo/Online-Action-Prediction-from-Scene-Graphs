@@ -420,19 +420,16 @@ class ActionRecognition(nn.Module):
 
         if self.temporal_type != "none":
             if self.merged_pred == "late":
-                # Can this run in parallel? :smile:
                 self.left_mlp = build_mlp(lstm_hidden_size*2, args.num_action_classes)
                 self.right_mlp = build_mlp(lstm_hidden_size*2, args.num_action_classes)
-                # self.segment_boundary_detector = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
+
             elif self.merged_pred == "early":
-                # self.segment_boundary_detector_L = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
-                # self.segment_boundary_detector_R = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
                 self.left_mlp = build_mlp(lstm_hidden_size, args.num_action_classes)
                 self.right_mlp = build_mlp(lstm_hidden_size, args.num_action_classes)
-                # self.mlp = build_mlp(lstm_hidden_size, num_action_classes)
+                # self.mlp = build_mlp(lstm_hidden_size//2, args.num_action_classes)
+
             elif self.merged_pred in ["none", "attention"]:    
                 self.mlp = build_mlp(lstm_hidden_size, args.num_action_classes)
-                # self.segment_boundary_detector = build_mlp(lstm_hidden_size + effective_out_ch2, 2)
 
 
 
@@ -518,8 +515,6 @@ class ActionRecognition(nn.Module):
                 # Encoder-Decoder Transformer, mask the decoder part 
                 both_out = self.temporal_layer(both_sequencial_embeddings, both_sequencial_embeddings, None, self.decoder_mask)
                 
-            
-            
 
             #### Prediction part ####
             if self.merged_pred == "late":
@@ -536,11 +531,19 @@ class ActionRecognition(nn.Module):
                 
 
             elif self.merged_pred == "early":
-                raise NotImplementedError("Early merge is not implemented yet")
-                # l_out_s, r_out_s = torch.tensor_split(out_s, 2, dim=0)
-                # action_prediction = torch.cat((self.left_mlp(l_out_s), self.right_mlp(r_out_s)),dim=0)
-                # OR
-                #action_prediction = self.mlp(out_s)
+                # both_out.shape = (T, N, F*2)
+                
+                action_prediction = torch.cat((self.left_mlp(both_out), self.right_mlp(both_out)), dim=1)
+                
+                # Old way
+                # both_out_left, both_out_right = torch.tensor_split(both_out, 2, dim=2)
+                # # single mlp
+                # both_out_ml = torch.cat([both_out_left, both_out_right], dim=1)
+                # action_prediction = self.mlp(both_out_ml)
+
+                # # separate mlps
+                # # action_prediction = torch.cat((self.left_mlp(both_out_left), self.right_mlp(both_out_right)), dim=1)
+
             elif self.merged_pred == "attention":
 
                 # both_out.shape = (T*2, N, F)

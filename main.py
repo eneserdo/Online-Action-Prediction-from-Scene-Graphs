@@ -190,7 +190,6 @@ if __name__ == "__main__":
         assert not args.use_pos and not args.use_embedding, "use_vf cannot be used with use_pos or use_embedding"
         assert args.use_global_pooling, "use_vf must use global pooling"
         
-    assert args.merged_pred in ["none", "late", "attention"], f"merged_pred must be one of [none, late, attention]. Given: {args.merged_pred}"
 
     # Make sure it is reproducible
     random.seed(args.seed)
