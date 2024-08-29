@@ -1,3 +1,4 @@
+import copy
 import glob
 import os
 import pickle
@@ -10,6 +11,7 @@ import matplotlib
 import numpy as np
 import torch
 from torch_geometric.loader import DataLoader
+from torch_geometric.data import Batch
 
 from models import make_model
 import wandb
@@ -51,46 +53,30 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     
 
     for step, unpackable in enumerate(loader):
-        if args.temporal_length == -1:
-            vid_lens, idxes, data = unpackable
-            # Create a padding masks, since the temporal length is not fixed
-            # Am I genius or what? :D
-            padding_mask = torch.arange(0, MAX_VID_LEN).expand(len(idxes), MAX_VID_LEN)
-            padding_mask = padding_mask >= vid_lens.unsqueeze(1)
-            padding_mask = padding_mask.to(device)
-            # mask: [MAX_VID_LEN, batch_size] (even though data is [temporal_length, batch_size, feature_size])
-        else:
-            idxes, data = unpackable
-            padding_mask = None
-            padding_mask_reshaped = None
+        idxes, data = unpackable
 
+        assert len(data[0].to_data_list()) == 1
 
-        if not args.monograph:
-            data = [d.to(device) for d in data]
-            gt_reordered = torch.stack([torch.cat([d.y[::2], d.y[1::2]]) for d in data], dim=0)
-        else:
-            batch_size = data.y.shape[0] // args.temporal_length
-            data = data.to(device)
-            gt_reordered = torch.cat([data.y[:,0,:].reshape(batch_size, args.temporal_length, len(ACTIONS)).permute(1, 0, 2), 
-                                      data.y[:,1,:].reshape(batch_size, args.temporal_length, len(ACTIONS)).permute(1, 0, 2)], dim=1)
-
-        # gt_reordered: [temporal_length, 2*batch_size(left, ..., left, right, ..., right) , num_classes]
+        data = [d.to_data_list()[0] for d in data]
         
-        gt_final = gt_reordered.argmax(2)[args.temporal_length//2]
+        # temporal_length must be divisible by local_win_len
+        padding_len = args.local_win_len - len(data) % args.local_win_len
+        data.extend((padding_len) * [data[-1]])
 
+        data = Batch.from_data_list(data)
+
+        data = data.to(device)
+        gt_reordered = torch.cat([data.y[::2], data.y[1::2]])
+        # gt_reordered: [2*temporal_length(left, ..., left, right, ..., right) , num_classes]
+        
+        gt_final = gt_reordered.argmax(-1) # FIXME: index it dependin on size of local temporal window
 
 
         with torch.cuda.amp.autocast(enabled=not args.no_amp):
-            pred = model(data, padding_mask)
-
+            pred = model(data)
             
-            # if padding_mask is not None:
-            #     # Arange the padding mask to match the pred_flattened and gt_flattened
-            #     padding_mask_reshaped=padding_mask.T
-            #     padding_mask_reshaped= torch.cat([padding_mask_reshaped, padding_mask_reshaped], dim=1)
-            #     padding_mask_reshaped=padding_mask_reshaped.flatten()
-            #     pred_flattened = pred_flattened[~padding_mask_reshaped]
-            #     gt_flattened = gt_flattened[~padding_mask_reshaped]
+            left_pred, right_pred = torch.split(pred, pred.size(0) // 2)
+            pred = torch.cat([left_pred[:-padding_len], right_pred[:-padding_len]], dim=1)
             
             loss = loss_criterion(pred, gt_final)
             loss = loss / args.num_acc
@@ -116,7 +102,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             VIP.pick_samples(y_true=gt_reordered.cpu().argmax(2), y_pred=pred.detach().cpu(), idx=idxes, epoch=epoch, mode=mode)
 
 
-        step_f1_top1, step_f1_top3 = metrics.update(pred.detach(), gt_final, idxes, padding_mask_reshaped)
+        step_f1_top1, step_f1_top3 = metrics.update(pred.detach(), gt_final, idxes)
 
 
         if mode != "test":
@@ -192,7 +178,10 @@ if __name__ == "__main__":
         assert not args.use_pos and not args.use_embedding, "use_vf cannot be used with use_pos or use_embedding"
         assert args.use_global_pooling, "use_vf must use global pooling"
         
-    assert args.merged_pred in ["none", "late", "attention"], f"merged_pred must be one of [none, late, attention]. Given: {args.merged_pred}"
+    # assert args.merged_pred in ["none", "late", "attention"], f"merged_pred must be one of [none, late, attention]. Given: {args.merged_pred}"
+    
+    assert args.temporal_length == 0
+    assert args.batch_size == 1
 
     # Make sure it is reproducible
     random.seed(args.seed)
@@ -256,14 +245,17 @@ if __name__ == "__main__":
     if args.monograph:
         rnn_params = sum(p.numel() for p in model.head.parameters() if p.requires_grad)
     else:
-        rnn_params = sum(p.numel() for p in model.temporal_layer.parameters() if p.requires_grad)
-    gnn_params = sum(p.numel() for p in model.gnn.parameters() if p.requires_grad)
+        rnn_params = sum(p.numel() for p in model.temporal_net.parameters() if p.requires_grad)
+    gnn_params = sum(p.numel() for p in model.graph_net.parameters() if p.requires_grad)
+    causal_params = sum(p.numel() for p in model.causal_net.parameters() if p.requires_grad)
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    
 
     print(f"Total trainable params: {total_params:_}")
-    print(f"RNN: {rnn_params:_}")
+    print(f"Temp1: {rnn_params:_}")
+    print(f"Temp2: {causal_params:_}")
     print(f"GNN: {gnn_params:_}")
-    wandb.log({"total_params": total_params, "rnn_params": rnn_params, "gnn_params": gnn_params})
+    wandb.log({"total_params": total_params, "rnn_params": rnn_params, "gnn_params": gnn_params}) # FIXME
 
 
     wandb.watch(model, log='all')

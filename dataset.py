@@ -645,8 +645,8 @@ def get_processing_dir(root: str, temporal_length: int, downsample: int, use_vf:
     ds_append=f"_d{downsample}" if downsample > 1 else ""
     ds_append += "_vf" if use_vf else ""
     ds_append += "_G" if monograph else ""
-    if temporal_length == -1:
-        return opj(root, "processed" + "Whole" + ds_append)
+    if temporal_length == 0:
+        return opj(root, "processed" + "_W" + ds_append)
     else:
         return opj(root, "processed"+str(temporal_length) + ds_append)
 
@@ -657,14 +657,6 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
 
     processed_dir = get_processing_dir(root, temporal_length, downsample, use_vis_feat, monograph)
     os.mkdir(processed_dir)
-    
-    if temporal_length == -1:
-        # whole video as one sample
-        process_whole_video = True
-        MAX_VID_LENGTH = _get_max_length(root, downsample) 
-    else:
-        process_whole_video = False
-
 
     for subject in ['subject_{}'.format(i) for i in range(1, 7)]:
         os.mkdir(opj(processed_dir, subject))
@@ -684,9 +676,6 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
     prepended_things_count=0
 
     dataset_mapping_master = {"sample":{}, "vid":{}}
-
-    if process_whole_video:
-        vid_len_info = {} # idx -> video length
 
     # To double check
     sample_count = 0
@@ -745,10 +734,6 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
         # Just to make sure at least one sample is saved per video. 
         # Mostly used for debugging whole video processing
         successful_save = False
-        if process_whole_video:
-            temporal_length = len(object_json_list[::downsample])
-            is_padding_needed = False
-
 
         dataset_mapping_master["vid"][str(subject_int)+str(task_int)+str(take_int)] = act_list_full
         sample_count = sample_count + len(act_list) - temporal_length + 1 # This is redundant for whole video processing   
@@ -805,65 +790,27 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
                 prepend_count=0
             ##################################
 
-                
-            # if the sequence is complete, saves it
-            if len(data_list) == temporal_length:
-                
-                # # Am i genius or what
-                # data_list = data_list[::downsample]
-                # data_list_mirrored = data_list_mirrored[::downsample]
-
-                # There is already a collate function for DataLoader in pyg, 
-                # so it is not trivial to use DataLoader for this purpose. Instead, 
-                # I padded manually.
-                # Padding
-                if process_whole_video:
-                    # if MAX_VID_LENGTH - len(data_list) > 0:
-                    #     is_padding_needed = True
-                    #     for _ in range(MAX_VID_LENGTH - len(data_list)):
-                    #         data_list.append(_get_padding_graph())
-                    #         data_list_mirrored.append(_get_padding_graph())
-                    _pad_sequence(data_list, MAX_VID_LENGTH)
-                    _pad_sequence(data_list_mirrored, MAX_VID_LENGTH)
-
-
-                # To make sure no padding goes into training 
-                # TODO: will be removed
-                if process_whole_video:
-                    last_element_idx = len(dataset_mapping_master["vid"][str(subject_int)+str(task_int)+str(take_int)]) - 1
-                    assert data_list[last_element_idx].y.sum() == 2, "WTF"
-                    assert data_list_mirrored[last_element_idx].y.sum() == 2, "WTF"
-                    
-                    if is_padding_needed:
-                        # make sure last element is not padding
-                        assert data_list[last_element_idx + 1].y.sum() == -1, "WTF"
-                        assert data_list_mirrored[last_element_idx + 1].y.sum() == -1, "WTF"
-
-                assert len(data_list) == len(data_list_mirrored), f"{len(data_list)=}, {len(data_list_mirrored)=}"
+    # if len(data_list) == temporal_length:
     
-                torch.save(data_list, opj(processed_dir, subject, f'data_{sample_idx}.pt'))
-                dataset_mapping_master["sample"][sample_idx] = (subject_int, task_int, take_int, frame-temporal_length + 1, frame + 1, "_")
-                if process_whole_video:
-                    vid_len_info[sample_idx] = temporal_length
-                sample_idx+=1
+        torch.save(data_list, opj(processed_dir, subject, f'data_{sample_idx}.pt'))
+        dataset_mapping_master["sample"][sample_idx] = (subject_int, task_int, take_int, frame-temporal_length + 1, frame + 1, "_")
 
-                dataset_mapping_master["sample"][sample_idx] = (subject_int, task_int, take_int, frame-temporal_length + 1, frame + 1, "M")
-                torch.save(data_list_mirrored, opj(processed_dir, subject, f'data_{sample_idx}.pt'))
-                if process_whole_video:
-                    vid_len_info[sample_idx] = temporal_length
-                sample_idx+=1
+        sample_idx+=1
 
-                successful_save = True
-                data_list[0].validate(raise_on_error=True)
-                data_list_mirrored[0].validate(raise_on_error=True)
-                data_list.pop(0)
-                data_list_mirrored.pop(0)
+        dataset_mapping_master["sample"][sample_idx] = (subject_int, task_int, take_int, frame-temporal_length + 1, frame + 1, "M")
+        torch.save(data_list_mirrored, opj(processed_dir, subject, f'data_{sample_idx}.pt'))
+
+        sample_idx+=1
+
+        successful_save = True
+        data_list[0].validate(raise_on_error=True)
+        data_list_mirrored[0].validate(raise_on_error=True)
         # End of for loop (frame)
                 
         if not successful_save:
             raise ValueError("WTF")
 
-        assert 2*sample_count == sample_idx, f"{sample_count=}, {sample_idx=}"
+        # assert 2*sample_count == sample_idx, f"{sample_count=}, {sample_idx=}"
 
         ticks.update()
 
@@ -872,7 +819,6 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
 
     progressbar_manager.stop()
     
-    assert sample_idx == sample_count*2, f"{sample_idx=} ,{sample_count*2=}"
 
     print(f"\n\n#######\n{TOTAL_FRAME_COUNT=}, {EMPTY_COUNT=}, {NO_EDGE_COUNT=}, {MISSING_HAND_COUNT=}, {NULL_COUNT=}")
     
@@ -889,9 +835,8 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
     with open(opj(processed_dir, "dataset_mapping_master.pickle"), "wb") as f:
         pickle.dump(dataset_mapping_master, f)
 
-    if process_whole_video:
-        with open(opj(processed_dir, "vid_len_info.json"), "w") as f:
-            json.dump(vid_len_info, f)
+    # assert sample_idx == sample_count*2, f"{sample_idx=} ,{sample_count*2=}"
+
 
 class BimanualDataset(gDataset):
     def __init__(self, root, temporal_length, downsample, mapping, use_vf, monograph):
@@ -1198,13 +1143,13 @@ def save_stats(temp_len=10, step=1):
 
 if __name__ == "__main__":
 
-    # a, b, c=get_bimanual_dataset_splits(root=".", 
-    #                                      process_it_anyway=False, 
-    #                                     test_subject=6, 
-    #                                     validation_take=7, 
-    #                                     temporal_length=10, 
-    #                                     downsample=3, use_vf=False, monograph=False)   
-    # print(len(a), len(b), len(c))
+    a, b, c=get_bimanual_dataset_splits(root=".", 
+                                         process_it_anyway=False, 
+                                        test_subject=6, 
+                                        validation_take=7, 
+                                        temporal_length=0, 
+                                        downsample=3, use_vf=False, monograph=False)   
+    print(len(a), len(b), len(c))
 
     # upper_bound(10)
     # upper_bound(30)

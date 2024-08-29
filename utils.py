@@ -58,7 +58,6 @@ def arg_parser_base():
     ap.add_argument("-nh", "--num_heads", type=int, default=2, help="...")
     ap.add_argument("-nl", "--num_layers", type=int, default=2, help="...")
     ap.add_argument("--saving_freq", type=int, default=4, help="...")
-    ap.add_argument("--use_global_pooling", action="store_true", help="...")    # :(
     ap.add_argument("--edge_dropout", type=float, default=0.0, help="...")
     ap.add_argument("--dropout", type=float, default=0.0, help="...")
     ap.add_argument("--norm_layer", type=str, default="LayerNorm", choices=["BatchNorm", "InstanceNorm", "LayerNorm", "GraphNorm", "PairNorm", "none"], help="Normalization  for GNN layer")
@@ -72,11 +71,13 @@ def arg_parser_base():
     # Model - Temporal part
     ap.add_argument("--dropout_tr", type=float, default=0.1, help="...")
     ap.add_argument("-hs", "--lstm_hidden_size", type=int, default=128, help="...")
-    ap.add_argument("--temporal_type", type=str, default="tr", choices=["lstm", "bi", "tr", "edtr", "none"], help="...")
+    ap.add_argument("--temporal_type_local", type=str, default="tr", choices=["lstm", "tr", "none"], help="...")
+    ap.add_argument("--temporal_type_global", type=str, default="lstm", choices=["lstm", "tr"], help="...")
     ap.add_argument("--norm_first", action="store_true", help="To make norm_first=true in TransformerEncoderLayer")
     ap.add_argument("--pos_enc", type=str, default="original", choices=["original", "learnable", "none"], help="Type of positional encoding")
     ap.add_argument("--num_heads_tr", type=int, default=4, help="...")
     ap.add_argument("--num_of_temp_layers", type=int, default=2, help="...")
+    ap.add_argument("--local_win_len", type=int, default=10, help="...")
     
     # Model - Others
     ap.add_argument("--dim_feedforward", type=int, default=0, help="transformer encoder layer's dim_feedforward, if 0, it is set to lstm_hidden_size//4*3")
