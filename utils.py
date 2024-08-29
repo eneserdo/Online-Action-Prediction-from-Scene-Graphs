@@ -77,6 +77,7 @@ def arg_parser_base():
     ap.add_argument("--pos_enc", type=str, default="original", choices=["original", "learnable", "none"], help="Type of positional encoding")
     ap.add_argument("--num_heads_tr", type=int, default=4, help="...")
     ap.add_argument("--num_of_temp_layers", type=int, default=2, help="...")
+    ap.add_argument("--causal", action="store_true", help="Use causal attention in transformer (Useful when whole video processing)")
     
     # Model - Others
     ap.add_argument("--dim_feedforward", type=int, default=0, help="transformer encoder layer's dim_feedforward, if 0, it is set to lstm_hidden_size//4*3")
@@ -1002,7 +1003,7 @@ class Metrics:
             self.f1_at_k = F1_at_k(num_classes=num_classes)
 
 
-    def update(self, pred, gt_ohe, idxes, mask=None):
+    def update(self, pred, gt_ohe, idxes):
         # gt_ohe: [T, B, C] (one hot encoded)
         # pred: [T, B, C]
 
@@ -1010,10 +1011,6 @@ class Metrics:
         gt_flattened = gt.flatten(start_dim=0, end_dim=1)
 
         pred_flattened = pred.flatten(start_dim=0, end_dim=1)
-
-        if mask is not None:
-            gt_flattened = gt_flattened[~mask]
-            pred_flattened = pred_flattened[~mask]
 
         pred_top_3 = torch.argsort(pred_flattened, dim=-1, descending=True)[:, :3]
         pred_top_1 = pred_top_3[:,0]
@@ -1094,8 +1091,8 @@ class Metrics:
             }
         else:
             ret = {
-                "f1_top1": self.f1_top1.compute().item(),
-                "f1_top3": self.f1_top3.compute().item(),
+                "f1_top1_once": self.f1_top1.compute().item(),
+                "f1_top3_once": self.f1_top3.compute().item(),
                 "cm_top1_once": self.conf_mat_top1_whole.compute().cpu(),
                 "cm_top3_once": self.conf_mat_top3_whole.compute().cpu(),
             }
@@ -1131,8 +1128,8 @@ def wandb_logging(wandb, metric_dict, epoch, mode, whole_mode=False):
                     "epoch": epoch})
     else:
         # TODO: add f1@k
-        wandb.log({f"{mode}/epoch": {"f1_top1": metric_dict["f1_top1"],
-                              "f1_top3": metric_dict["f1_top3"]},
+        wandb.log({f"{mode}/epoch": {"f1_top1_once": metric_dict["f1_top1_once"],
+                                     "f1_top3_once": metric_dict["f1_top3_once"]},
                    "epoch": epoch})
 
 

@@ -342,6 +342,7 @@ class ActionRecognition(nn.Module):
         self.merged_pred = args.merged_pred
         self.use_embedding = args.use_embedding
         self.return_attention = args.return_attention
+        self.causal = args.causal
 
         
         self.gnn = GraphModule(args)
@@ -465,7 +466,10 @@ class ActionRecognition(nn.Module):
                 right_sequencial_embeddings = align_embeddings_to_right(right_sequencial_embeddings, right_filter)
                 left_sequencial_embeddings = align_embeddings_to_right(left_sequencial_embeddings, left_filter)
 
-            causal_mask = torch.nn.Transformer.generate_square_subsequent_mask(left_sequencial_embeddings.shape[0])
+            if self.causal:
+                causal_mask = torch.nn.Transformer.generate_square_subsequent_mask(left_sequencial_embeddings.shape[0])
+            else:
+                causal_mask = None
 
             # Enabling the information flow between hands
             if self.merged_pred == "early": # concat in feature dim
@@ -475,7 +479,7 @@ class ActionRecognition(nn.Module):
             elif self.merged_pred == "attention": # concat in time dim
                 both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=0)
                 # shape = (T*2, N, F)
-                causal_mask = torch.cat([causal_mask, causal_mask], dim=1)
+                causal_mask = torch.cat([causal_mask, causal_mask], dim=1) if causal_mask is not None else None
 
             elif self.merged_pred in ["late", "none"]: # concat in batch dim
                 both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=1) 
