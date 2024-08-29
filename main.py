@@ -51,19 +51,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     
 
     for step, unpackable in enumerate(loader):
-        if args.temporal_length == -1:
-            vid_lens, idxes, data = unpackable
-            # Create a padding masks, since the temporal length is not fixed
-            # Am I genius or what? :D
-            padding_mask = torch.arange(0, MAX_VID_LEN).expand(len(idxes), MAX_VID_LEN)
-            padding_mask = padding_mask >= vid_lens.unsqueeze(1)
-            padding_mask = padding_mask.to(device)
-            # mask: [MAX_VID_LEN, batch_size] (even though data is [temporal_length, batch_size, feature_size])
-        else:
-            idxes, data = unpackable
-            padding_mask = None
-            padding_mask_reshaped = None
-
+        idxes, data = unpackable
 
         if not args.monograph:
             data = [d.to(device) for d in data]
@@ -77,18 +65,10 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
         # gt_reordered: [temporal_length, 2*batch_size(left, ..., left, right, ..., right) , num_classes]
 
         with torch.cuda.amp.autocast(enabled=not args.no_amp):
-            pred = model(data, padding_mask)
+            pred = model(data)
 
             pred_flattened = pred.flatten(0, 1)
             gt_flattened = gt_reordered.flatten(0, 1)
-            
-            if padding_mask is not None:
-                # Arange the padding mask to match the pred_flattened and gt_flattened
-                padding_mask_reshaped=padding_mask.T
-                padding_mask_reshaped= torch.cat([padding_mask_reshaped, padding_mask_reshaped], dim=1)
-                padding_mask_reshaped=padding_mask_reshaped.flatten()
-                pred_flattened = pred_flattened[~padding_mask_reshaped]
-                gt_flattened = gt_flattened[~padding_mask_reshaped]
             
             loss = loss_criterion(pred_flattened, gt_flattened)
             loss = loss / args.num_acc
@@ -114,7 +94,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             VIP.pick_samples(y_true=gt_reordered.cpu().argmax(2), y_pred=pred.detach().cpu(), idx=idxes, epoch=epoch, mode=mode)
 
 
-        step_f1_top1, step_f1_top3 = metrics.update(pred.detach(), gt_reordered, idxes, padding_mask_reshaped)
+        step_f1_top1, step_f1_top3 = metrics.update(pred.detach(), gt_reordered, idxes)
 
 
         if mode != "test":
@@ -189,7 +169,13 @@ if __name__ == "__main__":
     if args.use_vf:
         assert not args.use_pos and not args.use_embedding, "use_vf cannot be used with use_pos or use_embedding"
         assert args.use_global_pooling, "use_vf must use global pooling"
-        
+
+    if args.temporal_length == -1:
+        if args.batch_size != 1:
+            args.num_acc *= args.batch_size
+            args.batch_size = 1
+            print(f"args.batch_size is set to 1, and args.num_acc is set to {args.num_acc} for whole video processing")
+
 
     # Make sure it is reproducible
     random.seed(args.seed)

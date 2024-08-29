@@ -432,8 +432,7 @@ class ActionRecognition(nn.Module):
                 self.mlp = build_mlp(lstm_hidden_size, args.num_action_classes)
 
 
-
-    def forward(self, dataBatchList: List[Batch], padding_mask=None):
+    def forward(self, dataBatchList: List[Batch]):
 
         left_embedding_list = []
         right_embedding_list = []
@@ -443,10 +442,8 @@ class ActionRecognition(nn.Module):
         for databatch in dataBatchList:  
 
             left_embeddings, right_embeddings = self.gnn(databatch)
-
             left_embedding_list.append(left_embeddings)
             right_embedding_list.append(right_embeddings)
-
 
 
         left_sequencial_embeddings = torch.stack(left_embedding_list) # Shape: (T, N, F)
@@ -468,54 +465,40 @@ class ActionRecognition(nn.Module):
                 right_sequencial_embeddings = align_embeddings_to_right(right_sequencial_embeddings, right_filter)
                 left_sequencial_embeddings = align_embeddings_to_right(left_sequencial_embeddings, left_filter)
 
-            # padding_mask: (N, T) 
+            causal_mask = torch.nn.Transformer.generate_square_subsequent_mask(left_sequencial_embeddings.shape[0])
 
             # Enabling the information flow between hands
             if self.merged_pred == "early": # concat in feature dim
                 both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=-1)
                 # shape = (T, N, F*2)
-                if padding_mask is not None:
-                    pass
 
             elif self.merged_pred == "attention": # concat in time dim
                 both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=0)
                 # shape = (T*2, N, F)
-                # May not work due to weird mask
-                if padding_mask is not None:
-                    padding_mask = torch.concat([padding_mask, padding_mask], dim=1)
+                causal_mask = torch.cat([causal_mask, causal_mask], dim=1)
 
             elif self.merged_pred in ["late", "none"]: # concat in batch dim
                 both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=1) 
                 # shape = (T, N*2, F)
-                if padding_mask is not None:
-                    padding_mask = torch.concat([padding_mask, padding_mask], dim=0)
             else:
                 raise NotImplementedError(f"merged_pred: {self.merged_pred} is not implemented")
             
 
             #### Temporal part ####
             if self.temporal_type == "tr":
-
                 both_sequencial_embeddings = self.pos_encoder(both_sequencial_embeddings * self.PE_coef)
-
-                both_out = self.temporal_layer(both_sequencial_embeddings, src_key_padding_mask=padding_mask)
-
+                both_out = self.temporal_layer(both_sequencial_embeddings, causal_mask)
 
             elif self.temporal_type == "bi":
                 both_out, _ = self.temporal_layer(both_sequencial_embeddings)
-                """_, (both_hn, _) = self.temporal_layer(both_sequencial_embeddings)
-                both_hn = torch.cat([both_hn[0], both_hn[1]], dim=1)"""
+
             elif self.temporal_type == "lstm":
                 both_out, _ = self.temporal_layer(both_sequencial_embeddings)
-                """_, (both_hn, _) = self.temporal_layer(both_sequencial_embeddings)
-                # assert both_hn.shape[0]==1
-                both_hn = both_hn.squeeze()"""
             
             elif self.temporal_type == "edtr":
                 # Encoder-Decoder Transformer, mask the decoder part 
                 both_out = self.temporal_layer(both_sequencial_embeddings, both_sequencial_embeddings, None, self.decoder_mask)
                 
-
             #### Prediction part ####
             if self.merged_pred == "late":
                 # merged_out_s = self._merge_hands(out_s)
@@ -592,12 +575,11 @@ class ActionRecognitionMonograph(nn.Module):
 
 
 
-    def forward(self, databatch: Batch, _=None):
+    def forward(self, databatch: Batch):
 
         bs = databatch.batch[-1] + 1
         left_embeddings, right_embeddings = self.gnn(databatch) 
         # shape: (n*b, f)
-        # assert graph_embedding.shape[0]==self.batch_size and graph_embedding.shape[1]==self.conv_out
 
         hands_embeddings = torch.cat((left_embeddings, right_embeddings), dim=0) # CHECKME
         
