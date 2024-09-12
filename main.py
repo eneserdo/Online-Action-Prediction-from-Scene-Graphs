@@ -19,6 +19,7 @@ from utils import (Metrics, VisIndividualPreds,
                    arg_parser, get_loss_weights, get_minutes, metrics_to_str,
                    seed_worker, visualize_incorrect_preds, wandb_logging)
 
+from rich import print as rprint
 
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
@@ -304,8 +305,7 @@ if __name__ == "__main__":
         scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
         print(f"Model is restored successfully from epoch {args.restore}!")
         
-        # FIXME: It overrides the scheduler. Is it desired?
-        print("Optimizer and scheduler are overwritten with the restored ones")
+        rprint("[magenta]Optimizer and scheduler are overwritten with the restored ones")
 
     
     # dataset_mapping contains mapping for each sample to its location in the videos. 
@@ -356,11 +356,11 @@ if __name__ == "__main__":
     # TEST
     print("Starts test...")
 
-    choose_best_in_terms_of = "f1_top1_once" if args.temporal_length != -1 else "f1_top1"
+    choose_best_in_terms_of = "f1_top1_once"
     test_metrics = test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of=choose_best_in_terms_of)
     
     if test_metrics is None:
-        print("[WARN] No weights found to test")
+        rprint("[red] No weights found to test")
     else:
         wandb_logging(wandb, test_metrics, epoch, "test", whole_mode=args.temporal_length == -1)
     
