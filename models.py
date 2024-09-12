@@ -43,7 +43,6 @@ class PositionalEncoding(nn.Module):
 
     def __init__(self, d_model, dropout=0, max_len=5000, use_library=False):
         super(PositionalEncoding, self).__init__()
-        # FIXME: dropout ??
         self.dropout = nn.Dropout(p=dropout)
 
         pe = torch.zeros(max_len, d_model)
@@ -76,7 +75,6 @@ class PositionalEncodingPseudo2D(nn.Module):
 
     def __init__(self, d_model, dropout=0.1):
         super(PositionalEncodingPseudo2D, self).__init__()
-        # FIXME: dropout ??
         self.dropout = nn.Dropout(p=dropout)
         self.pe_ = PositionalEncoding2D(d_model)
         self.is_set = False
@@ -356,7 +354,7 @@ class ActionRecognition(nn.Module):
         if args.dim_feedforward == 0:
             # This is was the previous default value, so I am keeping it
             # But this makes the embedding size > dim_feedforward, which is not good
-            dim_feedforward = args.lstm_hidden_size // 4 * 3
+            args.dim_feedforward = args.lstm_hidden_size // 4 * 3
 
         if args.temporal_type in ["lstm", "bi"]:
             if args.num_of_temp_layers != 1:
@@ -374,7 +372,7 @@ class ActionRecognition(nn.Module):
         elif args.temporal_type == "tr":
             # Default dropout is 0.1
 
-            self.temporal_layer = nn.TransformerEncoder(nn.TransformerEncoderLayer(gnn_output_ch, args.num_heads_tr, dim_feedforward, norm_first=args.norm_first, dropout=args.dropout_tr), args.num_of_temp_layers)
+            self.temporal_layer = nn.TransformerEncoder(nn.TransformerEncoderLayer(gnn_output_ch, args.num_heads_tr, args.dim_feedforward, norm_first=args.norm_first, dropout=args.dropout_tr), args.num_of_temp_layers)
             self.PE_coef = math.sqrt(gnn_output_ch)
 
             if args.pos_enc == "original":
@@ -405,7 +403,7 @@ class ActionRecognition(nn.Module):
 
         elif args.temporal_type == "edtr":
             # Encoder-Decoder Transformer
-            self.temporal_layer = Seq2SeqTransformer(args.num_of_temp_layers, args.num_of_temp_layers, gnn_output_ch, args.num_heads_tr, dim_feedforward, args.dropout_tr)
+            self.temporal_layer = Seq2SeqTransformer(args.num_of_temp_layers, args.num_of_temp_layers, gnn_output_ch, args.num_heads_tr, args.dim_feedforward, args.dropout_tr)
             self.decoder_mask = torch.nn.Transformer.generate_square_subsequent_mask(args.temporal_length)
         
         elif args.temporal_type == "none":
@@ -479,7 +477,7 @@ class ActionRecognition(nn.Module):
             elif self.merged_pred == "attention": # concat in time dim
                 both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=0)
                 # shape = (T*2, N, F)
-                causal_mask = torch.cat([causal_mask, causal_mask], dim=1) if causal_mask is not None else None
+                causal_mask = causal_mask.repeat(2, 2) if causal_mask is not None else None
 
             elif self.merged_pred in ["late", "none"]: # concat in batch dim
                 both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=1) 
@@ -585,7 +583,7 @@ class ActionRecognitionMonograph(nn.Module):
         left_embeddings, right_embeddings = self.gnn(databatch) 
         # shape: (n*b, f)
 
-        hands_embeddings = torch.cat((left_embeddings, right_embeddings), dim=0) # CHECKME
+        hands_embeddings = torch.cat((left_embeddings, right_embeddings), dim=0)
         
         action_prediction = self.head(hands_embeddings)
 

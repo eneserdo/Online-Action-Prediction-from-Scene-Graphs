@@ -77,7 +77,7 @@ def arg_parser_base():
     ap.add_argument("--pos_enc", type=str, default="original", choices=["original", "learnable", "none"], help="Type of positional encoding")
     ap.add_argument("--num_heads_tr", type=int, default=4, help="...")
     ap.add_argument("--num_of_temp_layers", type=int, default=2, help="...")
-    ap.add_argument("--causal", action="store_true", help="Use causal attention in transformer (Useful when whole video processing)")
+    ap.add_argument("--causal", action="store_true", help="Use causal attention in transformer (Available when whole video processing)")
     
     # Model - Others
     ap.add_argument("--dim_feedforward", type=int, default=0, help="transformer encoder layer's dim_feedforward, if 0, it is set to lstm_hidden_size//4*3")
@@ -99,7 +99,6 @@ def arg_parser_base():
 
     ap.add_argument("--num_acc", type=int, default=1, help="Number of grad accumulation steps")
     ap.add_argument("--no_amp", action="store_true", help="Disable automatic mixed precision")
-    # num worker
     ap.add_argument("--num_workers", type=int, default=5, help="Number of workers for dataloader")
 
 
@@ -140,103 +139,103 @@ def arg_parser_cv():
     return ap.parse_args()
 
 
-def arg_parser_viz_attn():
-    ap = argparse.ArgumentParser()
+# def arg_parser_viz_attn():
+#     ap = argparse.ArgumentParser()
 
-    # Dataset
-    ap.add_argument("-rt", "--root", type=str, default='.', help="Root directory of dataset.")
-    ap.add_argument("-p", "--process_it", action="store_true", help="...")
-    ap.add_argument("-tl", "--temporal_length", type=int, default=10, help="...")
-    ap.add_argument("-ts", "--test_subject", type=int, default=1, choices=[1, 2, 3, 4, 5, 6], help="...")
-    ap.add_argument("-vt", "--validation_take", type=int, default=7, choices=[i for i in range(10)], help="...")
-    ap.add_argument("--downsample", type=int, default=1, help="Downsampling ratio")
-    ap.add_argument("--use_vf", action="store_true", help="use visual features")
-    ap.add_argument("--monograph", action="store_true", help="use monograph")
+#     # Dataset
+#     ap.add_argument("-rt", "--root", type=str, default='.', help="Root directory of dataset.")
+#     ap.add_argument("-p", "--process_it", action="store_true", help="...")
+#     ap.add_argument("-tl", "--temporal_length", type=int, default=10, help="...")
+#     ap.add_argument("-ts", "--test_subject", type=int, default=1, choices=[1, 2, 3, 4, 5, 6], help="...")
+#     ap.add_argument("-vt", "--validation_take", type=int, default=7, choices=[i for i in range(10)], help="...")
+#     ap.add_argument("--downsample", type=int, default=1, help="Downsampling ratio")
+#     ap.add_argument("--use_vf", action="store_true", help="use visual features")
+#     ap.add_argument("--monograph", action="store_true", help="use monograph")
 
-    # Model - GNN part
-    ap.add_argument("-g", "--gnn_type", type=str, default="TransformerConv",
-                    choices=["NNConv", "GATConv", "TransformerConv", "GATv2Conv"], help="...")
-    ap.add_argument("-hc", "--hidden_channels", type=int, default=64, help="...")
-    ap.add_argument("-oc", "--out_channels", type=int, default=64, help="...")
-    ap.add_argument("-nh", "--num_heads", type=int, default=2, help="...")
-    ap.add_argument("-nl", "--num_layers", type=int, default=2, help="...")
-    ap.add_argument("--use_global_pooling", action="store_true", help="...")    # :(
-    ap.add_argument("--edge_dropout", type=float, default=0.0, help="...")
-    ap.add_argument("--dropout", type=float, default=0.0, help="...")
-    ap.add_argument("--norm_layer", type=str, default="LayerNorm", choices=["BatchNorm", "InstanceNorm", "LayerNorm", "GraphNorm", "PairNorm", "none"], help="Normalization  for GNN layer")
-    ap.add_argument("--use_pos", action="store_true", help="Use positions too as node features")
-    ap.add_argument("--use_embedding", action="store_true", help="Instead of one-hot encoded node features, use embedding layer")
+#     # Model - GNN part
+#     ap.add_argument("-g", "--gnn_type", type=str, default="TransformerConv",
+#                     choices=["NNConv", "GATConv", "TransformerConv", "GATv2Conv"], help="...")
+#     ap.add_argument("-hc", "--hidden_channels", type=int, default=64, help="...")
+#     ap.add_argument("-oc", "--out_channels", type=int, default=64, help="...")
+#     ap.add_argument("-nh", "--num_heads", type=int, default=2, help="...")
+#     ap.add_argument("-nl", "--num_layers", type=int, default=2, help="...")
+#     ap.add_argument("--use_global_pooling", action="store_true", help="...")    # :(
+#     ap.add_argument("--edge_dropout", type=float, default=0.0, help="...")
+#     ap.add_argument("--dropout", type=float, default=0.0, help="...")
+#     ap.add_argument("--norm_layer", type=str, default="LayerNorm", choices=["BatchNorm", "InstanceNorm", "LayerNorm", "GraphNorm", "PairNorm", "none"], help="Normalization  for GNN layer")
+#     ap.add_argument("--use_pos", action="store_true", help="Use positions too as node features")
+#     ap.add_argument("--use_embedding", action="store_true", help="Instead of one-hot encoded node features, use embedding layer")
     
 
-    # Model - Temporal part
-    ap.add_argument("--dropout_tr", type=float, default=0.1, help="...")
-    ap.add_argument("-hs", "--lstm_hidden_size", type=int, default=128, help="...")
-    ap.add_argument("--temporal_type", type=str, default="tr", choices=["lstm", "bi", "tr", "edtr", "none"], help="...")
-    ap.add_argument("--norm_first", action="store_true", help="To make norm_first=true in TransformerEncoderLayer")
-    ap.add_argument("--pos_enc", type=str, default="original", choices=["original", "learnable", "none"], help="Type of positional encoding")
-    ap.add_argument("--num_heads_tr", type=int, default=4, help="...")
-    ap.add_argument("--num_of_temp_layers", type=int, default=2, help="...")
+#     # Model - Temporal part
+#     ap.add_argument("--dropout_tr", type=float, default=0.1, help="...")
+#     ap.add_argument("-hs", "--lstm_hidden_size", type=int, default=128, help="...")
+#     ap.add_argument("--temporal_type", type=str, default="tr", choices=["lstm", "bi", "tr", "edtr", "none"], help="...")
+#     ap.add_argument("--norm_first", action="store_true", help="To make norm_first=true in TransformerEncoderLayer")
+#     ap.add_argument("--pos_enc", type=str, default="original", choices=["original", "learnable", "none"], help="Type of positional encoding")
+#     ap.add_argument("--num_heads_tr", type=int, default=4, help="...")
+#     ap.add_argument("--num_of_temp_layers", type=int, default=2, help="...")
     
-    # Model - Others
-    ap.add_argument("--dim_feedforward", type=int, default=0, help="transformer encoder layer's dim_feedforward, if 0, it is set to lstm_hidden_size//4*3")
-    ap.add_argument("--merged_pred", type=str, default="none", choices=["early", "late", "none", "attention"], help="Merge hands predictions")
+#     # Model - Others
+#     ap.add_argument("--dim_feedforward", type=int, default=0, help="transformer encoder layer's dim_feedforward, if 0, it is set to lstm_hidden_size//4*3")
+#     ap.add_argument("--merged_pred", type=str, default="none", choices=["early", "late", "none", "attention"], help="Merge hands predictions")
 
 
-    # Others
-    ap.add_argument("--gpu_id", type=int, default=0, help="...")
-    ap.add_argument("--seed", type=int, default=34, help="...")
+#     # Others
+#     ap.add_argument("--gpu_id", type=int, default=0, help="...")
+#     ap.add_argument("--seed", type=int, default=34, help="...")
     
-    # save_dir
-    ap.add_argument("--save_dir", default="debug", type=str, help="...")  # , default="raw"
+#     # save_dir
+#     ap.add_argument("--save_dir", default="debug", type=str, help="...")  # , default="raw"
     
-    # model_path
-    ap.add_argument("--model_path", type=str, default=None, help="...")
+#     # model_path
+#     ap.add_argument("--model_path", type=str, default=None, help="...")
 
-    # discard_ratio
-    ap.add_argument("--discard_ratio", type=float, default=0.1, help="...")
+#     # discard_ratio
+#     ap.add_argument("--discard_ratio", type=float, default=0.1, help="...")
 
-    # fuse method
-    ap.add_argument("--fuse_method", type=str, default="mean", choices=["mean", "min", "max"], help="...")    
+#     # fuse method
+#     ap.add_argument("--fuse_method", type=str, default="mean", choices=["mean", "min", "max"], help="...")    
 
-    args = ap.parse_args()
-    args.return_attention = True
-    args.filter_idle_hold = False
+#     args = ap.parse_args()
+#     args.return_attention = True
+#     args.filter_idle_hold = False
 
-    return args 
+#     return args 
 
-def arg_parser_inference():
-    ap = argparse.ArgumentParser()
+# def arg_parser_inference():
+#     ap = argparse.ArgumentParser()
         
-    ap.add_argument("--raw_dir", default="raw", type=str, help="...") 
-    ap.add_argument("--save_dir", default="tests", type=str, help="...")  # , default="raw"
+#     ap.add_argument("--raw_dir", default="raw", type=str, help="...") 
+#     ap.add_argument("--save_dir", default="tests", type=str, help="...")  # , default="raw"
 
-    ap.add_argument("-s", "--test_subject", type=int, required=True, help="...") 
-    # ap.add_argument("-gt", "--ground_truth_path", help="...")
+#     ap.add_argument("-s", "--test_subject", type=int, required=True, help="...") 
+#     # ap.add_argument("-gt", "--ground_truth_path", help="...")
     
-    ap.add_argument("-tl", "--temporal_length", type=int, default=10, help="...")
-    ap.add_argument("-bs", "--batch_size", type=int, default=256, help="...")
+#     ap.add_argument("-tl", "--temporal_length", type=int, default=10, help="...")
+#     ap.add_argument("-bs", "--batch_size", type=int, default=256, help="...")
 
-    # Model
-    ap.add_argument("-g", "--gnn_type", type=str, required=True, choices=["NNConv", "GATConv", "TransformerConv", "GATv2Conv"], help="...")
-    ap.add_argument("--temporal_type", type=str, default="lstm", choices=["lstm", "bi", "tr"], help="...")
-    ap.add_argument("-hc", "--hidden_channels", type=int, default=64, help="...")
-    ap.add_argument("-oc", "--out_channels", type=int, default=64, help="...")
-    ap.add_argument("-hs", "--lstm_hidden_size", type=int, default=128, help="...")
-    ap.add_argument("-nh", "--num_heads", type=int, default=2, help="...")
-    ap.add_argument("--saving_freq", type=int, default=5, help="...")
-    ap.add_argument("-nbn", "--no_bn", action="store_true", help="...")
-    ap.add_argument("--use_global_pooling", action="store_true", help="...")
-    ap.add_argument("--edge_dropout", type=float, default=0.0, help="...")
-    ap.add_argument("--dropout", type=float, default=0.0, help="...")
-    ap.add_argument("--use_cls_token", action="store_true", help="Use class token in transformer")
+#     # Model
+#     ap.add_argument("-g", "--gnn_type", type=str, required=True, choices=["NNConv", "GATConv", "TransformerConv", "GATv2Conv"], help="...")
+#     ap.add_argument("--temporal_type", type=str, default="lstm", choices=["lstm", "bi", "tr"], help="...")
+#     ap.add_argument("-hc", "--hidden_channels", type=int, default=64, help="...")
+#     ap.add_argument("-oc", "--out_channels", type=int, default=64, help="...")
+#     ap.add_argument("-hs", "--lstm_hidden_size", type=int, default=128, help="...")
+#     ap.add_argument("-nh", "--num_heads", type=int, default=2, help="...")
+#     ap.add_argument("--saving_freq", type=int, default=5, help="...")
+#     ap.add_argument("-nbn", "--no_bn", action="store_true", help="...")
+#     ap.add_argument("--use_global_pooling", action="store_true", help="...")
+#     ap.add_argument("--edge_dropout", type=float, default=0.0, help="...")
+#     ap.add_argument("--dropout", type=float, default=0.0, help="...")
+#     ap.add_argument("--use_cls_token", action="store_true", help="Use class token in transformer")
 
 
-    # Restore
-    ap.add_argument("-r", "--restore", type=int, required=True, help="...")
-    ap.add_argument("-rn", "--restored_name", type=str, required=True, help="...")
-    ap.add_argument("-fih", "--filter_idle_hold", action="store_true", help="...")
+#     # Restore
+#     ap.add_argument("-r", "--restore", type=int, required=True, help="...")
+#     ap.add_argument("-rn", "--restored_name", type=str, required=True, help="...")
+#     ap.add_argument("-fih", "--filter_idle_hold", action="store_true", help="...")
 
-    return ap.parse_args()
+#     return ap.parse_args()
 
 
 

@@ -129,8 +129,6 @@ def _get_norm_func(root: str, test_subject, validation_take) -> Callable:
             for obj in curr_objects:                # among all the objects in a frame
                 bbox = obj["bounding_box"]
                 # bbox: {x0, y0, z0, x1, y1, z1}
-                # TODO handle the nans, infs
-
                 if not __is_list_valid(bbox.values()):
                     print("ERROR "*10)
                     print("Invalid bbox: ", subject, task, take, object_json)
@@ -430,63 +428,62 @@ def _get_graph(relation_json, object_json, vf_path, gt_actions, frame, subject, 
     return data, data_mirrored
 
 
-def _check_validity(data: gData) -> str:
-    # TODO: merge with _get_graph
+# def _check_validity(data: gData) -> str:
 
-    # Checks: both hands exists, action != null, has edge, not empty 
+#     # Checks: both hands exists, action != null, has edge, not empty 
     
-    global MISSING_HAND_COUNT, NULL_COUNT, EMPTY_COUNT, NO_EDGE_COUNT
+#     global MISSING_HAND_COUNT, NULL_COUNT, EMPTY_COUNT, NO_EDGE_COUNT
 
-    if data is None:
-        EMPTY_COUNT+=1
-        return "empty"
+#     if data is None:
+#         EMPTY_COUNT+=1
+#         return "empty"
 
-    Lhand, Rhand=False, False
-    # null
-    if torch.sum(data.y[0])==0 or torch.sum(data.y[1])==0:
-        NULL_COUNT+=1
-        raise Exception("Null action")
-        return "null"
+#     Lhand, Rhand=False, False
+#     # null
+#     if torch.sum(data.y[0])==0 or torch.sum(data.y[1])==0:
+#         NULL_COUNT+=1
+#         raise Exception("Null action")
+#         return "null"
 
-    # not empty
-    if len(data.x)==0:
-        EMPTY_COUNT+=1
-        return "empty"
+#     # not empty
+#     if len(data.x)==0:
+#         EMPTY_COUNT+=1
+#         return "empty"
     
-    # both hands
-    for row in data.x:
-        if row[OBJECTS.index("LeftHand")]==1:
-            Lhand=True
+#     # both hands
+#     for row in data.x:
+#         if row[OBJECTS.index("LeftHand")]==1:
+#             Lhand=True
         
-        if row[OBJECTS.index("RightHand")]==1:
-            Rhand=True
+#         if row[OBJECTS.index("RightHand")]==1:
+#             Rhand=True
             
-    if not (Rhand and Lhand):
-        MISSING_HAND_COUNT+=1
-        return "missing hand"
-    # not empty
-    if len(data.x)==0:
-        EMPTY_COUNT+=1
-        return "empty"
+#     if not (Rhand and Lhand):
+#         MISSING_HAND_COUNT+=1
+#         return "missing hand"
+#     # not empty
+#     if len(data.x)==0:
+#         EMPTY_COUNT+=1
+#         return "empty"
     
-    # both hands
-    for row in data.x:
-        if row[OBJECTS.index("LeftHand")]==1:
-            Lhand=True
+#     # both hands
+#     for row in data.x:
+#         if row[OBJECTS.index("LeftHand")]==1:
+#             Lhand=True
         
-        if row[OBJECTS.index("RightHand")]==1:
-            Rhand=True
+#         if row[OBJECTS.index("RightHand")]==1:
+#             Rhand=True
             
-    if not (Rhand and Lhand):
-        MISSING_HAND_COUNT+=1
-        return "missing hand"
+#     if not (Rhand and Lhand):
+#         MISSING_HAND_COUNT+=1
+#         return "missing hand"
 
-    # has edge
-    if len(data.edge_index)==0:
-        NO_EDGE_COUNT+=1
-        return "no edge"
+#     # has edge
+#     if len(data.edge_index)==0:
+#         NO_EDGE_COUNT+=1
+#         return "no edge"
     
-    return "valid"
+#     return "valid"
 
 
 def _impute_with_previous(graph: gData, previous_graph: gData, validity: str) -> gData:
@@ -940,7 +937,7 @@ class BimanualDataset(gDataset):
 
     @property
     def processed_file_names(self):
-        addr = [opj("subject_1", 'data_0.pt')] # TODO: maybe change this
+        addr = [opj("subject_1", 'data_0.pt')] # sample data
         return addr
 
 
