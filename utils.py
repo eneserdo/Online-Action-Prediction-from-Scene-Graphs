@@ -70,17 +70,25 @@ def arg_parser_base():
 
     # Model - Temporal part
     ap.add_argument("--dropout_tr", type=float, default=0.1, help="...")
-    ap.add_argument("-hs", "--lstm_hidden_size", type=int, default=128, help="...")
-    ap.add_argument("--temporal_type_local", type=str, default="tr", choices=["lstm", "tr", "none"], help="...")
-    ap.add_argument("--temporal_type_global", type=str, default="lstm", choices=["lstm", "tr"], help="...")
-    ap.add_argument("--norm_first", action="store_true", help="To make norm_first=true in TransformerEncoderLayer")
     ap.add_argument("--pos_enc", type=str, default="original", choices=["original", "learnable", "none"], help="Type of positional encoding")
-    ap.add_argument("--num_heads_tr", type=int, default=4, help="...")
-    ap.add_argument("--num_of_temp_layers", type=int, default=2, help="...")
+    
+    # Local
+    ap.add_argument("--temporal_type_local", type=str, default="tr", choices=["lstm", "tr", "none"], help="...")
+    ap.add_argument("--lstm_hidden_local", type=int, default=128, help="Onliy valid for LSTMs")
+    ap.add_argument("--nh_local", type=int, default=4, help="number of heads for transformer")
+    ap.add_argument("--nl_local", type=int, default=2, help="number of layers for transformer")
+    ap.add_argument("--ff_dim_local", type=int, default=96, help="Default: 96")
+
     ap.add_argument("--local_win_len", type=int, default=10, help="...")
+
+    ap.add_argument("--temporal_type_global", type=str, default="lstm", choices=["lstm", "tr"], help="...")
+    ap.add_argument("--lstm_hidden_global", type=int, default=128, help="Onliy valid for LSTMs")
+    ap.add_argument("--nh_global", type=int, default=4, help="...")
+    ap.add_argument("--nl_global", type=int, default=2, help="...")
+    ap.add_argument("--ff_dim_global", type=int, default=96, help="Default: 96")
+
     
     # Model - Others
-    ap.add_argument("--dim_feedforward", type=int, default=0, help="transformer encoder layer's dim_feedforward, if 0, it is set to lstm_hidden_size//4*3")
     ap.add_argument("--merged_pred", type=str, default="none", choices=["early", "late", "none", "attention"], help="Merge hands predictions")
 
 
@@ -99,8 +107,9 @@ def arg_parser_base():
 
     ap.add_argument("--num_acc", type=int, default=1, help="Number of grad accumulation steps")
     ap.add_argument("--no_amp", action="store_true", help="Disable automatic mixed precision")
-    # num worker
     ap.add_argument("--num_workers", type=int, default=5, help="Number of workers for dataloader")
+    ap.add_argument("--clip", type=float, default=0.0, help="Clip gradient norm")
+
 
 
     # Metrics
@@ -110,7 +119,6 @@ def arg_parser_base():
     ap.add_argument("-me", "--max_epochs", type=int, default=20, help="Max number of epochs")
     ap.add_argument("-r", "--restore", type=int, help="...")
     ap.add_argument("-rn", "--restored_name", type=str, help="...")
-    ap.add_argument("-fih", "--filter_idle_hold", action="store_true", help="...")
 
     # Logging
     ap.add_argument("-n", "--name", required=True, type=str, help="Name of experiment for logging into Wandb")
@@ -172,7 +180,6 @@ def arg_parser_viz_attn():
     ap.add_argument("--dropout_tr", type=float, default=0.1, help="...")
     ap.add_argument("-hs", "--lstm_hidden_size", type=int, default=128, help="...")
     ap.add_argument("--temporal_type", type=str, default="tr", choices=["lstm", "bi", "tr", "edtr", "none"], help="...")
-    ap.add_argument("--norm_first", action="store_true", help="To make norm_first=true in TransformerEncoderLayer")
     ap.add_argument("--pos_enc", type=str, default="original", choices=["original", "learnable", "none"], help="Type of positional encoding")
     ap.add_argument("--num_heads_tr", type=int, default=4, help="...")
     ap.add_argument("--num_of_temp_layers", type=int, default=2, help="...")
@@ -200,44 +207,8 @@ def arg_parser_viz_attn():
 
     args = ap.parse_args()
     args.return_attention = True
-    args.filter_idle_hold = False
 
     return args 
-
-def arg_parser_inference():
-    ap = argparse.ArgumentParser()
-        
-    ap.add_argument("--raw_dir", default="raw", type=str, help="...") 
-    ap.add_argument("--save_dir", default="tests", type=str, help="...")  # , default="raw"
-
-    ap.add_argument("-s", "--test_subject", type=int, required=True, help="...") 
-    # ap.add_argument("-gt", "--ground_truth_path", help="...")
-    
-    ap.add_argument("-tl", "--temporal_length", type=int, default=10, help="...")
-    ap.add_argument("-bs", "--batch_size", type=int, default=256, help="...")
-
-    # Model
-    ap.add_argument("-g", "--gnn_type", type=str, required=True, choices=["NNConv", "GATConv", "TransformerConv", "GATv2Conv"], help="...")
-    ap.add_argument("--temporal_type", type=str, default="lstm", choices=["lstm", "bi", "tr"], help="...")
-    ap.add_argument("-hc", "--hidden_channels", type=int, default=64, help="...")
-    ap.add_argument("-oc", "--out_channels", type=int, default=64, help="...")
-    ap.add_argument("-hs", "--lstm_hidden_size", type=int, default=128, help="...")
-    ap.add_argument("-nh", "--num_heads", type=int, default=2, help="...")
-    ap.add_argument("--saving_freq", type=int, default=5, help="...")
-    ap.add_argument("-nbn", "--no_bn", action="store_true", help="...")
-    ap.add_argument("--use_global_pooling", action="store_true", help="...")
-    ap.add_argument("--edge_dropout", type=float, default=0.0, help="...")
-    ap.add_argument("--dropout", type=float, default=0.0, help="...")
-    ap.add_argument("--use_cls_token", action="store_true", help="Use class token in transformer")
-
-
-    # Restore
-    ap.add_argument("-r", "--restore", type=int, required=True, help="...")
-    ap.add_argument("-rn", "--restored_name", type=str, required=True, help="...")
-    ap.add_argument("-fih", "--filter_idle_hold", action="store_true", help="...")
-
-    return ap.parse_args()
-
 
 
 
@@ -638,7 +609,9 @@ class F1_at_k:
         self.batch_mode = batch_mode
 
         
-    def __call__(self, y_true, y_pred, segment_name = None):
+    def __call__(self, y_true, y_pred):
+        """ y_true, y_pred """
+
          
         assert y_true.shape == y_pred.shape, "y_true and y_pred must have same shape"
         
@@ -945,29 +918,11 @@ class Metrics:
         self.seg_save_dir = seg_save_dir 
         self.weighted_mv = weighted_mv 
 
-        # Window-based
         self.f1_top1 = MulticlassF1Score(num_classes=num_classes, top_k=1, average="macro").to(device)
         self.f1_top3 = MulticlassF1Score(num_classes=num_classes, top_k=1, average="macro").to(device) # top_k is intentionally 1
-
-        # These are not really necessary
-        if temporal_length == -1:
-            self.conf_mat_top1_whole = MulticlassConfusionMatrix(num_classes=num_classes, normalize="true").to(device)
-            self.conf_mat_top3_whole = MulticlassConfusionMatrix(num_classes=num_classes, normalize="true").to(device)
         
-        # Window-location-sensitive
-        if temporal_length != -1:
-            self.win_f1_calc_top1 = [MulticlassF1Score(num_classes=num_classes, top_k=1, average="macro").to(device) for _ in range(temporal_length)]
-            self.win_f1_calc_top3 = [MulticlassF1Score(num_classes=num_classes, top_k=1, average="macro").to(device) for _ in range(temporal_length)]
 
-
-        # After majority voting
-        # Dictionaries to store predictions for each sample
-        # We will also calculate F1 and CM after MV
-        if temporal_length != -1:
-            self.all_predictions_combined_top1 = {vid + m_and_hand_status: - np.ones((act[::downsample].shape[0] - temporal_length + 1) * temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
-            self.all_predictions_combined_top3 = {vid + m_and_hand_status: - np.ones((act[::downsample].shape[0] - temporal_length + 1) * temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
-        else:
-            self.f1_at_k = F1_at_k(num_classes=num_classes)
+        self.f1_at_k = F1_at_k(num_classes=num_classes)
 
 
         self.cm_top1 = MulticlassConfusionMatrix(num_classes=num_classes, normalize="true").to(device)
@@ -1001,79 +956,29 @@ class Metrics:
             self.cm_top3(pred_top_3, gt)
 
 
-        # if self.temporal_length == -1:
-        #     with warnings.catch_warnings():
-        #         warnings.filterwarnings('ignore', '.*NaN values found in confusion matrix have been replaced with zeros.*', UserWarning)
-        #         self.conf_mat_top1_whole(pred_top_1, gt_flattened)
-        #         self.conf_mat_top3_whole(pred_top_3, gt_flattened)
-            # for _ in range(idxes.shape[0]):
-            #     self.f1_at_k(, , segment_name="top1")
-            
+        # F1@k
+        self.f1_at_k(gt.cpu(), pred_top_1.cpu())
 
 
-        # if self.temporal_length != -1:
-        #     pred_top_1_unf = pred_top_1.unflatten(0, (self.temporal_length, -1))
-        #     pred_top_3_unf = pred_top_3.unflatten(0, (self.temporal_length, -1))
-
-        #     # Window-location-sensitive metrics
-        #     for i in range(self.temporal_length):
-        #         self.win_f1_calc_top1[i](pred_top_1_unf[i, :], gt[i])
-        #         self.win_f1_calc_top3[i](pred_top_3_unf[i, :], gt[i])
-
-        #     # These are expects non-flattened tensors
-        #     combine_predictions(self.all_predictions_combined_top1, idxes.numpy(), pred_top_1_unf.cpu(), self.dataset_mapping[self.mode]["sample"])
-        #     combine_predictions(self.all_predictions_combined_top3, idxes.numpy(), pred_top_3_unf.cpu(), self.dataset_mapping[self.mode]["sample"])
-
-        # Only these are matters (actually they don't but whatever)
         return step_f1_top1.cpu().item(), step_f1_top3.cpu().item()
 
 
     def compute(self):
 
-        if self.temporal_length != -1:
-            # f1_at_10, f1_at_25, f1_at_50, f1_top1_mv, cm_top1_mv = calc_metrics_at_once(self.all_predictions_combined_top1, 
-            #                                                                 self.dataset_mapping[self.mode]["vid"], 
-            #                                                                 num_classes=len(ACTIONS), 
-            #                                                                 temporal_length=self.temporal_length,
-            #                                                                 downsample=self.downsample,
-            #                                                                 weighted_mv=self.weighted_mv,
-            #                                                                 save_dir=self.seg_save_dir)
+        cm_top1_mv = self.cm_top1.compute().cpu()
+        cm_top3_mv = self.cm_top3.compute().cpu()
 
-            # _, _, _, f1_top3_mv, cm_top3_mv = calc_metrics_at_once(self.all_predictions_combined_top3, 
-            #                                                                 self.dataset_mapping[self.mode]["vid"], 
-            #                                                                 num_classes=len(ACTIONS), 
-            #                                                                 temporal_length=self.temporal_length,
-            #                                                                 downsample=self.downsample,
-            #                                                                 weighted_mv=self.weighted_mv,
-            #                                                                 save_dir=None)
+        f1_10, f1_25, f1_50 = self.f1_at_k.compute()
 
-            # self.win_f1_calc_top1_results = [f1_calc.compute().item() for f1_calc in self.win_f1_calc_top1]
-            # self.win_f1_calc_top3_results = [f1_calc.compute().item() for f1_calc in self.win_f1_calc_top3]
-            cm_top1_mv = self.cm_top1.compute().cpu()
-            cm_top3_mv = self.cm_top3.compute().cpu()
-
-            ret = {
-                "f1_top1": 0,
-                "f1_top3": 0,
-                # "cm_top1": self.conf_mat_top1.compute().cpu(),
-                # "cm_top3": self.conf_mat_top3.compute().cpu(),
-                "f1_top1_once": self.f1_top1.compute().item(),
-                "f1_top3_once": self.f1_top3.compute().item(),
-                "cm_top1_once": cm_top1_mv,
-                "cm_top3_once": cm_top3_mv,
-                "f1@10": 0,
-                "f1@25": 0,
-                "f1@50": 0,
-                "win_f1_top1": [0]*self.temporal_length,
-                "win_f1_top3": [0]*self.temporal_length,
-            }
-        else:
-            ret = {
-                "f1_top1": self.f1_top1.compute().item(),
-                "f1_top3": self.f1_top3.compute().item(),
-                "cm_top1_once": self.conf_mat_top1_whole.compute().cpu(),
-                "cm_top3_once": self.conf_mat_top3_whole.compute().cpu(),
-            }
+        ret = {
+            "f1_top1_once": self.f1_top1.compute().item(),
+            "f1_top3_once": self.f1_top3.compute().item(),
+            "cm_top1_once": cm_top1_mv,
+            "cm_top3_once": cm_top3_mv,
+            "f1@10": f1_10,
+            "f1@25": f1_25,
+            "f1@50": f1_50,
+        }
         
         return ret 
 
@@ -1086,31 +991,12 @@ def wandb_logging(wandb, metric_dict, epoch, mode, whole_mode=False):
     # Gathered all wandb logs here (except batch logs)
     # I think wabdb kind a have state, so I take it as an argument. But not tested otherwise.
 
-    if not whole_mode:
-        # Window-location-sensitive metrics: line plots
-        lplt1=plot_line(metric_dict["win_f1_top1"], f"{mode}_f1_top1_by_t", do_return_plot=True)
-        wandb.log({f"{mode}/f1_by_t": {'top1': wandb.Image(lplt1)}})
-        lplt1.close()
-
-        lplt3=plot_line(metric_dict["win_f1_top3"], f"{mode}_f1_top3_by_t", do_return_plot=True)
-        wandb.log({f"{mode}/f1_by_t": {'top3': wandb.Image(lplt3)}})
-        lplt3.close()
-
-        wandb.log({f"{mode}/epoch": {"f1@10": metric_dict["f1@10"], 
-                              "f1@25": metric_dict["f1@25"], 
-                              "f1@50": metric_dict["f1@50"], 
-                              "f1_top1_once": metric_dict["f1_top1_once"], 
-                              "f1_top3_once": metric_dict["f1_top3_once"],
-                              "f1_top1": metric_dict["f1_top1"],
-                              "f1_top3": metric_dict["f1_top3"]},
-                    "epoch": epoch})
-    else:
-        # TODO: add f1@k
-        wandb.log({f"{mode}/epoch": {"f1_top1": metric_dict["f1_top1"],
-                              "f1_top3": metric_dict["f1_top3"]},
-                   "epoch": epoch})
-
-
+    wandb.log({f"{mode}/epoch": {"f1@10": metric_dict["f1@10"], 
+                                 "f1@25": metric_dict["f1@25"], 
+                                 "f1@50": metric_dict["f1@50"], 
+                                 "f1_top1_once": metric_dict["f1_top1_once"], 
+                                 "f1_top3_once": metric_dict["f1_top3_once"]},
+                "epoch": epoch})
 
     # Confusion matrices (only for test and val)
     if mode in ["val", "test"]:

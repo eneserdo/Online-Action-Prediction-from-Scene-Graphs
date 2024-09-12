@@ -6,6 +6,8 @@ import random
 import time
 from os.path import join as opj
 
+from rich import print as rprint
+
 import matplotlib.pyplot as pyplot
 import matplotlib
 import numpy as np
@@ -55,30 +57,35 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     for step, unpackable in enumerate(loader):
         idxes, data = unpackable
 
-        assert len(data[0].to_data_list()) == 1
+        assert len(data[0].to_data_list()) == 1, "Batch size must be 1"
 
         data = [d.to_data_list()[0] for d in data]
         
-        # temporal_length must be divisible by local_win_len
+        # video len must be divisible by local_win_len. Pads with the last frame if not
         padding_len = args.local_win_len - len(data) % args.local_win_len
         data.extend((padding_len) * [data[-1]])
 
-        data = Batch.from_data_list(data)
+        data = Batch.from_data_list(data) # Whole video is a single batch
 
         data = data.to(device)
-        gt_reordered = torch.cat([data.y[::2], data.y[1::2]])
-        # gt_reordered: [2*temporal_length(left, ..., left, right, ..., right) , num_classes]
         
-        gt_final = gt_reordered.argmax(-1) # FIXME: index it dependin on size of local temporal window
+        left_gt = data.y[0::2]
+        right_gt = data.y[1::2]
 
+        # Without label smoothing, pick the middle frame's label
+        gt_final = torch.cat([left_gt[args.local_win_len//2::args.local_win_len], 
+                              right_gt[args.local_win_len//2::args.local_win_len]], dim=0).argmax(1)
+        
+        # With label smoothing
+        # gt_final = torch.cat([left_gt.reshape(-1, args.local_win_len, len(ACTIONS)).sum(1)/args.local_win_len, 
+        #                       right_gt.reshape(-1, args.local_win_len, len(ACTIONS)).sum(1)/args.local_win_len], dim=0)
+
+        # gt_final: [2*temporal_length(left, ..., left, right, ..., right)]
 
         with torch.cuda.amp.autocast(enabled=not args.no_amp):
             pred = model(data)
-            
-            left_pred, right_pred = torch.split(pred, pred.size(0) // 2)
-            pred = torch.cat([left_pred[:-padding_len], right_pred[:-padding_len]], dim=1)
-            
-            loss = loss_criterion(pred, gt_final)
+                        
+            loss = loss_criterion(pred, gt_final) # TODO label smoothing
             loss = loss / args.num_acc
 
         
@@ -90,6 +97,11 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             
             # optimizer.step()
             if (step + 1) % args.num_acc == 0 or step == len(loader) - 1:
+
+                if args.clip > 0:
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
+
                 scaler.step(optimizer)
                 scaler.update()
                 optimizer.zero_grad()
@@ -99,7 +111,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
         if mode != "test" and args.save_individual:
             # Visualize individiual predictions
             raise NotImplementedError("save_individual may be broken due to global idx, please check it")
-            VIP.pick_samples(y_true=gt_reordered.cpu().argmax(2), y_pred=pred.detach().cpu(), idx=idxes, epoch=epoch, mode=mode)
+            # VIP.pick_samples(y_true=gt_reordered.cpu().argmax(2), y_pred=pred.detach().cpu(), idx=idxes, epoch=epoch, mode=mode)
 
 
         step_f1_top1, step_f1_top3 = metrics.update(pred.detach(), gt_final, idxes)
@@ -170,19 +182,24 @@ if __name__ == "__main__":
 
     #### asserts about args:
 
-    if args.temporal_length ==-1:
-        assert args.norm_layer == "LayerNorm", "When temporal_length is -1, norm_layer must be LayerNorm, otherwise it may break the norm stats"
-        assert args.temporal_type == "tr", "others are not implemented yet"
+    # if args.temporal_length == -1:
+    assert args.norm_layer == "LayerNorm", "When temporal_length is -1, norm_layer must be LayerNorm, otherwise it may break the norm stats"
+    #     assert args.temporal_type == "tr", "others are not implemented yet"
 
     if args.use_vf:
         assert not args.use_pos and not args.use_embedding, "use_vf cannot be used with use_pos or use_embedding"
         assert args.use_global_pooling, "use_vf must use global pooling"
-        
+
+    assert args.temporal_length == -1
+
+    if args.batch_size != 1:
+        args.num_acc *= args.batch_size
+        args.batch_size = 1
+        rprint(f"[magenta]args.batch_size is set to 1, and args.num_acc is set to {args.num_acc} for whole video processing[/magenta]")
+
+
     # assert args.merged_pred in ["none", "late", "attention"], f"merged_pred must be one of [none, late, attention]. Given: {args.merged_pred}"
     
-    assert args.temporal_length == 0
-    assert args.batch_size == 1
-
     # Make sure it is reproducible
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -199,6 +216,7 @@ if __name__ == "__main__":
     tags = []
     td_tag = "T" + str(args.temporal_length) if args.temporal_length != -1 else "W"
     td_tag += "d" + str(args.downsample)
+    td_tag += "Causal"
     tags.append(td_tag)
 
     if hasattr(args, "sweep"):
@@ -326,8 +344,6 @@ if __name__ == "__main__":
     if args.save_individual:
         VIP = VisIndividualPreds(20, training_len, val_len, save_dir)
 
-    if args.temporal_length == -1:
-        MAX_VID_LEN = _get_max_length(args.root, args.downsample)
 
     # STARTS TRAINING AND VALIDATION
     print("Starts training...")
@@ -364,7 +380,7 @@ if __name__ == "__main__":
     # TEST
     print("Starts test...")
 
-    choose_best_in_terms_of = "f1_top1_once" if args.temporal_length != -1 else "f1_top1"
+    choose_best_in_terms_of = "f1_top1_once"
     test_metrics = test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of=choose_best_in_terms_of)
     
     if test_metrics is None:

@@ -645,7 +645,7 @@ def get_processing_dir(root: str, temporal_length: int, downsample: int, use_vf:
     ds_append=f"_d{downsample}" if downsample > 1 else ""
     ds_append += "_vf" if use_vf else ""
     ds_append += "_G" if monograph else ""
-    if temporal_length == 0:
+    if temporal_length == -1:
         return opj(root, "processed" + "_W" + ds_append)
     else:
         return opj(root, "processed"+str(temporal_length) + ds_append)
@@ -736,7 +736,7 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
         successful_save = False
 
         dataset_mapping_master["vid"][str(subject_int)+str(task_int)+str(take_int)] = act_list_full
-        sample_count = sample_count + len(act_list) - temporal_length + 1 # This is redundant for whole video processing   
+        # sample_count = sample_count + len(act_list) - temporal_length + 1 # This is redundant for whole video processing   
 
         if use_vis_feat:
             things_to_zip = zip(relation_json_list, object_json_list, vf_list)
@@ -844,10 +844,6 @@ class BimanualDataset(gDataset):
         self.temporal_length = temporal_length
 
         self.pdir = get_processing_dir(root, temporal_length, downsample, use_vf, monograph)
-
-        if temporal_length == -1:
-            with open(opj(self.pdir, "vid_len_info.json"), "r") as f:
-                self.vid_len_info = json.load(f)
         
         self.mapping = mapping
 
@@ -881,12 +877,7 @@ class BimanualDataset(gDataset):
         path, global_idx = self.mapping[idx]
         data = torch.load(opj(self.processed_dir, path))
 
-        # TODO maybe return both global_idx and local_idx
-
-        if self.temporal_length == -1:
-            return self.vid_len_info[str(global_idx)], global_idx, data
-        else:
-            return global_idx, data
+        return global_idx, data
 
 
 
