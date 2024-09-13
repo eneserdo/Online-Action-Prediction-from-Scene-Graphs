@@ -18,11 +18,11 @@
 # python main.py --temporal_length -1 --downsample 3 --saving_freq 2 --edge_dropout 0.15 --merged_pred late --learning_rate 0.005 --weight_decay 0.0005 --scheduler_step_size 10 --weighted_mv auto --name Whole -me 50
 # sleep 5
 
-python main.py --temporal_length -1 --downsample 3 --saving_freq 2 --edge_dropout 0.15 --merged_pred late --learning_rate 0.005 --weight_decay 0.0005 --scheduler_step_size -1 --weighted_mv auto --name W_Reduce -me 100
-sleep 5
+# python main.py --temporal_length -1 --downsample 3 --saving_freq 2 --edge_dropout 0.15 --merged_pred late --learning_rate 0.005 --weight_decay 0.0005 --scheduler_step_size -1 --weighted_mv auto --name W_Reduce -me 100
+# sleep 5
 
-python main.py --temporal_length -1 --downsample 3 --saving_freq 2 --edge_dropout 0.15 --merged_pred late --learning_rate 0.005 --weight_decay 0.0005 --scheduler_step_size -1 --weighted_mv auto --name W_Red_Causal -me 100 --causal
-sleep 5
+# python main.py --temporal_length -1 --downsample 3 --saving_freq 2 --edge_dropout 0.15 --merged_pred late --learning_rate 0.005 --weight_decay 0.0005 --scheduler_step_size -1 --weighted_mv auto --name W_Red_Causal -me 100 --causal
+# sleep 5
 
-python main.py --temporal_length -1 --downsample 3 --saving_freq 2 --edge_dropout 0.15 --merged_pred late --learning_rate 0.005 --weight_decay 0.0005 --scheduler_step_size -1 --weighted_mv auto --name W_Red_L1 -me 100 --num_of_temp_layers 4
-sleep 5
+# python main.py --temporal_length -1 --downsample 3 --saving_freq 2 --edge_dropout 0.15 --merged_pred late --learning_rate 0.005 --weight_decay 0.0005 --scheduler_step_size -1 --weighted_mv auto --name W_Red_L1 -me 100 --num_of_temp_layers 4
+# sleep 5
