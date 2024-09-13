@@ -23,6 +23,8 @@ def arg_parser_dataset():
 
     ap.add_argument("-vf", "--use_vf", action="store_true", help="Use visual features")
     
+    ap.add_argument("--filter", action="store_true", help="Filter")
+    
     return ap.parse_args()
 
 
@@ -48,7 +50,7 @@ def main():
         download_bimanual_dataset(raw_dir, args.fix_null, args.fix_fps, args.download_anyway)
         
 
-    process_bimanual_dataset(args.root, args.temporal_length, args.downsample, args.use_vf, False)
+    process_bimanual_dataset(args.root, args.temporal_length, args.downsample, args.use_vf, args.filter)
     print("Dataset processed!")
     print("You can now train your model!")
 

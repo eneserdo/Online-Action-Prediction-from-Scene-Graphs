@@ -5,6 +5,7 @@ import pathlib
 import pickle
 import shutil
 from os.path import join as opj
+import subprocess
 from typing import Callable, List, Tuple
 
 import enlighten
@@ -212,8 +213,62 @@ def _get_norm_func(root: str, test_subject, validation_take) -> Callable:
     
 #     # return curr_objects, curr_relations, len(black_list)==0
 
+FILTERED_OBJECTS = 0
+ALL_OBJECTS = 0
+def filter_distant_objects(curr_objects, curr_relations, mask_to_delete_objs):
+    global FILTERED_OBJECTS, ALL_OBJECTS
+                     
+    black_list = []
+    init_len = len(curr_objects)
 
-def _get_graph(relation_json, object_json, vf_path, gt_actions, frame, subject, task, take, pos_normalizer) -> Tuple[gData, gData]:
+    for idx, obj in enumerate(curr_objects):
+        if obj["bounding_box"]["z1"] < -3000 and obj["class_name"] not in ["LeftHand", "RightHand"]: # if it is too far away from the camera it is noise
+            black_list.append(idx)
+        
+        elif obj["instance_name"] in mask_to_delete_objs: # objects that only appeared in 2% of the video
+            black_list.append(idx)
+
+
+    FILTERED_OBJECTS += len(black_list)
+    ALL_OBJECTS += init_len
+
+
+    if len(black_list) == 0:
+        return curr_objects, curr_relations
+
+    # Update the objects list
+    curr_objects = [obj for idx, obj in enumerate(curr_objects) if idx not in black_list]
+
+    # Update the relations list
+    index_map = [-2]*init_len
+    curr_idx = 0
+    for idx in range(init_len):
+        if idx in black_list:
+            index_map[idx] = -1
+        else:
+            index_map[idx] = curr_idx
+            curr_idx += 1
+
+    assert len(curr_objects) == curr_idx
+    assert -2 not in index_map  
+
+
+    rel_idx = 0
+    for _ in range(len(curr_relations)):
+
+        new_obj_idx = index_map[curr_relations[rel_idx]["object_index"]]
+        new_sub_idx = index_map[curr_relations[rel_idx]["subject_index"]]
+
+        if new_obj_idx == -1 or new_sub_idx == -1:
+            curr_relations.pop(rel_idx)
+        else:
+            curr_relations[rel_idx]["object_index"] = new_obj_idx
+            curr_relations[rel_idx]["subject_index"] = new_sub_idx
+            rel_idx += 1
+    
+    return curr_objects, curr_relations
+
+def _get_graph(relation_json, object_json, vf_path, gt_actions, frame, subject, task, take, pos_normalizer, mask_to_delete_objs=None) -> Tuple[gData, gData]:
     # returns the graph and its mirrored version for the given relation and object json files
     
     with open(relation_json) as f:
@@ -221,6 +276,9 @@ def _get_graph(relation_json, object_json, vf_path, gt_actions, frame, subject, 
 
     with open(object_json) as f:
         curr_objects = json.load(f)
+
+    if mask_to_delete_objs is not None:
+        curr_objects, curr_relations = filter_distant_objects(curr_objects, curr_relations, mask_to_delete_objs)
     
     obj_names = [obj["class_name"] for obj in curr_objects]
 
@@ -708,11 +766,46 @@ def get_processing_dir(root: str, temporal_length: int, downsample: int, use_vf:
         return opj(root, "processed"+str(temporal_length) + ds_append)
 
 
-def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, use_vis_feat: bool, monograph: bool) -> None:
+def get_mask_to_delete_objs(object_json_list):
+    threshold = 0.02 # if the object is not visible in 2% of the frames, delete it
+
+    mask = [] # list of instance_name s
+
+    obj_dict = {}
+
+    for t, object_path in enumerate(object_json_list):
+        with open(object_path) as f:
+            objects_3d = json.load(f)
+
+        # objects_3d: list of dictionaries
+
+        instance_names = [obj["instance_name"] for obj in objects_3d]
+
+        for obj in set(instance_names).union(set(obj_dict.keys())):
+            
+            if obj in instance_names and obj in obj_dict:
+                obj_dict[obj].append(1)
+
+            elif obj in obj_dict and obj not in instance_names:
+                obj_dict[obj].append(0)
+            
+            elif obj not in obj_dict and obj in instance_names:
+                obj_dict[obj] = [0]*t
+                obj_dict[obj].append(1)
+
+    # appearance_ratio = {obj: sum(mask_list) / len(mask_list) for obj, mask_list in obj_dict.items()}
+
+    for obj, mask_list in obj_dict.items():
+        if sum(mask_list) / len(mask_list) < threshold:
+            mask.append(obj)
+
+    return mask
+
+def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, use_vis_feat: bool, filter: bool) -> None:
     global TOTAL_FRAME_COUNT
     # temporal_length defines the number of frames in a sample regardless of the downsampling rate
 
-    processed_dir = get_processing_dir(root, temporal_length, downsample, use_vis_feat, monograph)
+    processed_dir = get_processing_dir(root, temporal_length, downsample, use_vis_feat, monograph=False)
     os.mkdir(processed_dir)
     
     if temporal_length == -1:
@@ -810,6 +903,11 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
         if process_whole_video:
             temporal_length = len(relation_json_list)
 
+        if filter:
+            mask_to_delete_objs = get_mask_to_delete_objs(object_json_list) 
+        else:
+            mask_to_delete_objs = None
+
         for frame, paths in enumerate(things_to_zip):
             
             if use_vis_feat:
@@ -820,7 +918,7 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
 
             TOTAL_FRAME_COUNT += 1
 
-            graph, graph_mirrored = _get_graph(relation_json, object_json, vf_path, act_list[frame], frame, subject, task, take, pos_normalizer)
+            graph, graph_mirrored = _get_graph(relation_json, object_json, vf_path, act_list[frame], frame, subject, task, take, pos_normalizer, mask_to_delete_objs)
 
             ### Prepending and imputation ###
             # If the graph is not valid, try to fix it (impute maybe). 
@@ -892,10 +990,12 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
     print(f"\n\n#######\n{TOTAL_FRAME_COUNT=}, {EMPTY_COUNT=}, {NO_EDGE_COUNT=}, {MISSING_HAND_COUNT=}, {NULL_COUNT=}")
     
     print(f"{imputation_count=}, {prepended_things_count=}")
+    print(f"Ratio of object filtering: {FILTERED_OBJECTS/ALL_OBJECTS:.2f}")
 
     config_info = {"sample_count": sample_idx, 
                    "temporal_length": temporal_length,
-                   "downsample": downsample}
+                   "downsample": downsample,
+                   "git_hash": subprocess.check_output(["git", "describe", "--always"]).strip().decode()}
 
     with open(opj(processed_dir, "config_info_master.json"), "w") as f:
         json.dump(config_info, f)
