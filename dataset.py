@@ -990,7 +990,8 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
     print(f"\n\n#######\n{TOTAL_FRAME_COUNT=}, {EMPTY_COUNT=}, {NO_EDGE_COUNT=}, {MISSING_HAND_COUNT=}, {NULL_COUNT=}")
     
     print(f"{imputation_count=}, {prepended_things_count=}")
-    print(f"Ratio of object filtering: {FILTERED_OBJECTS/ALL_OBJECTS:.2f}")
+    if ALL_OBJECTS != 0:
+        print(f"Ratio of object filtering: {FILTERED_OBJECTS/ALL_OBJECTS:.2f}")
 
     config_info = {"sample_count": sample_idx, 
                    "temporal_length": temporal_length,
