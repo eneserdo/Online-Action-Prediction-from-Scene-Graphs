@@ -110,6 +110,10 @@ def arg_parser_base():
     ap.add_argument("--num_workers", type=int, default=5, help="Number of workers for dataloader")
     ap.add_argument("--clip", type=float, default=0.0, help="Clip gradient norm")
 
+    # Loss
+    ap.add_argument("--coef_last", type=float, default=1.0, help="...")
+    ap.add_argument("--coef_middle", type=float, default=0, help="...")
+
 
 
     # Metrics
@@ -811,7 +815,7 @@ def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, downsam
 
 def metrics_to_str(metrics):
     # selected=["f1_top1", "f1_top3", "f1_top1_once", "f1_top3_once", "f1@10", "f1@25", "f1@50"]
-    selected=["f1_top1_once", "f1_top3_once"]
+    selected=["f1_top1_once", "loss_sum", "loss_last", "loss_middle"]
     return " ".join([f"{k}: {v:.4f}" for k, v in metrics.items() if k in selected])
     # return " ".join([f"{k}: {v:.4f}" for k, v in metrics.items() if "cm" not in k])
 
@@ -995,7 +999,10 @@ def wandb_logging(wandb, metric_dict, epoch, mode, whole_mode=False):
                                  "f1@25": metric_dict["f1@25"], 
                                  "f1@50": metric_dict["f1@50"], 
                                  "f1_top1_once": metric_dict["f1_top1_once"], 
-                                 "f1_top3_once": metric_dict["f1_top3_once"]},
+                                 "f1_top3_once": metric_dict["f1_top3_once"],
+                                 "loss": metric_dict["loss_sum"],
+                                 "loss_last": metric_dict["loss_last"],
+                                 "loss_middle": metric_dict["loss_middle"]},
                 "epoch": epoch})
 
     # Confusion matrices (only for test and val)

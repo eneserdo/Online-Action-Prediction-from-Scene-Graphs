@@ -17,8 +17,7 @@ from torch_geometric.data import Batch
 
 from models import make_model
 import wandb
-from dataset import (ACTIONS, _get_max_length,
-                     get_bimanual_dataset_splits, get_processing_dir)
+from dataset import (ACTIONS, get_bimanual_dataset_splits, get_processing_dir)
 from utils import (Metrics, VisIndividualPreds,
                    arg_parser, get_loss_weights, get_minutes, metrics_to_str,
                    seed_worker, visualize_incorrect_preds, wandb_logging)
@@ -48,7 +47,9 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     elif mode == "train":
         model.train()
 
-    loss_cumulative = 0
+    loss_sum_epoch = 0
+    loss_last_epoch = 0
+    loss_middle_epoch = 0
 
     seg_save_dir = opj(save_dir, f"test_results_{epoch}") if (mode == "test" and args.save_segments) else None
     metrics = Metrics(len(ACTIONS), args.temporal_length, args.downsample, device, dataset_mapping, mode, seg_save_dir, args.weighted_mv)
@@ -83,13 +84,18 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
         # gt_final: [2*temporal_length(left, ..., left, right, ..., right)]
 
         with torch.cuda.amp.autocast(enabled=not args.no_amp):
-            pred = model(data)
+            pred, intermediate_pred = model(data)
                         
-            loss = loss_criterion(pred, gt_final) # TODO label smoothing
-            loss = loss / args.num_acc
+            loss_last = loss_criterion(pred, gt_final) / args.num_acc # TODO label smoothing
 
-        
-        loss_cumulative += loss.item()
+            loss_middle = loss_criterion(intermediate_pred, gt_final) / args.num_acc
+            
+            loss = loss_last*args.coef_last + loss_middle*args.coef_middle
+
+
+        loss_sum_epoch += loss.item()
+        loss_last_epoch += loss_last.item()
+        loss_middle_epoch += loss_middle.item()
         
         if mode == "train":
             # loss.backward()
@@ -132,11 +138,16 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     
     metric_dict = metrics.compute()
 
-    loss_cumulative = loss_cumulative / (len(loader.dataset) / args.batch_size)
+    # Make them samplewise
+    loss_sum_epoch = loss_sum_epoch / (len(loader.dataset) / args.num_acc)
+    loss_last_epoch = loss_last_epoch / (len(loader.dataset) / args.num_acc)
+    loss_middle_epoch = loss_middle_epoch / (len(loader.dataset) / args.num_acc)
 
+    metric_dict["loss_sum"] = loss_sum_epoch
+    metric_dict["loss_last"] = loss_last_epoch
+    metric_dict["loss_middle"] = loss_middle_epoch
 
-
-    return metric_dict, loss_cumulative
+    return metric_dict
 
 
 def test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of):
@@ -159,7 +170,7 @@ def test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of):
         print(f"TESTING {w_name}:")
         checkpoint = torch.load(w_name)
         model.load_state_dict(checkpoint["model_state_dict"])
-        returned_dict, _ = run_one_epoch(model, test_loader, 'test', epoch=int((w_name[-7:-3])))
+        returned_dict = run_one_epoch(model, test_loader, 'test', epoch=int((w_name[-7:-3])))
         cv_list.append(returned_dict)
         
         print('### TEST: ', metrics_to_str(returned_dict))
@@ -352,10 +363,10 @@ if __name__ == "__main__":
     for epoch in range(start, start + args.max_epochs):
         start = time.perf_counter()
 
-        train_metrics, _ = run_one_epoch(model, train_loader, 'train', epoch)
+        train_metrics = run_one_epoch(model, train_loader, 'train', epoch)
         wandb_logging(wandb, train_metrics, epoch, "train", whole_mode=args.temporal_length == -1)
         
-        val_metrics, val_loss = run_one_epoch(model, val_loader, 'val', epoch)
+        val_metrics = run_one_epoch(model, val_loader, 'val', epoch)
         wandb_logging(wandb, val_metrics, epoch, "val", whole_mode=args.temporal_length == -1)
 
         # Save model
@@ -365,7 +376,7 @@ if __name__ == "__main__":
                         opj(save_dir, f"model_epoch{epoch:0>4}.pt"))
 
         if args.scheduler_step_size == -1:
-            scheduler.step(val_loss)
+            scheduler.step(val_metrics["loss_sum"])
         else:
             scheduler.step()
         stop = time.perf_counter()
@@ -384,7 +395,7 @@ if __name__ == "__main__":
     test_metrics = test_for_all_saved_weights(model, test_loader, choose_best_in_terms_of=choose_best_in_terms_of)
     
     if test_metrics is None:
-        print("[WARN] No weights found to test")
+        rprint("[red][WARN] No weights found to test")
     else:
         wandb_logging(wandb, test_metrics, epoch, "test", whole_mode=args.temporal_length == -1)
     

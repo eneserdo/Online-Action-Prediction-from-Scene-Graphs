@@ -542,9 +542,11 @@ class CausalActionRecognition(nn.Module):
 
         if self.merged_pred == "attention":
             self.head = nn.Linear(args.in_features, args.num_action_classes)
+            self.intermediate_head = nn.Linear(args.in_features, args.num_action_classes)
         elif self.merged_pred == "late":
             self.left_head = nn.Linear(args.in_features*2, args.num_action_classes)
             self.right_head = nn.Linear(args.in_features*2, args.num_action_classes)
+            self.intermediate_head = nn.Linear(args.in_features*2, args.num_action_classes)
         else:
             raise NotImplementedError(f"merged_pred: {self.merged_pred} is not implemented")
 
@@ -569,9 +571,14 @@ class CausalActionRecognition(nn.Module):
             # shape: [1, 2*T', F] if merged_pred == "attention"
             # shape: [2, T', F] if merged_pred == "late"
         else:
+            raise NotImplementedError("temporal_type_local: none is not implemented yet")
             left_embeddings = left_embeddings.mean(0)
             right_embeddings = right_embeddings.mean(0)
             # shape: [feature_dim]
+
+
+        intermediate_pred = self.intermediate_head(combined_embeddings)
+
 
         if self.amp_enabled:
             mask_dtype=torch.float16
@@ -586,6 +593,8 @@ class CausalActionRecognition(nn.Module):
 
         if self.merged_pred == "attention":
             action_prediction = self.head(combined_embeddings.squeeze(0))
+            intermediate_pred = intermediate_pred.squeeze(0)
+
         elif self.merged_pred == "late":
             left_features, right_features = torch.tensor_split(combined_embeddings, 2, dim=0)
 
@@ -596,7 +605,9 @@ class CausalActionRecognition(nn.Module):
 
             action_prediction = torch.cat((left_actions, right_actions), dim=0)
 
-        return action_prediction
+            intermediate_pred = torch.cat((intermediate_pred[0], intermediate_pred[1]), dim=0) 
+
+        return action_prediction, intermediate_pred
 
 
 
