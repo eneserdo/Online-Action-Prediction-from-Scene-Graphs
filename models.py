@@ -457,61 +457,6 @@ class TemporalModule(nn.Module):
         else:
             raise NotImplementedError(f"merged_pred: {self.merged_pred} is not implemented")
 
-        # both_out = both_out[:, -1] # taking the cls token
-
-        # # Head # FIXME: This part is not batch first
-        # if self.merged_pred == "late":
-        #     both_out_left, both_out_right = torch.tensor_split(both_out, 2, dim=1) 
-            
-        #     left_tokens = both_out_left[-1]
-        #     right_tokens = both_out_right[-1]
-
-        #     both_out_ml = torch.cat([left_tokens, right_tokens], dim=-1) # concat in feature dim 
-            
-        #     action_prediction = torch.cat((self.left_mlp(both_out_ml), self.right_mlp(both_out_ml)), dim=0)
-            
-
-        # elif self.merged_pred == "early":
-        #     raise NotImplementedError("early is not implemented yet")
-        #     # l_out_s, r_out_s = torch.tensor_split(out_s, 2, dim=0)
-        #     # action_prediction = torch.cat((self.left_mlp(l_out_s), self.right_mlp(r_out_s)),dim=0)
-        #     # OR
-        #     #action_prediction = self.mlp(out_s)
-        #     both_out_left, both_out_right = torch.tensor_split(both_out, 2, dim=2) 
-            
-        #     left_tokens = both_out_left[-1]
-        #     right_tokens = both_out_right[-1]
-
-        #     left_right = torch.cat([left_tokens, right_tokens], dim=...) # concat in batch dim
-            
-        #     action_prediction = self.mlp(left_right)
-            
-        # elif self.merged_pred == "attention":
-        #     raise NotImplementedError("attention is not implemented yet")
-        #     # both_out.shape = (T*2, N, F)
-
-        #     # both_out_left, both_out_right = torch.tensor_split(both_out, 2, dim=0)
-
-        #     # both_out = torch.cat([both_out_left, both_out_right], dim=1)
-
-        #     # action_prediction = self.mlp(both_out)
-        #     both_out_left, both_out_right = torch.tensor_split(both_out, 2, dim=0) 
-            
-        #     left_tokens = both_out_left[-1]
-        #     right_tokens = both_out_right[-1]
-
-        #     left_right = torch.cat([left_tokens, right_tokens], dim=...) # concat in batch dim
-            
-        #     action_prediction = self.mlp(left_right)
-
-        # elif self.merged_pred == "none":
-        #     # both_out.shape = (T, N*2, F)
-        #     action_prediction = self.mlp(both_out)
-            
-        # else:
-        #     raise NotImplementedError(f"merged_pred: {self.merged_pred} is not implemented")
-
-        return both_out
 
 class CausalActionRecognition(nn.Module):
     def __init__(self, args):
@@ -557,7 +502,7 @@ class CausalActionRecognition(nn.Module):
         # shape: [T, F]
         temp_len, feat_dim = left_embeddings.shape
         # T = temp_len
-        temp_len //= self.local_win_len 
+        temp_len //= self.local_win_len
         # T'= temp_len
 
         if self.temporal_type_local != "none":

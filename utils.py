@@ -815,7 +815,7 @@ def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, downsam
 
 def metrics_to_str(metrics):
     # selected=["f1_top1", "f1_top3", "f1_top1_once", "f1_top3_once", "f1@10", "f1@25", "f1@50"]
-    selected=["f1_top1_once", "loss_sum", "loss_last", "loss_middle"]
+    selected=["f1_top1_once", "f1_top1_middle", "loss_sum", "loss_last", "loss_middle"]
     return " ".join([f"{k}: {v:.4f}" for k, v in metrics.items() if k in selected])
     # return " ".join([f"{k}: {v:.4f}" for k, v in metrics.items() if "cm" not in k])
 
@@ -925,6 +925,7 @@ class Metrics:
         self.f1_top1 = MulticlassF1Score(num_classes=num_classes, top_k=1, average="macro").to(device)
         self.f1_top3 = MulticlassF1Score(num_classes=num_classes, top_k=1, average="macro").to(device) # top_k is intentionally 1
         
+        self.f1_top1_middle = MulticlassF1Score(num_classes=num_classes, top_k=1, average="macro").to(device)
 
         self.f1_at_k = F1_at_k(num_classes=num_classes)
 
@@ -932,36 +933,41 @@ class Metrics:
         self.cm_top1 = MulticlassConfusionMatrix(num_classes=num_classes, normalize="true").to(device)
         self.cm_top3 = MulticlassConfusionMatrix(num_classes=num_classes, normalize="true").to(device)
 
-    def update(self, pred, gt, idxes, mask=None):
+        self.cm_top1_middle = MulticlassConfusionMatrix(num_classes=num_classes, normalize="true").to(device)
+
+
+    def update(self, pred, pred_middle, gt, idxes):
         # gt: [B]
         # pred: [B, C]
 
-        # if mask is not None:
-        #     gt_flattened = gt_flattened[~mask]
-        #     pred_flattened = pred_flattened[~mask]
+        pred_top3 = torch.argsort(pred, dim=-1, descending=True)[:, :3]
+        pred_top1 = pred_top3[:,0]
 
-        pred_top_3 = torch.argsort(pred, dim=-1, descending=True)[:, :3]
-        pred_top_1 = pred_top_3[:,0]
+        pred_middle_top1 = torch.argmax(pred_middle, dim=-1)
 
         # This magical function ...
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', '.*There is a performance drop.*', UserWarning)
-            pred_top_3 = torch.where(torch_vmap(lambda t1, t2: torch.isin(t1, t2))(gt, pred_top_3), gt, pred_top_1)
+            pred_top3 = torch.where(torch_vmap(lambda t1, t2: torch.isin(t1, t2))(gt, pred_top3), gt, pred_top1)
         
         
         # torchmetric
-        step_f1_top1 = self.f1_top1(pred_top_1, gt)
-        step_f1_top3 = self.f1_top3(pred_top_3, gt)
+        step_f1_top1 = self.f1_top1(pred_top1, gt)
+        step_f1_top3 = self.f1_top3(pred_top3, gt)
+
+        step_f1_top1_middle = self.f1_top1_middle(pred_middle_top1, gt)
 
         # Confusion matrix
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', '.*NaN values found in confusion matrix.*', UserWarning)
-            self.cm_top1(pred_top_1, gt)
-            self.cm_top3(pred_top_3, gt)
+            self.cm_top1(pred_top1, gt)
+            self.cm_top3(pred_top3, gt)
+
+            self.cm_top1_middle(pred_middle_top1, gt)
 
 
         # F1@k
-        self.f1_at_k(gt.cpu(), pred_top_1.cpu())
+        self.f1_at_k(gt.cpu(), pred_top1.cpu())
 
 
         return step_f1_top1.cpu().item(), step_f1_top3.cpu().item()
@@ -969,16 +975,16 @@ class Metrics:
 
     def compute(self):
 
-        cm_top1_mv = self.cm_top1.compute().cpu()
-        cm_top3_mv = self.cm_top3.compute().cpu()
-
+    
         f1_10, f1_25, f1_50 = self.f1_at_k.compute()
 
         ret = {
             "f1_top1_once": self.f1_top1.compute().item(),
             "f1_top3_once": self.f1_top3.compute().item(),
-            "cm_top1_once": cm_top1_mv,
-            "cm_top3_once": cm_top3_mv,
+            "cm_top1_once": self.cm_top1.compute().cpu(),
+            "cm_top3_once": self.cm_top3.compute().cpu(),
+            "f1_top1_middle": self.f1_top1_middle.compute().item(),
+            "cm_top1_middle": self.cm_top1_middle.compute().cpu(),
             "f1@10": f1_10,
             "f1@25": f1_25,
             "f1@50": f1_50,
@@ -1000,6 +1006,7 @@ def wandb_logging(wandb, metric_dict, epoch, mode, whole_mode=False):
                                  "f1@50": metric_dict["f1@50"], 
                                  "f1_top1_once": metric_dict["f1_top1_once"], 
                                  "f1_top3_once": metric_dict["f1_top3_once"],
+                                 "f1_top1_middle": metric_dict["f1_top1_middle"],
                                  "loss": metric_dict["loss_sum"],
                                  "loss_last": metric_dict["loss_last"],
                                  "loss_middle": metric_dict["loss_middle"]},
@@ -1014,6 +1021,11 @@ def wandb_logging(wandb, metric_dict, epoch, mode, whole_mode=False):
         plt3 = plot_conf_mat(metric_dict["cm_top3_once"], f"{mode}_CM_top3_e{epoch:0>4}", do_return_plot=True)
         wandb.log({f"{mode}/confusion_matrix": {'top3': wandb.Image(plt3)}})
         plt3.close()
+
+        plt_middle = plot_conf_mat(metric_dict["cm_top1_middle"], f"{mode}_CM_top1_middle_e{epoch:0>4}", do_return_plot=True)
+        wandb.log({f"{mode}/confusion_matrix": {'top1_middle': wandb.Image(plt_middle)}})
+        plt_middle.close()
+
 
 from torch_geometric.data import Batch
 import torch_geometric.nn as g_nn

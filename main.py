@@ -120,7 +120,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             # VIP.pick_samples(y_true=gt_reordered.cpu().argmax(2), y_pred=pred.detach().cpu(), idx=idxes, epoch=epoch, mode=mode)
 
 
-        step_f1_top1, step_f1_top3 = metrics.update(pred.detach(), gt_final, idxes)
+        step_f1_top1, step_f1_top3 = metrics.update(pred.detach(), intermediate_pred.detach(), gt_final, idxes)
 
 
         if mode != "test":

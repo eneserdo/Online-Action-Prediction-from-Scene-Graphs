@@ -9,8 +9,8 @@
 # python main.py -lr 0.001 -wd 0.0005 -me 100 --scheduler_step_size -1 --saving_freq 2 --name C_Reduce -tl -1 --downsample 3 --merged_pred attention --temporal_type_local tr --temporal_type_global tr --norm_layer LayerNorm --edge_dropout 0.15 --weighted_mv auto -bs 128 --clip 1.5
 # sleep 5
 
-python main.py -lr 0.001 -wd 0.0005 -me 100 --scheduler_step_size -1 --saving_freq 2 --name C_bs1_s1 -tl -1 --downsample 3 --merged_pred attention --temporal_type_local tr --temporal_type_global tr --norm_layer LayerNorm --edge_dropout 0.15 --weighted_mv auto -bs 1 --clip 1.5 --coef_last 0 --coef_middle 1
+python main.py -lr 0.001 -wd 0.0005 -me 100 --scheduler_step_size -1 --saving_freq 2 --name C_bs16_s1 -tl -1 --downsample 3 --merged_pred attention --temporal_type_local tr --temporal_type_global tr --norm_layer LayerNorm --edge_dropout 0.15 --weighted_mv auto -bs 16 --clip 1.5 --coef_last 0 --coef_middle 1
 sleep 5
 
-python main.py -lr 0.001 -wd 0.0005 -me 100 --scheduler_step_size -1 --saving_freq 2 --name C_bs1_s12 -tl -1 --downsample 3 --merged_pred attention --temporal_type_local tr --temporal_type_global tr --norm_layer LayerNorm --edge_dropout 0.15 --weighted_mv auto -bs 1 --clip 1.5 --coef_last 0.5 --coef_middle 0.5 
+python main.py -lr 0.001 -wd 0.0005 -me 100 --scheduler_step_size -1 --saving_freq 2 --name C_bs16_s12 -tl -1 --downsample 3 --merged_pred attention --temporal_type_local tr --temporal_type_global tr --norm_layer LayerNorm --edge_dropout 0.15 --weighted_mv auto -bs 16 --clip 1.5 --coef_last 0.5 --coef_middle 0.5 
 sleep 5
