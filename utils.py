@@ -49,6 +49,7 @@ def arg_parser_base():
     ap.add_argument("--downsample", type=int, default=1, help="Downsampling ratio")
     ap.add_argument("--use_vf", action="store_true", help="use visual features")
     ap.add_argument("--monograph", action="store_true", help="use monograph")
+    ap.add_argument("--filtered_data", action="store_true", help="use filtered data")
 
     # Model - GNN part
     ap.add_argument("-g", "--gnn_type", type=str, default="TransformerConv",

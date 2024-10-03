@@ -23,7 +23,7 @@ def arg_parser_dataset():
 
     ap.add_argument("-vf", "--use_vf", action="store_true", help="Use visual features")
     
-    ap.add_argument("--filter", action="store_true", help="Filter")
+    ap.add_argument("--filtered_data", action="store_true", help="Filter")
     
     return ap.parse_args()
 
@@ -36,7 +36,7 @@ def main():
         raise ValueError("It must be an integer greater than 0")
 
     # check if it is already ready
-    pr_dir = pathlib.Path(get_processing_dir(args.root, args.temporal_length, args.downsample, args.use_vf, False))
+    pr_dir = pathlib.Path(get_processing_dir(args.root, args.temporal_length, args.downsample, args.use_vf, args.filtered_data, False))
 
     if pr_dir.exists():
         raise ValueError(f"The dataset is already processed in {pr_dir}\n, (Remove it manually if necessary)")
@@ -50,7 +50,7 @@ def main():
         download_bimanual_dataset(raw_dir, args.fix_null, args.fix_fps, args.download_anyway)
         
 
-    process_bimanual_dataset(args.root, args.temporal_length, args.downsample, args.use_vf, args.filter)
+    process_bimanual_dataset(args.root, args.temporal_length, args.downsample, args.use_vf, args.filtered_data)
     print("Dataset processed!")
     print("You can now train your model!")
 

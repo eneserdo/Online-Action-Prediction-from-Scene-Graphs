@@ -148,7 +148,7 @@ def main():
     args = arg_parser()
 
     # check if it is already ready
-    pr_dir = pathlib.Path(get_processing_dir(args.root, args.temporal_length, args.downsample, args.use_vf, False))
+    pr_dir = pathlib.Path(get_processing_dir(args.root, args.temporal_length, args.downsample, args.use_vf, args.filtered_data, False))
 
     assert pr_dir.exists(), f"The dataset is not processed in {pr_dir}\n, (Run prepare_dataset.py first)"
         

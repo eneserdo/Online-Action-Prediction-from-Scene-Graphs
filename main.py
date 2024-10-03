@@ -214,6 +214,7 @@ if __name__ == "__main__":
                                                                temporal_length=args.temporal_length,
                                                                downsample=args.downsample,
                                                                use_vf=args.use_vf,
+                                                               filtered_data=args.filtered_data,
                                                                monograph=args.monograph)
 
     train_loader = DataLoader(train_set, args.batch_size, num_workers=args.num_workers, shuffle=True, worker_init_fn=seed_worker, generator=torch_generator)
@@ -310,7 +311,7 @@ if __name__ == "__main__":
     
     # dataset_mapping contains mapping for each sample to its location in the videos. 
     # Also, a mapping from video to ground truth action labels
-    processed_dir = get_processing_dir(args.root, args.temporal_length, args.downsample, args.use_vf, args.monograph)
+    processed_dir = get_processing_dir(args.root, args.temporal_length, args.downsample, args.use_vf, args.filtered_data, args.monograph)
     dataset_mapping_dir = opj(processed_dir, f"dataset_mapping_fold{args.test_subject}.pickle")
     with open(dataset_mapping_dir, "rb") as f:
         dataset_mapping = pickle.load(f)
