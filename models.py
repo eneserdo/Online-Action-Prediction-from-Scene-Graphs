@@ -595,6 +595,43 @@ class ActionRecognitionMonograph(nn.Module):
         return torch.cat((left_actions, right_actions), dim=1)
 
 
+class ActionRecognitionEncoderDecoder(nn.Module):
+    def __init__(self, args) -> None:
+        super().__init__()
+
+        assert args.merge_pred == "late"
+        self.encoder = ActionRecognition(args)
+
+        self.decoder = nn.TransformerDecoder(nn.TransformerDecoderLayer(args.out_channels, args.num_heads_tr, args.dim_feedforward, args.dropout_tr), args.num_of_temp_layers)
+
+        self.left_mlp = nn.Linear(args.out_channels, args.num_action_classes)
+        self.right_mlp = nn.Linear(args.out_channels, args.num_action_classes)
+
+
+    def forward(self, dataBatchList: List[Batch]):
+        
+        encoded = dataBatchList[:15]
+
+        decoded = dataBatchList[15:]
+
+        with torch.no_grad():
+            encoded = self.encoder(encoded) # Bu class kullanılırken ActionRecognition class ı modifiye edilmeli. Öyle ki burada embedding return edilsin
+
+        # No mask for decoder
+
+        decoded = self.decoder(decoded, encoded)
+
+        both_out_left, both_out_right = torch.tensor_split(decoded, 2, dim=1)
+
+        both_out_ml = torch.cat([both_out_left, both_out_right], dim=-1)
+        
+        action_prediction = torch.cat((self.left_mlp(both_out_ml), self.right_mlp(both_out_ml)), dim=1)
+
+        return action_prediction      
+
+
+
+
 def make_model(args):
     if args.use_pos:
         in_channels = len(OBJECTS) + 3
