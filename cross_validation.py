@@ -70,20 +70,38 @@ def main():
     num_weights = len(data)
 
     processed_outputs = []
-    final_metrics = []
 
-    for _ in range(num_weights):
-        processed_outputs.append({ key: [] for key in METRICS_OF_INTEREST })
-        final_metrics.append({ key: {} for key in METRICS_OF_INTEREST })
+    for f in range(args.num_folds):
+        temp_arr = np.array([all_outputs[f][e][COMPARISON_METRIC] for e in range(num_weights)])
+        best_e = np.argmax(temp_arr)
 
-    for e in range(num_weights):
-        for k in METRICS_OF_INTEREST:
-            for i in range(args.num_folds):
-                processed_outputs[e][k].append(all_outputs[i][e][k])
+        processed_outputs.append(all_outputs[f][best_e])
+
+    metrics = {}
+
+    for m in METRICS_OF_INTEREST:
+        temp_arr = np.array([processed_outputs[f][m] for f in range(args.num_folds)])
+        metrics[m] = {}
+        metrics[m]["mean"] = np.mean(temp_arr)
+        metrics[m]["std"] = np.std(temp_arr)
+
+        
+
+
+    # final_metrics = []
+
+    # for _ in range(num_weights):
+    #     processed_outputs.append({ key: [] for key in METRICS_OF_INTEREST })
+    #     final_metrics.append({ key: {} for key in METRICS_OF_INTEREST })
+
+    # for e in range(num_weights):
+    #     for k in METRICS_OF_INTEREST:
+    #         for i in range(args.num_folds):
+    #             processed_outputs[e][k].append(all_outputs[i][e][k])
             
-            arr = np.array(processed_outputs[e][k])
-            final_metrics[e][k]["mean"] = np.mean(arr)
-            final_metrics[e][k]["std"] = np.std(arr)
+    #         arr = np.array(processed_outputs[e][k])
+    #         final_metrics[e][k]["mean"] = np.mean(arr)
+    #         final_metrics[e][k]["std"] = np.std(arr)
     
     if args.num_folds > 1:
         cv_n = f"CV{args.num_folds}"
@@ -96,14 +114,14 @@ def main():
                 tags=[cv_n])
         
 
-        best_e=0
-        best_score=0
-        for e in range(num_weights):
-            if best_score < final_metrics[e][COMPARISON_METRIC]["mean"]:
-                best_score = final_metrics[e][COMPARISON_METRIC]["mean"]
-                best_e = e
+        # best_e=0
+        # best_score=0
+        # for e in range(num_weights):
+        #     if best_score < final_metrics[e][COMPARISON_METRIC]["mean"]:
+        #         best_score = final_metrics[e][COMPARISON_METRIC]["mean"]
+        #         best_e = e
 
-        metrics = final_metrics[best_e]
+        # metrics = final_metrics[best_e]
         for key in metrics.keys():
             mean = metrics[key]["mean"]
             std = metrics[key]["std"]
@@ -115,7 +133,8 @@ def main():
             wandb.log({f"{cv_key}_mean": mean, f"{cv_key}_std": std})
 
             if key == COMPARISON_METRIC:            
-                wandb.log({f"{key}_f{f+1}": processed_outputs[best_e][key][f] for f in range(args.num_folds)})
+                # wandb.log({f"{key}_f{f+1}": processed_outputs[best_e][key][f] for f in range(args.num_folds)})
+                wandb.log({f"{key}_f{f+1}": processed_outputs[f][key] for f in range(args.num_folds)})
 
         wandb.finish()
 
