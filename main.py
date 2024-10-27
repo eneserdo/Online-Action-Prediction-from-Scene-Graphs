@@ -57,6 +57,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
         if not args.monograph:
             data = [d.to(device) for d in data]
             gt_reordered = torch.stack([torch.cat([d.y[::2], d.y[1::2]]) for d in data], dim=0)
+            mean_target = gt_reordered.sum(0)/gt_reordered.shape[0]
         else:
             batch_size = data.y.shape[0] // args.temporal_length
             data = data.to(device)
@@ -66,12 +67,14 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
         # gt_reordered: [temporal_length, 2*batch_size(left, ..., left, right, ..., right) , num_classes]
 
         with torch.cuda.amp.autocast(enabled=not args.no_amp):
-            pred = model(data)
+            pred, mean_pred = model(data)
 
             pred_flattened = pred.flatten(0, 1)
             gt_flattened = gt_reordered.flatten(0, 1)
+
+            # loss u ikiye bölmek biraz riskli, çünkü reduction ı biraz bozuyosun. Bu sebeple elle / args.temporal_length yazdım
+            loss = loss_criterion(pred_flattened, gt_flattened) + loss_criterion(mean_pred, mean_target) / args.temporal_length 
             
-            loss = loss_criterion(pred_flattened, gt_flattened)
             loss = loss / args.num_acc
 
         

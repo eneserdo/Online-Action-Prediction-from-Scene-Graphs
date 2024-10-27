@@ -356,6 +356,9 @@ class ActionRecognition(nn.Module):
             # But this makes the embedding size > dim_feedforward, which is not good
             args.dim_feedforward = args.lstm_hidden_size // 4 * 3
 
+        assert args.merged_pred == "late", "Only late merge is implemented for mean token"
+        self.mean_token = torch.nn.Parameter(torch.randn(1, 1, gnn_output_ch), requires_grad=True)
+
         if args.temporal_type in ["lstm", "bi"]:
             if args.num_of_temp_layers != 1:
                 raise NotImplementedError("args.num_of_temp_layers is not 1 as used to be. Are you sure?")
@@ -482,6 +485,10 @@ class ActionRecognition(nn.Module):
             elif self.merged_pred in ["late", "none"]: # concat in batch dim
                 both_sequencial_embeddings = torch.concat([left_sequencial_embeddings, right_sequencial_embeddings], dim=1) 
                 # shape = (T, N*2, F)
+
+                batched_mean_token = self.mean_token.expand(-1, both_sequencial_embeddings.shape[1], -1)
+                both_sequencial_embeddings = torch.concat([batched_mean_token, both_sequencial_embeddings], dim=0)
+
             else:
                 raise NotImplementedError(f"merged_pred: {self.merged_pred} is not implemented")
             
@@ -511,8 +518,13 @@ class ActionRecognition(nn.Module):
                 both_out_left, both_out_right = torch.tensor_split(both_out, 2, dim=1) 
 
                 both_out_ml = torch.cat([both_out_left, both_out_right], dim=-1)
+
+                left_pred = self.left_mlp(both_out_ml)
+                right_pred = self.right_mlp(both_out_ml)
+
+                mean_prediction = torch.cat((left_pred[0], right_pred[0]), dim=0)
                 
-                action_prediction = torch.cat((self.left_mlp(both_out_ml), self.right_mlp(both_out_ml)), dim=1)
+                action_prediction = torch.cat((left_pred[1:], right_pred[1:]), dim=1)
                 
 
             elif self.merged_pred == "early":
@@ -551,7 +563,7 @@ class ActionRecognition(nn.Module):
             action_prediction_right = self.temporal_layer(right_sequencial_embeddings)
             action_prediction = torch.cat((action_prediction_left, action_prediction_right), dim=1) 
 
-        return action_prediction
+        return action_prediction, mean_prediction
 
 
 class ActionRecognitionMonograph(nn.Module):
