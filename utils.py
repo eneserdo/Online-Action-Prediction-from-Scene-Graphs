@@ -952,16 +952,16 @@ def get_loss_weights(weighted_loss_type, distribution):
     if weighted_loss_type == "none":
         loss_weights = None
     elif weighted_loss_type == "inv":
-        loss_weights = 1.0 / torch.tensor(distribution)
-        loss_weights = loss_weights / loss_weights.sum() * len(ACTIONS)
+        loss_weights = 1.0 / distribution
+        loss_weights = loss_weights / loss_weights.sum()
     elif weighted_loss_type == "sqrt_inv":
-        loss_weights = 1.0 / torch.sqrt(torch.tensor(distribution))
-        loss_weights = loss_weights / loss_weights.sum() * len(ACTIONS)
+        loss_weights = 1.0 / torch.sqrt(distribution)
+        loss_weights = loss_weights / loss_weights.sum()
     elif weighted_loss_type == "effective":
         beta = 0.9999
-        effective_num = 1.0 - torch.power(beta, distribution)
+        effective_num = 1.0 - torch.pow(beta, distribution)
         loss_weights = (1.0 - beta) / effective_num
-        loss_weights = loss_weights / loss_weights.sum() * len(ACTIONS)
+        loss_weights = loss_weights / loss_weights.sum()
     else:
         raise NotImplementedError(f"Weighted loss type {weighted_loss_type} is not implemented")
 
