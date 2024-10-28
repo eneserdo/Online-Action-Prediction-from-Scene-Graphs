@@ -1180,10 +1180,21 @@ def get_bimanual_dataset_splits(*, root: str, process_it_anyway: bool, test_subj
             pickle.dump(path_mapping, f)
 
 
+    # calculate class distribution
+
+    distibution = torch.zeros((len(ACTIONS)))
+
+    for act_seq in dataset_mapping["train"]["vid"].values():
+        act, cnt = torch.unique(torch.tensor(act_seq.flatten()), return_counts=True)
+        for a, c in zip(act, cnt):
+            distibution[a] += c
+
+
     train_set=BimanualDataset(root, temporal_length, downsample, path_mapping["train"], use_vf, filtered_data, monograph)
     test_set=BimanualDataset(root, temporal_length, downsample, path_mapping["test"], use_vf, filtered_data, monograph)
     val_set=BimanualDataset(root, temporal_length, downsample, path_mapping["val"], use_vf, filtered_data, monograph)
     
+    train_set.distribution = distibution
 
     return train_set, test_set, val_set
 
@@ -1194,5 +1205,8 @@ if __name__ == "__main__":
                                         test_subject=6, 
                                         validation_take=7, 
                                         temporal_length=10, 
-                                        downsample=3, use_vf=False, monograph=False)   
+                                        downsample=3, 
+                                        use_vf=False,
+                                        filtered_data=True,
+                                        monograph=False)   
     print(len(a), len(b), len(c))
