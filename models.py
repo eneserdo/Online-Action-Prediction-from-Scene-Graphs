@@ -13,15 +13,16 @@ from typing import List
 import torch
 import torch.nn as nn
 import torch_geometric.nn as g_nn
-from positional_encodings.torch_encodings import (PositionalEncoding1D,
-                                                  PositionalEncoding2D)
+from positional_encodings.torch_encodings import (
+    PositionalEncoding1D,
+    PositionalEncoding2D,
+)
 from torch.nn import functional as F
 from torch_geometric.data import Batch, Data
 from torch_geometric.utils import dropout_edge
 
 from dataset import ACTIONS, OBJECTS, RELATIONS
-from utils import (align_embeddings_to_right,
-                   get_filters_for_imbalance, print_warning)
+from utils import align_embeddings_to_right, get_filters_for_imbalance, print_warning
 
 
 # Borrowed from https://github.com/pytorch/examples/blob/main/word_language_model/model.py
@@ -519,13 +520,16 @@ class ActionRecognition(nn.Module):
 
                 both_out_ml = torch.cat([both_out_left, both_out_right], dim=-1)
 
+                intermediate_repr = both_out_ml[0] # This will be pass to decoder in encoder-decoder transformer
+
                 left_pred = self.left_mlp(both_out_ml)
                 right_pred = self.right_mlp(both_out_ml)
 
-                mean_prediction = torch.cat((left_pred[0], right_pred[0]), dim=0)
+                mean_prediction = torch.cat((left_pred[0], right_pred[0]), dim=0) 
+                # mean_prediction.shape = (N*2, num_action_classes) first N is left, second N is right
                 
                 action_prediction = torch.cat((left_pred[1:], right_pred[1:]), dim=1)
-                
+                # action_prediction.shape = (T, N*2, num_action_classes) first N is left, second N is right
 
             elif self.merged_pred == "early":
                 # both_out.shape = (T, N, F*2)
@@ -563,7 +567,7 @@ class ActionRecognition(nn.Module):
             action_prediction_right = self.temporal_layer(right_sequencial_embeddings)
             action_prediction = torch.cat((action_prediction_left, action_prediction_right), dim=1) 
 
-        return action_prediction, mean_prediction
+        return action_prediction, mean_prediction, intermediate_repr
 
 
 class ActionRecognitionMonograph(nn.Module):
@@ -611,23 +615,31 @@ class ActionRecognitionEncoderDecoder(nn.Module):
     def __init__(self, args) -> None:
         super().__init__()
 
-        assert args.merge_pred == "late"
+        assert args.merged_pred == "late"
         self.encoder = ActionRecognition(args)
+        assert args.test_subject == 1, f"Only test_subject == 1 is implemented not {args.test_subject}"
+        self.encoder.load_state_dict(torch.load("saved_models/ed_owl_t15_fold1/model_epoch0026.pt")["model_state_dict"])
+        # TODO Load the weights of the encoder
+
 
         self.decoder = nn.TransformerDecoder(nn.TransformerDecoderLayer(args.out_channels, args.num_heads_tr, args.dim_feedforward, args.dropout_tr), args.num_of_temp_layers)
 
         self.left_mlp = nn.Linear(args.out_channels, args.num_action_classes)
         self.right_mlp = nn.Linear(args.out_channels, args.num_action_classes)
+        self.compress_len = args.compress_len
+        assert args.compress_len > 0
 
 
     def forward(self, dataBatchList: List[Batch]):
         
-        encoded = dataBatchList[:15]
+        encoded = dataBatchList[:self.compress_len]
 
-        decoded = dataBatchList[15:]
+        decoded = dataBatchList[self.compress_len:]
 
         with torch.no_grad():
-            encoded = self.encoder(encoded) # Bu class kullanılırken ActionRecognition class ı modifiye edilmeli. Öyle ki burada embedding return edilsin
+            _, _, encoded = self.encoder(encoded)
+            # encoded: (N, F*2) 
+            # TODO
 
         # No mask for decoder
 
@@ -672,6 +684,9 @@ def make_model(args):
         args.num_edge_feat = num_edge_feat
         args.in_channels = in_channels
 
-        model = ActionRecognition(args)
+        if args.ed_mode:
+            model = ActionRecognitionEncoderDecoder(args)
+        else:
+            model = ActionRecognition(args)
 
     return model

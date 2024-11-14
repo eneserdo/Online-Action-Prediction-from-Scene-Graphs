@@ -5,21 +5,32 @@ import random
 import time
 from os.path import join as opj
 
-import matplotlib.pyplot as pyplot
 import matplotlib
+import matplotlib.pyplot as pyplot
 import numpy as np
 import torch
+from rich import print as rprint
 from torch_geometric.loader import DataLoader
 
-from models import make_model
 import wandb
-from dataset import (ACTIONS, _get_max_length,
-                     get_bimanual_dataset_splits, get_processing_dir)
-from utils import (Metrics, VisIndividualPreds,
-                   arg_parser, get_loss_weights, get_minutes, metrics_to_str,
-                   seed_worker, visualize_incorrect_preds, wandb_logging)
-
-from rich import print as rprint
+from dataset import (
+    ACTIONS,
+    _get_max_length,
+    get_bimanual_dataset_splits,
+    get_processing_dir,
+)
+from models import make_model
+from utils import (
+    Metrics,
+    VisIndividualPreds,
+    arg_parser,
+    get_loss_weights,
+    get_minutes,
+    metrics_to_str,
+    seed_worker,
+    visualize_incorrect_preds,
+    wandb_logging,
+)
 
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
@@ -48,7 +59,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     loss_cumulative = 0
 
     seg_save_dir = opj(save_dir, f"test_results_{epoch}") if (mode == "test" and args.save_segments) else None
-    metrics = Metrics(len(ACTIONS), args.temporal_length, args.downsample, device, dataset_mapping, mode, seg_save_dir, args.weighted_mv)
+    metrics = Metrics(len(ACTIONS), args.temporal_length - args.compress_len, args.downsample, device, dataset_mapping, mode, seg_save_dir, args.weighted_mv)
     
 
     for step, unpackable in enumerate(loader):
@@ -67,7 +78,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
         # gt_reordered: [temporal_length, 2*batch_size(left, ..., left, right, ..., right) , num_classes]
 
         with torch.cuda.amp.autocast(enabled=not args.no_amp):
-            pred, mean_pred = model(data)
+            pred, mean_pred, _ = model(data)
 
             pred_flattened = pred.flatten(0, 1)
             gt_flattened = gt_reordered.flatten(0, 1)

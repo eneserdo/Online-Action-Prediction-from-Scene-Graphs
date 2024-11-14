@@ -1,21 +1,20 @@
 import argparse
 import glob
 import json
-from math import ceil
 import os
 import random
 import shutil
-from typing import List
 import warnings
+from math import ceil
 from os.path import join as opj
+from typing import List
 
 import matplotlib.pyplot as plt
 import natsort
 import numpy as np
 import seaborn as sns
 import torch
-from torchmetrics.classification import (MulticlassConfusionMatrix,
-                                         MulticlassF1Score)
+from torchmetrics.classification import MulticlassConfusionMatrix, MulticlassF1Score
 
 # functorch was merged into pytorch after certain version. I used try-except to make it compatible with both versions
 try: 
@@ -30,8 +29,11 @@ from scipy.optimize import linear_sum_assignment
 
 from dataset import ACTIONS
 from metrics import f1_at_k_single_example
-from visualization_utils import (plot_segmentation, plot_segmentation_partial,
-                                 plot_segmentation_v2)
+from visualization_utils import (
+    plot_segmentation,
+    plot_segmentation_partial,
+    plot_segmentation_v2,
+)
 
 plt.ioff()
 
@@ -83,7 +85,8 @@ def arg_parser_base():
     # Model - Others
     ap.add_argument("--dim_feedforward", type=int, default=0, help="transformer encoder layer's dim_feedforward, if 0, it is set to lstm_hidden_size//4*3")
     ap.add_argument("--merged_pred", type=str, default="none", choices=["early", "late", "none", "attention"], help="Merge hands predictions")
-
+    ap.add_argument("--ed_mode", action="store_true", help="Use encoder-decoder model")
+    ap.add_argument("-cl", "--compress_len", type=int, default=0, help="...")
 
     # Optimizer
     ap.add_argument("-o", "--optimizer_type", type=str,
@@ -1144,8 +1147,8 @@ def wandb_logging(wandb, metric_dict, epoch, mode, whole_mode=False):
         wandb.log({f"{mode}/confusion_matrix": {'top3': wandb.Image(plt3)}})
         plt3.close()
 
-from torch_geometric.data import Batch
 import torch_geometric.nn as g_nn
+from torch_geometric.data import Batch
 
 ATTENTION = {}
 def set_hooks_for_dist_loss(model):
