@@ -1000,8 +1000,8 @@ class Metrics:
         # Dictionaries to store predictions for each sample
         # We will also calculate F1 and CM after MV
         if temporal_length != -1:
-            self.all_predictions_combined_top1 = {vid + m_and_hand_status: - np.ones((act[::downsample].shape[0] - temporal_length - compress_len + 1) * temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
-            self.all_predictions_combined_top3 = {vid + m_and_hand_status: - np.ones((act[::downsample].shape[0] - temporal_length - compress_len + 1) * temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
+            self.all_predictions_combined_top1 = {vid + m_and_hand_status: - np.ones((act[::downsample].shape[0] - temporal_length + 1) * temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
+            self.all_predictions_combined_top3 = {vid + m_and_hand_status: - np.ones((act[::downsample].shape[0] - temporal_length + 1) * temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
         else:
             self.f1_at_k = F1_at_k(num_classes=num_classes)
 
