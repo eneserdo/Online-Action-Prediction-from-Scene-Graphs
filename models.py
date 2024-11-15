@@ -623,7 +623,7 @@ class ActionRecognitionEncoderDecoder(nn.Module):
         
         # find the best weights
         # TODO: make it a function
-        cv_file = f"saved_models/ed_owl_t15_fold1/cross_validation_fold{args.test_subject}.pickle"
+        cv_file = f"saved_models/ed_owl_t15_fold{args.test_subject}/cross_validation_fold{args.test_subject}.pickle"
         with open(cv_file, "rb") as f:
             all_metrics = pickle.load(f)
         best_epoch_id = np.array([d["f1_top1_once"] for d in all_metrics]).argmax()
