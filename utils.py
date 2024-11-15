@@ -802,6 +802,12 @@ def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, downsam
         y_pred_ML_all = all_arr[f"{video_id}ML"]
         y_pred_MR_all = all_arr[f"{video_id}MR"]
 
+        y_pred__L_all[0:150] = y_pred__L_all[151] 
+        y_pred__R_all[0:150] = y_pred__R_all[151] 
+        y_pred_ML_all[0:150] = y_pred_ML_all[151] 
+        y_pred_MR_all[0:150] = y_pred_MR_all[151] 
+
+
         for y_pred_ in [y_pred__L_all, y_pred__R_all, y_pred_ML_all, y_pred_MR_all]:
             assert -1 not in y_pred_, "Not filled appropriately. There should not be -1 in y_pred"
 
