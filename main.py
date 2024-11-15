@@ -9,28 +9,16 @@ import matplotlib
 import matplotlib.pyplot as pyplot
 import numpy as np
 import torch
+import wandb
 from rich import print as rprint
 from torch_geometric.loader import DataLoader
 
-import wandb
-from dataset import (
-    ACTIONS,
-    _get_max_length,
-    get_bimanual_dataset_splits,
-    get_processing_dir,
-)
+from dataset import (ACTIONS, _get_max_length, get_bimanual_dataset_splits,
+                     get_processing_dir)
 from models import make_model
-from utils import (
-    Metrics,
-    VisIndividualPreds,
-    arg_parser,
-    get_loss_weights,
-    get_minutes,
-    metrics_to_str,
-    seed_worker,
-    visualize_incorrect_preds,
-    wandb_logging,
-)
+from utils import (Metrics, VisIndividualPreds, arg_parser, get_loss_weights,
+                   get_minutes, metrics_to_str, seed_worker,
+                   visualize_incorrect_preds, wandb_logging)
 
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
@@ -59,7 +47,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     loss_cumulative = 0
 
     seg_save_dir = opj(save_dir, f"test_results_{epoch}") if (mode == "test" and args.save_segments) else None
-    # metrics = Metrics(len(ACTIONS), args.temporal_length - args.compress_len, args.downsample, device, dataset_mapping, mode, seg_save_dir, args.weighted_mv, args.compress_len)
+    metrics = Metrics(len(ACTIONS), args.temporal_length - args.compress_len, args.downsample, device, dataset_mapping, mode, seg_save_dir, args.weighted_mv, args.compress_len)
     
 
     for step, unpackable in enumerate(loader):
@@ -116,8 +104,8 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             VIP.pick_samples(y_true=gt_reordered.cpu().argmax(2), y_pred=pred.detach().cpu(), idx=idxes, epoch=epoch, mode=mode)
 
 
-        # step_f1_top1, step_f1_top3 = metrics.update(pred.detach(), gt_reordered, idxes)
-        step_f1_top1, step_f1_top3 = 0, 0
+        step_f1_top1, step_f1_top3 = metrics.update(pred.detach(), gt_reordered, idxes)
+        # step_f1_top1, step_f1_top3 = 0, 0
 
 
 
@@ -134,25 +122,25 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
     # End of for loop
     
-    # metric_dict = metrics.compute()
+    metric_dict = metrics.compute()
 
     loss_cumulative = loss_cumulative / (len(loader.dataset) / args.batch_size)
 
-    metric_dict = {
-        "f1_top1": 0,
-        "f1_top3": 0,
-        # "cm_top1": self.conf_mat_top1.compute().cpu(),
-        # "cm_top3": self.conf_mat_top3.compute().cpu(),
-        "f1_top1_once": 0,
-        "f1_top3_once": 0,
-        "cm_top1_once": torch.zeros(len(ACTIONS), len(ACTIONS)),
-        "cm_top3_once": torch.zeros(len(ACTIONS), len(ACTIONS)),
-        "f1@10": 0,
-        "f1@25": 0,
-        "f1@50": 0,
-        "win_f1_top1": np.zeros(args.temporal_length),
-        "win_f1_top3": np.zeros(args.temporal_length),
-    }
+    # metric_dict = {
+    #     "f1_top1": 0,
+    #     "f1_top3": 0,
+    #     # "cm_top1": self.conf_mat_top1.compute().cpu(),
+    #     # "cm_top3": self.conf_mat_top3.compute().cpu(),
+    #     "f1_top1_once": 0,
+    #     "f1_top3_once": 0,
+    #     "cm_top1_once": torch.zeros(len(ACTIONS), len(ACTIONS)),
+    #     "cm_top3_once": torch.zeros(len(ACTIONS), len(ACTIONS)),
+    #     "f1@10": 0,
+    #     "f1@25": 0,
+    #     "f1@50": 0,
+    #     "win_f1_top1": np.zeros(args.temporal_length),
+    #     "win_f1_top3": np.zeros(args.temporal_length),
+    # }
 
     return metric_dict, loss_cumulative
 
