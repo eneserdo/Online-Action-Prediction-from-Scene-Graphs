@@ -59,7 +59,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     loss_cumulative = 0
 
     seg_save_dir = opj(save_dir, f"test_results_{epoch}") if (mode == "test" and args.save_segments) else None
-    metrics = Metrics(len(ACTIONS), args.temporal_length - args.compress_len, args.downsample, device, dataset_mapping, mode, seg_save_dir, args.weighted_mv)
+    # metrics = Metrics(len(ACTIONS), args.temporal_length - args.compress_len, args.downsample, device, dataset_mapping, mode, seg_save_dir, args.weighted_mv, args.compress_len)
     
 
     for step, unpackable in enumerate(loader):
@@ -74,17 +74,24 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             data = data.to(device)
             gt_reordered = torch.cat([data.y[:,0,:].reshape(batch_size, args.temporal_length, len(ACTIONS)).permute(1, 0, 2), 
                                       data.y[:,1,:].reshape(batch_size, args.temporal_length, len(ACTIONS)).permute(1, 0, 2)], dim=1)
+            
+        gt_reordered = gt_reordered[args.compress_len :]
 
         # gt_reordered: [temporal_length, 2*batch_size(left, ..., left, right, ..., right) , num_classes]
 
         with torch.cuda.amp.autocast(enabled=not args.no_amp):
-            pred, mean_pred, _ = model(data)
+            if args.ed_mode:
+                pred = model(data)
+            else:
+                pred, mean_pred, _ = model(data)
 
             pred_flattened = pred.flatten(0, 1)
             gt_flattened = gt_reordered.flatten(0, 1)
 
-            # loss u ikiye bölmek biraz riskli, çünkü reduction ı biraz bozuyosun. Bu sebeple elle / args.temporal_length yazdım
-            loss = loss_criterion(pred_flattened, gt_flattened) + loss_criterion(mean_pred, mean_target) / args.temporal_length 
+            loss = loss_criterion(pred_flattened, gt_flattened)
+            if not args.ed_mode:
+                # loss u ikiye bölmek biraz riskli, çünkü reduction ı biraz bozuyosun. Bu sebeple elle / args.temporal_length yazdım
+                loss += loss_criterion(mean_pred, mean_target) / args.temporal_length 
             
             loss = loss / args.num_acc
 
@@ -109,7 +116,9 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             VIP.pick_samples(y_true=gt_reordered.cpu().argmax(2), y_pred=pred.detach().cpu(), idx=idxes, epoch=epoch, mode=mode)
 
 
-        step_f1_top1, step_f1_top3 = metrics.update(pred.detach(), gt_reordered, idxes)
+        # step_f1_top1, step_f1_top3 = metrics.update(pred.detach(), gt_reordered, idxes)
+        step_f1_top1, step_f1_top3 = 0, 0
+
 
 
         if mode != "test":
@@ -125,11 +134,25 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
     # End of for loop
     
-    metric_dict = metrics.compute()
+    # metric_dict = metrics.compute()
 
     loss_cumulative = loss_cumulative / (len(loader.dataset) / args.batch_size)
 
-
+    metric_dict = {
+        "f1_top1": 0,
+        "f1_top3": 0,
+        # "cm_top1": self.conf_mat_top1.compute().cpu(),
+        # "cm_top3": self.conf_mat_top3.compute().cpu(),
+        "f1_top1_once": 0,
+        "f1_top3_once": 0,
+        "cm_top1_once": torch.zeros(len(ACTIONS), len(ACTIONS)),
+        "cm_top3_once": torch.zeros(len(ACTIONS), len(ACTIONS)),
+        "f1@10": 0,
+        "f1@25": 0,
+        "f1@50": 0,
+        "win_f1_top1": np.zeros(args.temporal_length),
+        "win_f1_top3": np.zeros(args.temporal_length),
+    }
 
     return metric_dict, loss_cumulative
 
@@ -252,17 +275,18 @@ if __name__ == "__main__":
 
 
     print(model)
-    if args.monograph:
-        rnn_params = sum(p.numel() for p in model.head.parameters() if p.requires_grad)
-    else:
-        rnn_params = sum(p.numel() for p in model.temporal_layer.parameters() if p.requires_grad)
-    gnn_params = sum(p.numel() for p in model.gnn.parameters() if p.requires_grad)
-    total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    # TODO
+    # if args.monograph:
+    #     rnn_params = sum(p.numel() for p in model.head.parameters() if p.requires_grad)
+    # else:
+    #     rnn_params = sum(p.numel() for p in model.temporal_layer.parameters() if p.requires_grad)
+    # gnn_params = sum(p.numel() for p in model.gnn.parameters() if p.requires_grad)
+    # total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-    print(f"Total trainable params: {total_params:_}")
-    print(f"RNN: {rnn_params:_}")
-    print(f"GNN: {gnn_params:_}")
-    wandb.log({"total_params": total_params, "rnn_params": rnn_params, "gnn_params": gnn_params})
+    # print(f"Total trainable params: {total_params:_}")
+    # print(f"RNN: {rnn_params:_}")
+    # print(f"GNN: {gnn_params:_}")
+    # wandb.log({"total_params": total_params, "rnn_params": rnn_params, "gnn_params": gnn_params})
 
 
     wandb.watch(model, log='all')
@@ -341,7 +365,7 @@ if __name__ == "__main__":
     start = 1 if args.restore is None else args.restore
     epoch = start
     for epoch in range(start, start + args.max_epochs):
-        start = time.perf_counter()
+        timer = time.perf_counter()
 
         train_metrics, _ = run_one_epoch(model, train_loader, 'train', epoch)
         wandb_logging(wandb, train_metrics, epoch, "train", whole_mode=args.temporal_length == -1)
@@ -359,9 +383,9 @@ if __name__ == "__main__":
             scheduler.step(val_loss)
         else:
             scheduler.step()
-        stop = time.perf_counter()
+        elapsed = timer - time.perf_counter()
 
-        print(f'### {epoch:03d}: Time {get_minutes(stop - start)} m ### Train: ', metrics_to_str(train_metrics), ' ### Val: ', metrics_to_str(val_metrics), flush=True)
+        print(f'### {epoch:03d}: Time {get_minutes(elapsed)} m ### Train: ', metrics_to_str(train_metrics), ' ### Val: ', metrics_to_str(val_metrics), flush=True)
 
 
     # save the individual predictions

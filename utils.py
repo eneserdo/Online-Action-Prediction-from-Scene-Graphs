@@ -756,7 +756,7 @@ def test_majority_voting():
 
 
 
-def combine_predictions(all_arr, idx, sub_arr, mapping):
+def combine_predictions(all_arr, idx, sub_arr, mapping, compress_len=0):
     # first half of sub_arr is for left hand, second half is for right hand
     
     batch_size = sub_arr.shape[1]
@@ -771,6 +771,7 @@ def combine_predictions(all_arr, idx, sub_arr, mapping):
 
             subject, task, take, start_frame, end_frame, is_mirrored = mapping[i]
 
+            start_frame += compress_len
             # end frame exclusive i.e. [start_frame, end_frame)
             temp_len = end_frame-start_frame
 
@@ -972,7 +973,7 @@ def get_loss_weights(weighted_loss_type, distribution):
 
 
 class Metrics:
-    def __init__(self, num_classes, temporal_length, downsample, device, dataset_mapping, mode, seg_save_dir, weighted_mv) -> None:
+    def __init__(self, num_classes, temporal_length, downsample, device, dataset_mapping, mode, seg_save_dir, weighted_mv, compress_len=0) -> None:
         
         self.dataset_mapping = dataset_mapping
         self.mode = mode
@@ -980,6 +981,7 @@ class Metrics:
         self.downsample = downsample
         self.seg_save_dir = seg_save_dir 
         self.weighted_mv = weighted_mv 
+        self.compress_len = compress_len
 
         # Window-based
         self.f1_top1 = MulticlassF1Score(num_classes=num_classes, top_k=1, average="macro").to(device)
@@ -1000,8 +1002,8 @@ class Metrics:
         # Dictionaries to store predictions for each sample
         # We will also calculate F1 and CM after MV
         if temporal_length != -1:
-            self.all_predictions_combined_top1 = {vid + m_and_hand_status: - np.ones((act[::downsample].shape[0] - temporal_length + 1) * temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
-            self.all_predictions_combined_top3 = {vid + m_and_hand_status: - np.ones((act[::downsample].shape[0] - temporal_length + 1) * temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
+            self.all_predictions_combined_top1 = {vid + m_and_hand_status: - np.ones((act[::downsample].shape[0] - temporal_length+compress_len + 1) * temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
+            self.all_predictions_combined_top3 = {vid + m_and_hand_status: - np.ones((act[::downsample].shape[0] - temporal_length+compress_len + 1) * temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
         else:
             self.f1_at_k = F1_at_k(num_classes=num_classes)
 
@@ -1048,8 +1050,8 @@ class Metrics:
                 self.win_f1_calc_top3[i](pred_top_3_unf[i, :], gt[i])
 
             # These are expects non-flattened tensors
-            combine_predictions(self.all_predictions_combined_top1, idxes.numpy(), pred_top_1_unf.cpu(), self.dataset_mapping[self.mode]["sample"])
-            combine_predictions(self.all_predictions_combined_top3, idxes.numpy(), pred_top_3_unf.cpu(), self.dataset_mapping[self.mode]["sample"])
+            combine_predictions(self.all_predictions_combined_top1, idxes.numpy(), pred_top_1_unf.cpu(), self.dataset_mapping[self.mode]["sample"], self.compress_len)
+            combine_predictions(self.all_predictions_combined_top3, idxes.numpy(), pred_top_3_unf.cpu(), self.dataset_mapping[self.mode]["sample"], self.compress_len)
 
         # Only these are matters (actually they don't but whatever)
         return step_f1_top1.cpu().item(), step_f1_top3.cpu().item()

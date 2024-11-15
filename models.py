@@ -7,9 +7,13 @@ Shape abbreviations:
     F: feature dimension
 """
 
+import glob
 import math
+import pickle
 from typing import List
 
+import natsort
+import numpy as np
 import torch
 import torch.nn as nn
 import torch_geometric.nn as g_nn
@@ -617,15 +621,20 @@ class ActionRecognitionEncoderDecoder(nn.Module):
 
         assert args.merged_pred == "late"
         self.encoder = ActionRecognition(args)
-        assert args.test_subject == 1, f"Only test_subject == 1 is implemented not {args.test_subject}"
-        self.encoder.load_state_dict(torch.load("saved_models/ed_owl_t15_fold1/model_epoch0026.pt")["model_state_dict"])
-        # TODO Load the weights of the encoder
+        
+        # find the best weights
+        # TODO: make it a function
+        cv_file = f"saved_models/ed_owl_t15_fold1/cross_validation_fold{args.test_subject}.pickle"
+        with open(cv_file, "rb") as f:
+            all_metrics = pickle.load(f)
+        best_epoch_id = np.array([d["f1_top1_once"] for d in all_metrics]).argmax()
+        best_weights=natsort.natsorted(glob.glob(f"saved_models/ed_owl_t15_fold{args.test_subject}/model_epoch*.pt"))[best_epoch_id]
+        self.encoder.load_state_dict(torch.load(best_weights, map_location="cuda:0")["model_state_dict"])
 
-
-        self.decoder = nn.TransformerDecoder(nn.TransformerDecoderLayer(args.out_channels, args.num_heads_tr, args.dim_feedforward, args.dropout_tr), args.num_of_temp_layers)
-
-        self.left_mlp = nn.Linear(args.out_channels, args.num_action_classes)
-        self.right_mlp = nn.Linear(args.out_channels, args.num_action_classes)
+        # FIXME: change hard-coded values
+        self.decoder = nn.TransformerDecoder(nn.TransformerDecoderLayer(128, args.num_heads_tr, args.dim_feedforward, args.dropout_tr), args.num_of_temp_layers)
+        self.left_mlp = nn.Linear(256, args.num_action_classes)
+        self.right_mlp = nn.Linear(256, args.num_action_classes)
         self.compress_len = args.compress_len
         assert args.compress_len > 0
 
@@ -633,15 +642,33 @@ class ActionRecognitionEncoderDecoder(nn.Module):
     def forward(self, dataBatchList: List[Batch]):
         
         encoded = dataBatchList[:self.compress_len]
-
         decoded = dataBatchList[self.compress_len:]
 
+        # # # Encoder
         with torch.no_grad():
             _, _, encoded = self.encoder(encoded)
-            # encoded: (N, F*2) 
-            # TODO
+            # encoded: (N, F*2)
 
+            # CHECKME
+            encoded = torch.tensor_split(encoded, 2, dim=1)
+            encoded = torch.cat(encoded, dim=0).unsqueeze(0)
+
+        # # # Decoder
         # No mask for decoder
+        left_embed_list, right_embed_list = [], []
+
+        #### Graph part ####
+        # processes each frame time-independently
+        for databatch in decoded:
+            left_embeds, right_embeds = self.encoder.gnn(databatch)
+            left_embed_list.append(left_embeds)
+            right_embed_list.append(right_embeds)
+
+
+        left_sequencial_embeds = torch.stack(left_embed_list) # Shape: (T, N, F)
+        right_sequencial_embeds = torch.stack(right_embed_list) # Shape: (T, N, F)
+        
+        decoded = torch.concat([left_sequencial_embeds, right_sequencial_embeds], dim=1) 
 
         decoded = self.decoder(decoded, encoded)
 
