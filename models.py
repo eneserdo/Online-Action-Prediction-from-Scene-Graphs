@@ -17,16 +17,15 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch_geometric.nn as g_nn
-from positional_encodings.torch_encodings import (
-    PositionalEncoding1D,
-    PositionalEncoding2D,
-)
+from positional_encodings.torch_encodings import (PositionalEncoding1D,
+                                                  PositionalEncoding2D)
 from torch.nn import functional as F
 from torch_geometric.data import Batch, Data
 from torch_geometric.utils import dropout_edge
 
 from dataset import ACTIONS, OBJECTS, RELATIONS
-from utils import align_embeddings_to_right, get_filters_for_imbalance, print_warning
+from utils import (align_embeddings_to_right, get_filters_for_imbalance,
+                   print_warning)
 
 
 # Borrowed from https://github.com/pytorch/examples/blob/main/word_language_model/model.py
@@ -655,20 +654,21 @@ class ActionRecognitionEncoderDecoder(nn.Module):
 
         # # # Decoder
         # No mask for decoder
-        left_embed_list, right_embed_list = [], []
+        with torch.no_grad():
+            left_embed_list, right_embed_list = [], []
 
-        #### Graph part ####
-        # processes each frame time-independently
-        for databatch in decoded:
-            left_embeds, right_embeds = self.encoder.gnn(databatch)
-            left_embed_list.append(left_embeds)
-            right_embed_list.append(right_embeds)
+            #### Graph part ####
+            # processes each frame time-independently
+            for databatch in decoded:
+                left_embeds, right_embeds = self.encoder.gnn(databatch)
+                left_embed_list.append(left_embeds)
+                right_embed_list.append(right_embeds)
 
 
-        left_sequencial_embeds = torch.stack(left_embed_list) # Shape: (T, N, F)
-        right_sequencial_embeds = torch.stack(right_embed_list) # Shape: (T, N, F)
-        
-        decoded = torch.concat([left_sequencial_embeds, right_sequencial_embeds], dim=1) 
+            left_sequencial_embeds = torch.stack(left_embed_list) # Shape: (T, N, F)
+            right_sequencial_embeds = torch.stack(right_embed_list) # Shape: (T, N, F)
+            
+            decoded = torch.concat([left_sequencial_embeds, right_sequencial_embeds], dim=1) 
 
         decoded = self.decoder(decoded, encoded)
 
