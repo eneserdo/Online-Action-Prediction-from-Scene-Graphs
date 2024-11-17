@@ -1,21 +1,20 @@
 import argparse
 import glob
 import json
-from math import ceil
 import os
 import random
 import shutil
-from typing import List
 import warnings
+from math import ceil
 from os.path import join as opj
+from typing import List
 
 import matplotlib.pyplot as plt
 import natsort
 import numpy as np
 import seaborn as sns
 import torch
-from torchmetrics.classification import (MulticlassConfusionMatrix,
-                                         MulticlassF1Score)
+from torchmetrics.classification import MulticlassConfusionMatrix, MulticlassF1Score
 
 # functorch was merged into pytorch after certain version. I used try-except to make it compatible with both versions
 try: 
@@ -30,8 +29,11 @@ from scipy.optimize import linear_sum_assignment
 
 from dataset import ACTIONS
 from metrics import f1_at_k_single_example
-from visualization_utils import (plot_segmentation, plot_segmentation_partial,
-                                 plot_segmentation_v2)
+from visualization_utils import (
+    plot_segmentation,
+    plot_segmentation_partial,
+    plot_segmentation_v2,
+)
 
 plt.ioff()
 
@@ -54,10 +56,12 @@ def arg_parser_base():
     # Model - GNN part
     ap.add_argument("-g", "--gnn_type", type=str, default="TransformerConv",
                     choices=["NNConv", "GATConv", "TransformerConv", "GATv2Conv"], help="...")
-    ap.add_argument("-hc", "--hidden_channels", type=int, default=64, help="...")
-    ap.add_argument("-oc", "--out_channels", type=int, default=64, help="...")
-    ap.add_argument("-nh", "--num_heads", type=int, default=2, help="...")
+
+    ap.add_argument("-ch", "--channels", type=int, nargs="+", default=[64, 64], help="...")
+    ap.add_argument("-nh", "--num_heads", type=int, nargs="+", default=[2, 2], help="...")
     ap.add_argument("-nl", "--num_layers", type=int, default=2, help="...")
+    ap.add_argument("--no_concat", action="store_true", help="Uses average instead of concat in gnn")
+
     ap.add_argument("--saving_freq", type=int, default=4, help="...")
     ap.add_argument("--use_global_pooling", action="store_true", help="...")    # :(
     ap.add_argument("--edge_dropout", type=float, default=0.0, help="...")
@@ -1144,8 +1148,8 @@ def wandb_logging(wandb, metric_dict, epoch, mode, whole_mode=False):
         wandb.log({f"{mode}/confusion_matrix": {'top3': wandb.Image(plt3)}})
         plt3.close()
 
-from torch_geometric.data import Batch
 import torch_geometric.nn as g_nn
+from torch_geometric.data import Batch
 
 ATTENTION = {}
 def set_hooks_for_dist_loss(model):

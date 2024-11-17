@@ -5,21 +5,32 @@ import random
 import time
 from os.path import join as opj
 
-import matplotlib.pyplot as pyplot
 import matplotlib
+import matplotlib.pyplot as pyplot
 import numpy as np
 import torch
+from rich import print as rprint
 from torch_geometric.loader import DataLoader
 
-from models import make_model
 import wandb
-from dataset import (ACTIONS, _get_max_length,
-                     get_bimanual_dataset_splits, get_processing_dir)
-from utils import (Metrics, VisIndividualPreds,
-                   arg_parser, get_loss_weights, get_minutes, metrics_to_str,
-                   seed_worker, visualize_incorrect_preds, wandb_logging)
-
-from rich import print as rprint
+from dataset import (
+    ACTIONS,
+    _get_max_length,
+    get_bimanual_dataset_splits,
+    get_processing_dir,
+)
+from models import make_model
+from utils import (
+    Metrics,
+    VisIndividualPreds,
+    arg_parser,
+    get_loss_weights,
+    get_minutes,
+    metrics_to_str,
+    seed_worker,
+    visualize_incorrect_preds,
+    wandb_logging,
+)
 
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False

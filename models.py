@@ -13,15 +13,16 @@ from typing import List
 import torch
 import torch.nn as nn
 import torch_geometric.nn as g_nn
-from positional_encodings.torch_encodings import (PositionalEncoding1D,
-                                                  PositionalEncoding2D)
+from positional_encodings.torch_encodings import (
+    PositionalEncoding1D,
+    PositionalEncoding2D,
+)
 from torch.nn import functional as F
 from torch_geometric.data import Batch, Data
 from torch_geometric.utils import dropout_edge
 
 from dataset import ACTIONS, OBJECTS, RELATIONS
-from utils import (align_embeddings_to_right,
-                   get_filters_for_imbalance, print_warning)
+from utils import align_embeddings_to_right, get_filters_for_imbalance, print_warning
 
 
 # Borrowed from https://github.com/pytorch/examples/blob/main/word_language_model/model.py
@@ -221,8 +222,6 @@ class GraphModule(nn.Module):
         else:
             bn_transfer_string = "x, batch -> x"
 
-        hc_nh = args.hidden_channels*args.num_heads
-
         
         
         if args.return_attention:
@@ -243,26 +242,19 @@ class GraphModule(nn.Module):
             module_str = "x, edge_index, edge_attr, batch"
 
         module_list = []
-        # First layer
-        layer_idx = 0
-        module_list.extend([(getattr(g_nn, args.gnn_type)(args.in_channels, args.hidden_channels, heads=args.num_heads, edge_dim=args.num_edge_feat, dropout=args.dropout), layer_str.format(layer_idx)), 
-                            (nn.SELU(), "x -> x"), 
-                            (NormLayerType(hc_nh), bn_transfer_string)])
 
-
-        # Middle layers
-        for _ in range(args.num_layers-2):
-            layer_idx += 1
-            module_list.extend([(getattr(g_nn, args.gnn_type)(hc_nh, args.hidden_channels, heads=args.num_heads, edge_dim=args.num_edge_feat, dropout=args.dropout), layer_str.format(layer_idx)), 
+        # All layers
+        assert args.num_layers == len(args.channels) == len(args.num_heads), f"{args.num_layers=}, {len(args.channels)=}, {len(args.num_heads)=}"
+        prev_ch = args.in_channels
+        for layer_idx in range(args.num_layers):
+            layer_ch, layer_head = args.channels[layer_idx], args.num_heads[layer_idx]
+            
+            next_ch = layer_ch * layer_head if not args.no_concat else layer_ch
+            
+            module_list.extend([(getattr(g_nn, args.gnn_type)(prev_ch, layer_ch, heads=layer_head, edge_dim=args.num_edge_feat, dropout=args.dropout, concat=not args.no_concat), layer_str.format(layer_idx)), 
                                 (nn.SELU(), "x -> x"), 
-                                (NormLayerType(hc_nh), bn_transfer_string)])
-        
-        # Last layer
-        layer_idx += 1
-        module_list.extend([(getattr(g_nn, args.gnn_type)(hc_nh, args.out_channels, heads=args.num_heads, edge_dim=args.num_edge_feat, dropout=args.dropout), layer_str.format(layer_idx)), 
-                            (nn.SELU(), "x -> x"),
-                            (NormLayerType(hc_nh), bn_transfer_string)])
-
+                                (NormLayerType(next_ch), bn_transfer_string)])
+            prev_ch = next_ch
 
         self.gnn = g_nn.Sequential(module_str, module_list)
 
@@ -341,12 +333,10 @@ class ActionRecognition(nn.Module):
         self.use_embedding = args.use_embedding
         self.return_attention = args.return_attention
         self.causal = args.causal
-
         
         self.gnn = GraphModule(args)
         
-
-        gnn_output_ch = args.out_channels * args.num_heads # aka effective_out_ch2
+        gnn_output_ch = args.channels[-1] * args.num_heads[-1] if not args.no_concat else args.channels[-1]
 
         if self.merged_pred == "early":
             gnn_output_ch *= 2
