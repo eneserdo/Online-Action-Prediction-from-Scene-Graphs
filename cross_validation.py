@@ -3,13 +3,14 @@
 # choose best one and log the mean and std to wandb
 
 import os
-from os.path import join as opj
+import pickle
 import subprocess
 import time
-import numpy as np
-import pickle
-import wandb
+from os.path import join as opj
 
+import numpy as np
+
+import wandb
 from utils import arg_parser_cv as arg_parser
 
 METRICS_OF_INTEREST = ["f1_top1_once", "f1_top3_once", "f1@10", "f1@25", "f1@50"]
@@ -29,6 +30,12 @@ def main():
         if isinstance(value, bool):
             if value:
                 args_str += f" --{key}"
+        
+        elif isinstance(value, list):
+            if len(value) == 0:
+                continue
+            args_str += f" --{key} {' '.join(map(str, value))}"
+
         else:
             args_str += f" --{key} {value}"
 
