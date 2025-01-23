@@ -49,39 +49,33 @@ matplotlib.use('Agg')
 torch.autograd.set_detect_anomaly(True)
 
 
-def run_for_fps(model: torch.nn.Module, loader: DataLoader, count: int = 100+5):
+def run_for_fps(model: torch.nn.Module, loader: DataLoader, count: int = 100, warmup: int = 5):
 
     model.eval()
-
-    times = []
     
     i = 0
 
     for step, unpackable in enumerate(loader):
         idxes, data = unpackable
-        if i >= count:
+        if i == warmup:
+            stime = time.perf_counter()
+        
+        if i == count + warmup:
             break
-        i += 1
-        print(".", end="", flush=True)
-        if not args.monograph:
-            data = [d.to(device) for d in data]
-            # gt_reordered = torch.stack([torch.cat([d.y[::2], d.y[1::2]]) for d in data], dim=0)
-        else:
-            batch_size = data.y.shape[0] // args.temporal_length
-            data = data.to(device)
-            # gt_reordered = torch.cat([data.y[:,0,:].reshape(batch_size, args.temporal_length, len(ACTIONS)).permute(1, 0, 2), 
-            #                           data.y[:,1,:].reshape(batch_size, args.temporal_length, len(ACTIONS)).permute(1, 0, 2)], dim=1)
+
+        data = [d.to(device) for d in data]
+        # gt_reordered = torch.stack([torch.cat([d.y[::2], d.y[1::2]]) for d in data], dim=0)
 
         # gt_reordered: [temporal_length, 2*batch_size(left, ..., left, right, ..., right) , num_classes]
-        stime = time.perf_counter()
+        
         with torch.cuda.amp.autocast(enabled=not args.no_amp):
             pred = model(data)
             # pred_flattened = pred.flatten(0, 1)
-            # gt_flattened = gt_reordered.flatten(0, 1)            
-        etime = time.perf_counter()
-        times.append(etime - stime)
+            # gt_flattened = gt_reordered.flatten(0, 1)       
+        i += 1
+    etime = time.perf_counter()
 
-    return times
+    return 1/((etime - stime)/count)
 
 
 if __name__ == "__main__":
@@ -184,9 +178,9 @@ if __name__ == "__main__":
         
     # TEST
     print("Starts test...")
-    times = run_for_fps(model, test_loader)
-    times = times[5:] # warmup
-    print(f"Average FPS: {1 / np.mean(times):.2f}")
+    with torch.no_grad():
+        fps = run_for_fps(model, test_loader, count=100, warmup=0)
+        print(f"Average FPS: {fps:.2f}")
 
 
     try:
