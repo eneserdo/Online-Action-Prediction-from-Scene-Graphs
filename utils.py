@@ -787,6 +787,7 @@ def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, downsam
 
     f1_at_k = F1_at_k(num_classes=num_classes)
     f1_classic = MulticlassF1Score(num_classes=num_classes, average='macro')
+    f1_micro = MulticlassF1Score(num_classes=num_classes, average='micro')
     conf_mat = MulticlassConfusionMatrix(num_classes=num_classes, normalize="true")
 
     
@@ -854,6 +855,11 @@ def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, downsam
         f1_classic(torch.tensor(y_pred_ML), torch.tensor(y_true_R))
         f1_classic(torch.tensor(y_pred_MR), torch.tensor(y_true_L))
 
+        f1_micro(torch.tensor(y_pred__L), torch.tensor(y_true_L))
+        f1_micro(torch.tensor(y_pred__R), torch.tensor(y_true_R))
+        f1_micro(torch.tensor(y_pred_ML), torch.tensor(y_true_R))
+        f1_micro(torch.tensor(y_pred_MR), torch.tensor(y_true_L))
+
         # Conf mat
         # To ignore warnings about nan values in confusion matrix and functorch's performance drop
         with warnings.catch_warnings():
@@ -870,12 +876,21 @@ def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, downsam
             plot_segmentation_v2(y_true_L, y_pred__L, conf_L, y_pred_MR, conf_MR, save_file=opj(save_dir, video_id+"_L" + ".png"), title=video_id+"_L")
             plot_segmentation_v2(y_true_R, y_pred__R, conf_R, y_pred_ML, conf_ML, save_file=opj(save_dir, video_id+"_R" + ".png"), title=video_id+"_R")
 
-    return *f1_at_k.compute(), f1_classic.compute().item(), conf_mat.compute().cpu().numpy()
-
+    # f1_at_10, f1_at_25, f1_at_50, f1_top1_mv, cm_top1_mv
+    f1_at_10, f1_at_25, f1_at_50 = f1_at_k.compute()
+    ret = {
+        "f1_at_10": f1_at_10,
+        "f1_at_25": f1_at_25,
+        "f1_at_50": f1_at_50,
+        "f1_macro_mv": f1_classic.compute().item(),
+        "f1_micro_mv": f1_micro.compute().item(),
+        "cm_mv": conf_mat.compute().cpu().numpy()
+    }
+    return ret
 
 
 def metrics_to_str(metrics):
-    selected=["f1_top1", "f1_top3", "f1_top1_once", "f1_top3_once", "f1@10", "f1@25", "f1@50"]
+    selected=["f1_top1", "f1_top3", "f1_top1_once", "f1_micro_once", "f1_top3_once", "f1@10", "f1@25", "f1@50"]
     return " ".join([f"{k}: {v:.4f}" for k, v in metrics.items() if k in selected])
     # return " ".join([f"{k}: {v:.4f}" for k, v in metrics.items() if "cm" not in k])
 
@@ -1059,15 +1074,16 @@ class Metrics:
     def compute(self):
 
         if self.temporal_length != -1:
-            f1_at_10, f1_at_25, f1_at_50, f1_top1_mv, cm_top1_mv = calc_metrics_at_once(self.all_predictions_combined_top1, 
+            # f1_at_10, f1_at_25, f1_at_50, f1_top1_mv, cm_top1_mv
+            metrics_top1 = calc_metrics_at_once(self.all_predictions_combined_top1, 
                                                                             self.dataset_mapping[self.mode]["vid"], 
                                                                             num_classes=len(ACTIONS), 
                                                                             temporal_length=self.temporal_length,
                                                                             downsample=self.downsample,
                                                                             weighted_mv=self.weighted_mv,
                                                                             save_dir=self.seg_save_dir)
-
-            _, _, _, f1_top3_mv, cm_top3_mv = calc_metrics_at_once(self.all_predictions_combined_top3, 
+            # _, _, _, f1_top3_mv, cm_top3_mv
+            metrics_top3 = calc_metrics_at_once(self.all_predictions_combined_top3, 
                                                                             self.dataset_mapping[self.mode]["vid"], 
                                                                             num_classes=len(ACTIONS), 
                                                                             temporal_length=self.temporal_length,
@@ -1083,13 +1099,14 @@ class Metrics:
                 "f1_top3": self.f1_top3.compute().item(),
                 # "cm_top1": self.conf_mat_top1.compute().cpu(),
                 # "cm_top3": self.conf_mat_top3.compute().cpu(),
-                "f1_top1_once": f1_top1_mv,
-                "f1_top3_once": f1_top3_mv,
-                "cm_top1_once": cm_top1_mv,
-                "cm_top3_once": cm_top3_mv,
-                "f1@10": f1_at_10,
-                "f1@25": f1_at_25,
-                "f1@50": f1_at_50,
+                "f1_top1_once": metrics_top1["f1_macro_mv"],
+                "f1_top3_once": metrics_top3["f1_macro_mv"],
+                "f1_micro_once": metrics_top1["f1_micro_mv"],
+                "cm_top1_once": metrics_top1["cm_mv"],
+                "cm_top3_once": metrics_top3["cm_mv"],
+                "f1@10": metrics_top1["f1_at_10"],
+                "f1@25": metrics_top1["f1_at_25"],
+                "f1@50": metrics_top1["f1_at_50"],
                 "win_f1_top1": self.win_f1_calc_top1_results,
                 "win_f1_top3": self.win_f1_calc_top3_results,
             }
@@ -1125,7 +1142,8 @@ def wandb_logging(wandb, metric_dict, epoch, mode, whole_mode=False):
         wandb.log({f"{mode}/epoch": {"f1@10": metric_dict["f1@10"], 
                               "f1@25": metric_dict["f1@25"], 
                               "f1@50": metric_dict["f1@50"], 
-                              "f1_top1_once": metric_dict["f1_top1_once"], 
+                              "f1_top1_once": metric_dict["f1_top1_once"],
+                              "f1_micro_once": metric_dict["f1_micro_once"], 
                               "f1_top3_once": metric_dict["f1_top3_once"],
                               "f1_top1": metric_dict["f1_top1"],
                               "f1_top3": metric_dict["f1_top3"]},
