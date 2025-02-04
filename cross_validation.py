@@ -13,7 +13,7 @@ import numpy as np
 import wandb
 from utils import arg_parser_cv as arg_parser
 
-METRICS_OF_INTEREST = ["f1_top1_once", "f1_top3_once", "f1@10", "f1@25", "f1@50"]
+METRICS_OF_INTEREST = ["f1_top1_once", "f1_micro_once", "f1_top3_once", "f1@10", "f1@25", "f1@50"]
 COMPARISON_METRIC = "f1_top1_once"
 
 def main():
@@ -91,8 +91,6 @@ def main():
         metrics[m] = {}
         metrics[m]["mean"] = np.mean(temp_arr)
         metrics[m]["std"] = np.std(temp_arr)
-
-        
 
 
     # final_metrics = []
