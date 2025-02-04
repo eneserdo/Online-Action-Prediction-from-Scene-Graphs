@@ -13,16 +13,15 @@ from typing import List
 import torch
 import torch.nn as nn
 import torch_geometric.nn as g_nn
-from positional_encodings.torch_encodings import (
-    PositionalEncoding1D,
-    PositionalEncoding2D,
-)
+from positional_encodings.torch_encodings import (PositionalEncoding1D,
+                                                  PositionalEncoding2D)
 from torch.nn import functional as F
 from torch_geometric.data import Batch, Data
 from torch_geometric.utils import dropout_edge
 
 from dataset import ACTIONS, OBJECTS, RELATIONS
-from utils import align_embeddings_to_right, get_filters_for_imbalance, print_warning
+from utils import (align_embeddings_to_right, get_filters_for_imbalance,
+                   print_warning)
 
 
 # Borrowed from https://github.com/pytorch/examples/blob/main/word_language_model/model.py
@@ -207,8 +206,8 @@ class GraphModule(nn.Module):
 
         if args.use_embedding_edge:
             # not reasonable
-            raise NotImplementedError("use_embedding_edge is not implemented yet")
-            # self.edge_embedding = torch.nn.Embedding(2**num_edge_feat, num_edge_feat)
+            # raise NotImplementedError("use_embedding_edge is not implemented yet")
+            self.edge_embedding = torch.nn.Linear(args.num_edge_feat, args.num_edge_feat)
                     
 
         assert args.norm_layer != "none", "norm_layer should not be none"
@@ -297,8 +296,9 @@ class GraphModule(nn.Module):
 
         if self.use_embedding_edge:
             # array -> bits -> int -> embedding
-            bit_mask = torch.tensor([2**i for i in range(edge_attr.shape[-1])], device=edge_attr.device).to(torch.float32)
-            edge_attr = self.edge_embedding((edge_attr @ bit_mask).long())
+            # bit_mask = torch.tensor([2**i for i in range(edge_attr.shape[-1])], device=edge_attr.device).to(torch.float32)
+            # edge_attr = self.edge_embedding((edge_attr @ bit_mask).long())
+            edge_attr = self.edge_embedding(edge_attr)
         
         if self.use_pos_edge:
             edge_attr = torch.cat([edge_attr, pos_3d[edge_index[0]] - pos_3d[edge_index[1]]], dim=-1)
@@ -413,9 +413,9 @@ class ActionRecognition(nn.Module):
                 self.right_mlp = build_mlp(lstm_hidden_size*2, args.num_action_classes)
 
             elif self.merged_pred == "early":
-                self.left_mlp = build_mlp(lstm_hidden_size, args.num_action_classes)
-                self.right_mlp = build_mlp(lstm_hidden_size, args.num_action_classes)
-                # self.mlp = build_mlp(lstm_hidden_size//2, args.num_action_classes)
+                # self.left_mlp = build_mlp(lstm_hidden_size, args.num_action_classes)
+                # self.right_mlp = build_mlp(lstm_hidden_size, args.num_action_classes)
+                self.mlp = build_mlp(lstm_hidden_size//2, args.num_action_classes)
 
             elif self.merged_pred in ["none", "attention"]:    
                 self.mlp = build_mlp(lstm_hidden_size, args.num_action_classes)
@@ -508,13 +508,13 @@ class ActionRecognition(nn.Module):
             elif self.merged_pred == "early":
                 # both_out.shape = (T, N, F*2)
                 
-                action_prediction = torch.cat((self.left_mlp(both_out), self.right_mlp(both_out)), dim=1)
+                # action_prediction = torch.cat((self.left_mlp(both_out), self.right_mlp(both_out)), dim=1)
                 
                 # Old way
-                # both_out_left, both_out_right = torch.tensor_split(both_out, 2, dim=2)
+                both_out_left, both_out_right = torch.tensor_split(both_out, 2, dim=2)
                 # # single mlp
-                # both_out_ml = torch.cat([both_out_left, both_out_right], dim=1)
-                # action_prediction = self.mlp(both_out_ml)
+                both_out_ml = torch.cat([both_out_left, both_out_right], dim=1)
+                action_prediction = self.mlp(both_out_ml)
 
                 # # separate mlps
                 # # action_prediction = torch.cat((self.left_mlp(both_out_left), self.right_mlp(both_out_right)), dim=1)
