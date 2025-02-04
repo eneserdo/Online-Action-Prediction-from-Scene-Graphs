@@ -8,10 +8,10 @@ import pathlib
 import shutil
 
 import torch
+from torch_geometric.data import Data
 from tqdm import tqdm
 
 from dataset import get_processing_dir
-from torch_geometric.data import Data
 
 
 def transform_datapoint(datapoint_path):
@@ -139,6 +139,7 @@ def arg_parser():
     ap.add_argument("-tl", "--temporal_length", type=int, required=True, help="Temporal length of the input (if -1, processes whole video)")
     ap.add_argument("-ds", "--downsample", type=int, default=1, help="Downsampling ratio")
     ap.add_argument("-vf", "--use_vf", action="store_true", help="Use visual features")
+    ap.add_argument("-fd", "--filtered_data", action="store_true", help="Use filtered data")
     
     return ap.parse_args()
 
