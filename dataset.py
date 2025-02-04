@@ -4,8 +4,8 @@ import os
 import pathlib
 import pickle
 import shutil
-from os.path import join as opj
 import subprocess
+from os.path import join as opj
 from typing import Callable, List, Tuple
 
 import enlighten
@@ -13,11 +13,9 @@ import gdown
 import natsort
 import numpy as np
 import torch
-from torch_geometric.data import download_url, extract_zip
 from torch_geometric.data import Data as gData
 from torch_geometric.data import Dataset as gDataset
-
-
+from torch_geometric.data import download_url, extract_zip
 
 # Global variables
 OBJECTS = ['bowl', 'knife', 'screwdriver', 'cuttingboard', 'whisk', 'hammer', 'bottle', 'cup',
@@ -213,10 +211,10 @@ def _get_norm_func(root: str, test_subject, validation_take) -> Callable:
     
 #     # return curr_objects, curr_relations, len(black_list)==0
 
-FILTERED_OBJECTS = 0
-ALL_OBJECTS = 0
+FILTERED_OBJECTS_COUNT = 0
+ALL_OBJECTS_COUNT = 0
 def filter_distant_objects(curr_objects, curr_relations, mask_to_delete_objs):
-    global FILTERED_OBJECTS, ALL_OBJECTS
+    global FILTERED_OBJECTS_COUNT, ALL_OBJECTS_COUNT
                      
     black_list = []
     init_len = len(curr_objects)
@@ -229,8 +227,8 @@ def filter_distant_objects(curr_objects, curr_relations, mask_to_delete_objs):
             black_list.append(idx)
 
 
-    FILTERED_OBJECTS += len(black_list)
-    ALL_OBJECTS += init_len
+    FILTERED_OBJECTS_COUNT += len(black_list)
+    ALL_OBJECTS_COUNT += init_len
 
 
     if len(black_list) == 0:
@@ -484,64 +482,6 @@ def _get_graph(relation_json, object_json, vf_path, gt_actions, frame, subject, 
                           dists=dists_mirrored)
 
     return data, data_mirrored
-
-
-# def _check_validity(data: gData) -> str:
-
-#     # Checks: both hands exists, action != null, has edge, not empty 
-    
-#     global MISSING_HAND_COUNT, NULL_COUNT, EMPTY_COUNT, NO_EDGE_COUNT
-
-#     if data is None:
-#         EMPTY_COUNT+=1
-#         return "empty"
-
-#     Lhand, Rhand=False, False
-#     # null
-#     if torch.sum(data.y[0])==0 or torch.sum(data.y[1])==0:
-#         NULL_COUNT+=1
-#         raise Exception("Null action")
-#         return "null"
-
-#     # not empty
-#     if len(data.x)==0:
-#         EMPTY_COUNT+=1
-#         return "empty"
-    
-#     # both hands
-#     for row in data.x:
-#         if row[OBJECTS.index("LeftHand")]==1:
-#             Lhand=True
-        
-#         if row[OBJECTS.index("RightHand")]==1:
-#             Rhand=True
-            
-#     if not (Rhand and Lhand):
-#         MISSING_HAND_COUNT+=1
-#         return "missing hand"
-#     # not empty
-#     if len(data.x)==0:
-#         EMPTY_COUNT+=1
-#         return "empty"
-    
-#     # both hands
-#     for row in data.x:
-#         if row[OBJECTS.index("LeftHand")]==1:
-#             Lhand=True
-        
-#         if row[OBJECTS.index("RightHand")]==1:
-#             Rhand=True
-            
-#     if not (Rhand and Lhand):
-#         MISSING_HAND_COUNT+=1
-#         return "missing hand"
-
-#     # has edge
-#     if len(data.edge_index)==0:
-#         NO_EDGE_COUNT+=1
-#         return "no edge"
-    
-#     return "valid"
 
 
 def _impute_with_previous(graph: gData, previous_graph: gData, validity: str) -> gData:
@@ -903,7 +843,7 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
         if process_whole_video:
             temporal_length = len(relation_json_list)
 
-        if filter:
+        if filtered_data:
             mask_to_delete_objs = get_mask_to_delete_objs(object_json_list) 
         else:
             mask_to_delete_objs = None
@@ -990,8 +930,8 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
     print(f"\n\n#######\n{TOTAL_FRAME_COUNT=}, {EMPTY_COUNT=}, {NO_EDGE_COUNT=}, {MISSING_HAND_COUNT=}, {NULL_COUNT=}")
     
     print(f"{imputation_count=}, {prepended_things_count=}")
-    if ALL_OBJECTS != 0:
-        print(f"Ratio of object filtering: {FILTERED_OBJECTS/ALL_OBJECTS:.2f}")
+    if ALL_OBJECTS_COUNT != 0:
+        print(f"Ratio of object filtering: {FILTERED_OBJECTS_COUNT/ALL_OBJECTS_COUNT:.2f}")
 
     config_info = {"sample_count": sample_idx, 
                    "temporal_length": temporal_length,

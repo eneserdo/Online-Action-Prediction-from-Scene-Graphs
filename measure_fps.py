@@ -179,7 +179,7 @@ if __name__ == "__main__":
     # TEST
     print("Starts test...")
     with torch.no_grad():
-        fps = run_for_fps(model, test_loader, count=100, warmup=0)
+        fps = run_for_fps(model, test_loader, count=100, warmup=5)
         print(f"Average FPS: {fps:.2f}")
 
 
