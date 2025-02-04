@@ -14,7 +14,8 @@ import natsort
 import numpy as np
 import seaborn as sns
 import torch
-from torchmetrics.classification import MulticlassConfusionMatrix, MulticlassF1Score
+from torchmetrics.classification import (MulticlassConfusionMatrix,
+                                         MulticlassF1Score)
 
 # functorch was merged into pytorch after certain version. I used try-except to make it compatible with both versions
 try: 
@@ -29,11 +30,8 @@ from scipy.optimize import linear_sum_assignment
 
 from dataset import ACTIONS
 from metrics import f1_at_k_single_example
-from visualization_utils import (
-    plot_segmentation,
-    plot_segmentation_partial,
-    plot_segmentation_v2,
-)
+from visualization_utils import (plot_segmentation, plot_segmentation_partial,
+                                 plot_segmentation_v2)
 
 plt.ioff()
 
