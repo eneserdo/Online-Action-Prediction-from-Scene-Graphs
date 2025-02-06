@@ -148,3 +148,6 @@ conf_mat/
 incorrect_predictions/
 tests/
 *.png
+
+coax/
+raw_coax/
