@@ -122,7 +122,7 @@ def _get_norm_func(root: str, test_subject, validation_take) -> Callable:
         if subject == test_subject or take == validation_take:
             continue
 
-        object_dir = opj(root, "raw", "bimacs_derived_data", subject, task, take, "3d_objects")
+        object_dir = opj(root, "raw", "derived_data", subject, task, take, "3d_objects")
         object_json_list = natsort.natsorted(glob.glob(opj(object_dir, "*.json")))
         for object_json in object_json_list:        # among all the frames in a video
             with open(object_json) as f:
@@ -628,7 +628,7 @@ def _get_max_length(root: str, downsample) -> int:
     # Returns the maximum length of the videos (used for padding)
     max_length = 0
     for subject, task, take in crawl_dataset():
-        relation_dir = opj(root, "raw", "bimacs_derived_data", subject, task, take, "spatial_relations")
+        relation_dir = opj(root, "raw", "derived_data", subject, task, take, "spatial_relations")
         curr_list = glob.glob(opj(relation_dir, "*.json"))[::downsample]
         curr_length = len(curr_list)
         max_length = max(max_length, curr_length)
@@ -712,7 +712,7 @@ def get_mask_to_delete_objs(object_json_list):
 
 def process_coax_dataset(root: str, temporal_length: int, downsample: int, use_vis_feat: bool, filtered_data: bool) -> None:
     assert not use_vis_feat
-    assert root == "coax"
+    assert root == "./coax"
     global TOTAL_FRAME_COUNT
     # temporal_length defines the number of frames in a sample regardless of the downsampling rate
 
@@ -749,7 +749,7 @@ def process_coax_dataset(root: str, temporal_length: int, downsample: int, use_v
 
     # Progress bar
     progressbar_manager=enlighten.get_manager()
-    ticks=progressbar_manager.counter(total=540, desc="Progress:", unit="folder", color="blue")
+    ticks=progressbar_manager.counter(total=180, desc="Progress:", unit="folder", color="blue")
 
     for subject, task, take in crawl_dataset():
 
@@ -762,7 +762,6 @@ def process_coax_dataset(root: str, temporal_length: int, downsample: int, use_v
 
         # make sure there is no cross-folder graph sequence
         data_list = []
-        data_list_mirrored = []
 
         object_dir = opj(derived_dir, subject, task, take, "3d_objects")
         object_json_list = natsort.natsorted(glob.glob(opj(object_dir, "*.json")))
@@ -828,7 +827,7 @@ def process_coax_dataset(root: str, temporal_length: int, downsample: int, use_v
 
             TOTAL_FRAME_COUNT += 1
 
-            graph, graph_mirrored = _get_graph(relation_json, object_json, vf_path, act_list[frame], frame, subject, task, take, pos_normalizer, mask_to_delete_objs)
+            graph = _get_graph(relation_json, object_json, vf_path, act_list[frame], frame, subject, task, take, pos_normalizer, mask_to_delete_objs)
 
             ### Prepending and imputation ###
             # If the graph is not valid, try to fix it (impute maybe). 
@@ -843,7 +842,6 @@ def process_coax_dataset(root: str, temporal_length: int, downsample: int, use_v
             elif len(data_list) > 0:
                 # use previous graph to impute
                 graph = _impute_with_previous(graph, data_list[-1], validity)
-                graph_mirrored = _impute_with_previous(graph_mirrored, data_list_mirrored[-1], validity)
                 imputation_count+=1
             else:
                 # print("Skipping: invalid graph and no previous graph to impute: ", subject, task, take, "f", frame)
@@ -855,13 +853,11 @@ def process_coax_dataset(root: str, temporal_length: int, downsample: int, use_v
             
 
             data_list.append(graph)    
-            data_list_mirrored.append(graph_mirrored)
             
 
             if prepend_count != 0 and len(data_list) == 1:
                 for _ in range(prepend_count):
                     data_list.append(graph.clone())
-                    data_list_mirrored.append(graph_mirrored.clone())
                 assert len(data_list) == prepend_count+1
                 prepend_count=0
             ##################################
@@ -869,28 +865,21 @@ def process_coax_dataset(root: str, temporal_length: int, downsample: int, use_v
                 
             # if the sequence is complete, saves it
             if len(data_list) == temporal_length:
-                assert len(data_list) == len(data_list_mirrored), f"{len(data_list)=}, {len(data_list_mirrored)=}"
     
                 torch.save(data_list, opj(processed_dir, subject, f'data_{sample_idx}.pt'))
-                dataset_mapping_master["sample"][sample_idx] = (subject_int, task_int, take_int, frame-temporal_length + 1, frame + 1, "_")
-                sample_idx+=1
-
-                dataset_mapping_master["sample"][sample_idx] = (subject_int, task_int, take_int, frame-temporal_length + 1, frame + 1, "M")
-                torch.save(data_list_mirrored, opj(processed_dir, subject, f'data_{sample_idx}.pt'))
+                dataset_mapping_master["sample"][sample_idx] = (subject_int, task_int, take_int, frame-temporal_length + 1, frame + 1)
                 sample_idx+=1
 
                 successful_save = True
                 data_list[0].validate(raise_on_error=True)
-                data_list_mirrored[0].validate(raise_on_error=True)
                 data_list.pop(0)
-                data_list_mirrored.pop(0)
         # End of for loop (frame)
                 
         if not successful_save:
             raise ValueError("WTF")
 
         if not process_whole_video:
-            assert 2*sample_count == sample_idx, f"{sample_count=}, {sample_idx=}"
+            assert sample_count == sample_idx, f"{sample_count=}, {sample_idx=}"
 
         ticks.update()
 
@@ -919,13 +908,13 @@ def process_coax_dataset(root: str, temporal_length: int, downsample: int, use_v
     if process_whole_video and DEBUG_MODE is False:
         assert sample_idx == 1080, f"{sample_idx=} != 1080"
     else:
-        assert sample_idx == sample_count*2, f"{sample_idx=} ,{sample_count*2=}"
+        assert sample_idx == sample_count, f"{sample_idx=} ,{sample_count=}"
 
 
 class CoaxDataset(gDataset):
     def __init__(self, root, temporal_length, downsample, mapping, use_vf, filtered_data, monograph):
         assert not use_vf
-        assert root == "coax"
+        assert root == "./coax"
         self.temporal_length = temporal_length
 
         self.pdir = get_processing_dir(root, temporal_length, downsample, use_vf, filtered_data, monograph)
@@ -1002,20 +991,20 @@ def create_mappings(processed_dir: str, temporal_length: int, test_subject: int,
     train_idx = 0
 
     # dataset_mapping_master["sample"][sample_idx] = (subject_int, task_int, take_int, frame-temporal_length + 1, frame + 1, "_" or "M") 
-    for idx, (sub, task, take, start, end, mirrored) in dataset_mapping_master["sample"].items():
+    for idx, (sub, task, take, start, end) in dataset_mapping_master["sample"].items():
         
         if sub == test_subject:
-            dataset_mapping["test"]["sample"][idx] = (sub, task, take, start, end, mirrored)
+            dataset_mapping["test"]["sample"][idx] = (sub, task, take, start, end)
             path_mapping["test"][test_idx] = (opj("subject_"+str(sub), f"data_{idx}.pt"), idx)
             test_idx+=1
         
         elif take == validation_take:
-            dataset_mapping["val"]["sample"][idx] = (sub, task, take, start, end, mirrored)
+            dataset_mapping["val"]["sample"][idx] = (sub, task, take, start, end)
             path_mapping["val"][val_idx] = (opj("subject_"+str(sub), f"data_{idx}.pt"), idx)
             val_idx+=1
 
         else:
-            dataset_mapping["train"]["sample"][idx] = (sub, task, take, start, end, mirrored)
+            dataset_mapping["train"]["sample"][idx] = (sub, task, take, start, end)
             path_mapping["train"][train_idx] = (opj("subject_"+str(sub), f"data_{idx}.pt"), idx)
             train_idx+=1
 

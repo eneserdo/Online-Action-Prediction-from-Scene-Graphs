@@ -40,7 +40,7 @@ def arg_parser_base():
     ap = argparse.ArgumentParser()
 
     # Dataset
-    ap.add_argument("-rt", "--root", type=str, default='.', help="Root directory of dataset.")
+    ap.add_argument("-rt", "--root", type=str, default='./coax', help="Root directory of dataset.")
     ap.add_argument("-p", "--process_it", action="store_true", help="...")
     ap.add_argument("-bs", "--batch_size", type=int, default=256, help="...")
     ap.add_argument("-tl", "--temporal_length", type=int, default=10, help="...")
@@ -465,6 +465,7 @@ def visualize_incorrect_preds(preds, labels, idxes, test_idx_sample_mapping, gra
     assert os.path.exists(rgb_dataset_dir), "RGB dataset directory does not exist"
     assert os.path.exists(graph_dataset_dir), "Graph dataset directory does not exist"
 
+    raise NotImplementedError("Not implemented")
     save_dir_name = "incorrect_predictions"
     # if os.path.exists(save_dir_name):
     # print("Removing existing", save_dir_name)
@@ -641,7 +642,9 @@ class F1_at_k:
 
         
     def __call__(self, y_true, y_pred, segment_name = None):
-         
+
+        if len(y_pred.shape) == 1:
+            y_pred = y_pred.reshape(-1, 1)
         assert y_true.shape == y_pred.shape, "y_true and y_pred must have same shape"
         
         if self.batch_mode:
@@ -651,9 +654,9 @@ class F1_at_k:
                 self.k_50.append(f1_at_k_single_example(y_t, y_p, num_classes=self.num_classes, overlap=0.5))
 
         else:
-            self.k_10.append(f1_at_k_single_example(y_true, y_pred, num_classes=self.num_classes, overlap=0.1))
-            self.k_25.append(f1_at_k_single_example(y_true, y_pred, num_classes=self.num_classes, overlap=0.25))
-            self.k_50.append(f1_at_k_single_example(y_true, y_pred, num_classes=self.num_classes, overlap=0.5))
+            self.k_10.append(f1_at_k_single_example(y_true[:, 0], y_pred[:, 0], num_classes=self.num_classes, overlap=0.1))
+            self.k_25.append(f1_at_k_single_example(y_true[:, 0], y_pred[:, 0], num_classes=self.num_classes, overlap=0.25))
+            self.k_50.append(f1_at_k_single_example(y_true[:, 0], y_pred[:, 0], num_classes=self.num_classes, overlap=0.5))
 
     def compute(self):
         return np.mean(self.k_10), np.mean(self.k_25), np.mean(self.k_50)
@@ -756,26 +759,25 @@ def test_majority_voting():
 
 
 def combine_predictions(all_arr, idx, sub_arr, mapping):
-    # first half of sub_arr is for left hand, second half is for right hand
+    # sub_arr is right hand predictions
     
     batch_size = sub_arr.shape[1]
-    assert 2*len(idx) == batch_size, f"2*idx and sub_arr must have same shape: {2*len(idx)} != {batch_size}"
+    assert len(idx) == batch_size, f"2*idx and sub_arr must have same shape: {len(idx)} != {batch_size}"
 
-    left_arr , right_arr = sub_arr[:, :batch_size//2], sub_arr[:, batch_size//2:]
+    right_arr = sub_arr
 
-    for half_arr, hand in zip([left_arr, right_arr], ["L", "R"]):
-        for j in range(len(idx)):
-            p = half_arr[:, j]
-            i = idx[j]
+    for j in range(len(idx)):
+        p = right_arr[:, j]
+        i = idx[j]
 
-            subject, task, take, start_frame, end_frame, is_mirrored = mapping[i]
+        subject, task, take, start_frame, end_frame = mapping[i]
 
-            # end frame exclusive i.e. [start_frame, end_frame)
-            temp_len = end_frame-start_frame
+        # end frame exclusive i.e. [start_frame, end_frame)
+        temp_len = end_frame-start_frame
 
-            assert np.all(all_arr[f"{subject}{task}{take}{is_mirrored}{hand}"][temp_len * start_frame : temp_len * (1+start_frame)] == -1), "Not filled appropriately. There should not be any value in all_arr"
-            all_arr[f"{subject}{task}{take}{is_mirrored}{hand}"][temp_len * start_frame : temp_len * (1+start_frame)] = p
-    
+        assert np.all(all_arr[f"{subject}{task}{take}"][temp_len * start_frame : temp_len * (1+start_frame)] == -1), "Not filled appropriately. There should not be any value in all_arr"
+        all_arr[f"{subject}{task}{take}"][temp_len * start_frame : temp_len * (1+start_frame)] = p
+
     return all_arr
 
 def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, downsample, weighted_mv, save_dir=None):
@@ -794,85 +796,50 @@ def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, downsam
             shutil.rmtree(save_dir)
         os.makedirs(save_dir)
 
-    for video_id, y_true_LR in mapping.items():
-
-        y_true_L, y_true_R = y_true_LR[:, 0], y_true_LR[:, 1]  
+    for video_id, y_true in mapping.items():
         
-        y_pred__L_all = all_arr[f"{video_id}_L"]
-        y_pred__R_all = all_arr[f"{video_id}_R"]
-        y_pred_ML_all = all_arr[f"{video_id}ML"]
-        y_pred_MR_all = all_arr[f"{video_id}MR"]
+        y_pred_all = all_arr[video_id]
 
-        for y_pred_ in [y_pred__L_all, y_pred__R_all, y_pred_ML_all, y_pred_MR_all]:
-            assert -1 not in y_pred_, "Not filled appropriately. There should not be -1 in y_pred"
+        assert -1 not in y_pred_all, "Not filled appropriately. There should not be -1 in y_pred"
 
         try:
-            y_pred__L, conf_L = majority_voting(y_pred__L_all, total_len=y_true_L[::downsample].shape[0], buffer_len=temporal_length, weighted=weighted_mv)
-            y_pred__R, conf_R = majority_voting(y_pred__R_all, total_len=y_true_R[::downsample].shape[0], buffer_len=temporal_length, weighted=weighted_mv)
-            y_pred_ML, conf_ML = majority_voting(y_pred_ML_all, total_len=y_true_L[::downsample].shape[0], buffer_len=temporal_length, weighted=weighted_mv)
-            y_pred_MR, conf_MR = majority_voting(y_pred_MR_all, total_len=y_true_R[::downsample].shape[0], buffer_len=temporal_length, weighted=weighted_mv)
+            y_pred, conf = majority_voting(y_pred_all, total_len=y_true[::downsample].shape[0], buffer_len=temporal_length, weighted=weighted_mv)
         except Exception as e:
             raise ValueError(f"Majority voting failed, {video_id}", e)
             
         
-        y_pred__L = y_pred__L.repeat(downsample)
-        y_pred__R = y_pred__R.repeat(downsample)
-        y_pred_ML = y_pred_ML.repeat(downsample)
-        y_pred_MR = y_pred_MR.repeat(downsample)
+        y_pred = y_pred.repeat(downsample)
 
-        pred_len = y_pred__L.shape[0]
-        gt_len = y_true_L.shape[0]
+        pred_len = y_pred.shape[0]
+        gt_len = y_true.shape[0]
 
         if pred_len - gt_len <= downsample:
-            y_pred__L = y_pred__L[:gt_len]
-            y_pred__R = y_pred__R[:gt_len]
-            y_pred_ML = y_pred_ML[:gt_len]
-            y_pred_MR = y_pred_MR[:gt_len]
+            y_pred = y_pred[:gt_len]
         elif gt_len - pred_len < downsample:
-            y_true_L = y_true_L[:pred_len]
-            y_true_R = y_true_R[:pred_len]
+            y_true = y_true[:pred_len]
         else:
             raise ValueError("gt_len and pred_len must be equal or differ at most by downsample", gt_len, pred_len, video_id)
         
         
-
-
-
         # Notice that the convention is (y_true, y_pred)
-        f1_at_k(y_true_L, y_pred__L)
-        f1_at_k(y_true_R, y_pred__R)
-        
-        # Mirrored data
-        f1_at_k(y_true_R, y_pred_ML)
-        f1_at_k(y_true_L, y_pred_MR)
-        
-        
-        # Notice that the convention is (y_pred, y_true)
-        f1_classic(torch.tensor(y_pred__L), torch.tensor(y_true_L))
-        f1_classic(torch.tensor(y_pred__R), torch.tensor(y_true_R))
-        f1_classic(torch.tensor(y_pred_ML), torch.tensor(y_true_R))
-        f1_classic(torch.tensor(y_pred_MR), torch.tensor(y_true_L))
+        f1_at_k(y_true, y_pred)
 
-        f1_micro(torch.tensor(y_pred__L), torch.tensor(y_true_L))
-        f1_micro(torch.tensor(y_pred__R), torch.tensor(y_true_R))
-        f1_micro(torch.tensor(y_pred_ML), torch.tensor(y_true_R))
-        f1_micro(torch.tensor(y_pred_MR), torch.tensor(y_true_L))
+        y_pred = y_pred.reshape(*y_true.shape)
+        # Notice that the convention is (y_pred, y_true)
+        f1_classic(torch.tensor(y_pred), torch.tensor(y_true))
+
+        f1_micro(torch.tensor(y_pred), torch.tensor(y_true))
 
         # Conf mat
         # To ignore warnings about nan values in confusion matrix and functorch's performance drop
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', '.*NaN values found in confusion matrix.*', UserWarning)
 
-            conf_mat(torch.tensor(y_pred__L), torch.tensor(y_true_L))
-            conf_mat(torch.tensor(y_pred__R), torch.tensor(y_true_R))
-            conf_mat(torch.tensor(y_pred_ML), torch.tensor(y_true_R))
-            conf_mat(torch.tensor(y_pred_MR), torch.tensor(y_true_L))
-        
+            conf_mat(torch.tensor(y_pred), torch.tensor(y_true))
         
         # Visualization
         if save_dir is not None:
-            plot_segmentation_v2(y_true_L, y_pred__L, conf_L, y_pred_MR, conf_MR, save_file=opj(save_dir, video_id+"_L" + ".png"), title=video_id+"_L")
-            plot_segmentation_v2(y_true_R, y_pred__R, conf_R, y_pred_ML, conf_ML, save_file=opj(save_dir, video_id+"_R" + ".png"), title=video_id+"_R")
+            plot_segmentation_v2(y_true, y_pred, conf, save_file=opj(save_dir, video_id + ".png"), title=video_id)
 
     # f1_at_10, f1_at_25, f1_at_50, f1_top1_mv, cm_top1_mv
     f1_at_10, f1_at_25, f1_at_50 = f1_at_k.compute()
@@ -1014,8 +981,8 @@ class Metrics:
         # Dictionaries to store predictions for each sample
         # We will also calculate F1 and CM after MV
         if temporal_length != -1:
-            self.all_predictions_combined_top1 = {vid + m_and_hand_status: - np.ones((act[::downsample].shape[0] - temporal_length + 1) * temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
-            self.all_predictions_combined_top3 = {vid + m_and_hand_status: - np.ones((act[::downsample].shape[0] - temporal_length + 1) * temporal_length) for vid, act in dataset_mapping[mode]["vid"].items() for m_and_hand_status in ["_L", "_R", "ML", "MR"]}
+            self.all_predictions_combined_top1 = {vid: - np.ones((act[::downsample].shape[0] - temporal_length + 1) * temporal_length) for vid, act in dataset_mapping[mode]["vid"].items()}
+            self.all_predictions_combined_top3 = {vid: - np.ones((act[::downsample].shape[0] - temporal_length + 1) * temporal_length) for vid, act in dataset_mapping[mode]["vid"].items()}
         else:
             self.f1_at_k = F1_at_k(num_classes=num_classes)
 
