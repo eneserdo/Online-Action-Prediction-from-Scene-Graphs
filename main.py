@@ -216,7 +216,7 @@ if __name__ == "__main__":
                                                                use_vf=args.use_vf,
                                                                filtered_data=args.filtered_data,
                                                                monograph=args.monograph,
-                                                               use_pretained_embedding=args.use_pretained_embedding)
+                                                               use_pretrained_embedding=args.use_pretrained_embedding)
 
     train_loader = DataLoader(train_set, args.batch_size, num_workers=args.num_workers, shuffle=True, worker_init_fn=seed_worker, generator=torch_generator)
     

@@ -195,9 +195,9 @@ class GraphModule(nn.Module):
         self.edge_dropout = args.edge_dropout
         self.use_embedding = args.use_embedding
         self.use_pos = args.use_pos
-        self.use_pretained_embedding = args.use_pretained_embedding
+        self.use_pretrained_embedding = args.use_pretrained_embedding
 
-        if self.use_pretained_embedding:
+        if self.use_pretrained_embedding:
             emb = np.load("pretained_embeddings.npz")
             self.right_hand_embedding = torch.tensor(emb["RightHand"])
         
@@ -265,7 +265,7 @@ class GraphModule(nn.Module):
 
     def _hands_pooling(self, x, embeddings):
         
-        if not self.use_pretained_embedding:
+        if not self.use_pretrained_embedding:
             labels = torch.argmax(x, dim=1)
             r_emb = embeddings[labels == OBJECTS.index("RightHand")]
 
@@ -558,14 +558,14 @@ def make_model(args):
         in_channels = len(OBJECTS) + 3
     elif args.use_vf:
         in_channels = 256
-    elif args.use_pretained_embedding:
+    elif args.use_pretrained_embedding:
         in_channels = 16
     else:
         in_channels = len(OBJECTS)
 
     if args.use_pos_edge:
         num_edge_feat = len(RELATIONS) + 3
-    elif args.use_pretained_embedding:
+    elif args.use_pretrained_embedding:
         num_edge_feat = 16
     else:
         num_edge_feat = len(RELATIONS)
