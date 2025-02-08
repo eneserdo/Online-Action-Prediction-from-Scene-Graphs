@@ -9,10 +9,10 @@ import matplotlib
 import matplotlib.pyplot as pyplot
 import numpy as np
 import torch
+import wandb
 from rich import print as rprint
 from torch_geometric.loader import DataLoader
 
-import wandb
 from dataset import (ACTIONS, _get_max_length, get_bimanual_dataset_splits,
                      get_processing_dir)
 from models import make_model
@@ -214,7 +214,8 @@ if __name__ == "__main__":
                                                                downsample=args.downsample,
                                                                use_vf=args.use_vf,
                                                                filtered_data=args.filtered_data,
-                                                               monograph=args.monograph)
+                                                               monograph=args.monograph,
+                                                               use_pretained_embedding=args.use_pretained_embedding)
 
     train_loader = DataLoader(train_set, args.batch_size, num_workers=args.num_workers, shuffle=True, worker_init_fn=seed_worker, generator=torch_generator)
     
