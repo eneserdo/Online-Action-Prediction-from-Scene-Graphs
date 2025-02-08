@@ -582,6 +582,34 @@ def _get_graph(relation_json, object_json, vf_path, gt_actions, frame, subject, 
 
     return data
 
+def _transform_to_pretained_embedding(graph: gData, embedding_map) -> gData:
+
+    x = graph.x.argmax(1)
+    edge_attr = graph.edge_attr
+
+    new_x = torch.zeros((graph.x.shape[0], 16), dtype=torch.float)
+
+    for i, idx in enumerate(x):
+        obj_name = OBJECTS[idx]
+        new_x[i] = embedding_map[obj_name]
+
+    new_edge_attr = torch.zeros((graph.edge_attr.shape[0], 16), dtype=torch.float)
+
+    for i, rels in enumerate(edge_attr):
+        count = 0
+        for j, rel in enumerate(rels):
+            obj_name = RELATIONS[j]
+            new_edge_attr[i] += embedding_map[obj_name]
+            count += 1
+
+        new_edge_attr[i] = new_edge_attr[i] / count
+
+    graph.x = new_x
+    graph.edge_attr = new_edge_attr
+
+    return graph
+
+
 def _impute_with_previous(graph: gData, previous_graph: gData, validity: str) -> gData:
     # For now, just returns the previous graph
     # If required, impute using the data of previous graph
@@ -664,7 +692,7 @@ def _pad_sequence(data_list: List[gData], target_length: int) -> List[gData]:
             data_list.append(__get_padding_graph())
 
 
-def get_processing_dir(root: str, temporal_length: int, downsample: int, use_vf: bool, filtered_data: bool, monograph: bool) -> str:
+def get_processing_dir(root: str, temporal_length: int, downsample: int, use_vf: bool, filtered_data: bool, monograph: bool, use_pretained_embedding: bool = False) -> str:
     # Naming convention for the processed directory
 
     f_name = "processed"
@@ -673,7 +701,7 @@ def get_processing_dir(root: str, temporal_length: int, downsample: int, use_vf:
     f_name += "_vf" if use_vf else ""
     f_name += "_G" if monograph else ""
     f_name += "_F" if filtered_data else ""
-
+    f_name += "_E" if use_pretained_embedding else ""
     return opj(root, f_name)
 
 def get_mask_to_delete_objs(object_json_list):
@@ -711,13 +739,13 @@ def get_mask_to_delete_objs(object_json_list):
 
     return mask
 
-def process_coax_dataset(root: str, temporal_length: int, downsample: int, use_vis_feat: bool, filtered_data: bool) -> None:
+def process_coax_dataset(root: str, temporal_length: int, downsample: int, use_vis_feat: bool, filtered_data: bool, use_pretained_embedding: bool = False) -> None:
     assert not use_vis_feat
     assert root == "./coax"
     global TOTAL_FRAME_COUNT
     # temporal_length defines the number of frames in a sample regardless of the downsampling rate
 
-    processed_dir = get_processing_dir(root, temporal_length, downsample, use_vis_feat, filtered_data, monograph=False)
+    processed_dir = get_processing_dir(root, temporal_length, downsample, use_vis_feat, filtered_data, monograph=False, use_embedding=use_pretained_embedding)
     os.mkdir(processed_dir)
     
     if temporal_length == -1:
@@ -747,6 +775,8 @@ def process_coax_dataset(root: str, temporal_length: int, downsample: int, use_v
 
     # To double check
     sample_count = 0
+
+    embedding_map = np.load("pretained_embeddings.npz")
 
     # Progress bar
     progressbar_manager=enlighten.get_manager()
@@ -829,6 +859,9 @@ def process_coax_dataset(root: str, temporal_length: int, downsample: int, use_v
             TOTAL_FRAME_COUNT += 1
 
             graph = _get_graph(relation_json, object_json, vf_path, act_list[frame], frame, subject, task, take, pos_normalizer, mask_to_delete_objs)
+
+            if use_pretained_embedding:
+                graph = _transform_to_pretained_embedding(graph, embedding_map)
 
             ### Prepending and imputation ###
             # If the graph is not valid, try to fix it (impute maybe). 
@@ -913,12 +946,12 @@ def process_coax_dataset(root: str, temporal_length: int, downsample: int, use_v
 
 
 class CoaxDataset(gDataset):
-    def __init__(self, root, temporal_length, downsample, mapping, use_vf, filtered_data, monograph):
+    def __init__(self, root, temporal_length, downsample, mapping, use_vf, filtered_data, monograph, use_pretained_embedding: bool = False):
         assert not use_vf
         assert root == "./coax"
         self.temporal_length = temporal_length
 
-        self.pdir = get_processing_dir(root, temporal_length, downsample, use_vf, filtered_data, monograph)
+        self.pdir = get_processing_dir(root, temporal_length, downsample, use_vf, filtered_data, monograph, use_pretained_embedding)
         
         self.mapping = mapping
 
@@ -1047,14 +1080,14 @@ def print_data_point(data: gData):
     print("Graph id: ", data.y[0,-1].item())
 
 
-def get_coax_dataset_splits(*, root: str, process_it_anyway: bool, test_subject: int, validation_take: int , temporal_length: int, downsample: int, use_vf: bool, filtered_data:bool, monograph: bool) -> Tuple[gDataset, gDataset, gDataset]:
+def get_coax_dataset_splits(*, root: str, process_it_anyway: bool, test_subject: int, validation_take: int , temporal_length: int, downsample: int, use_vf: bool, filtered_data:bool, monograph: bool, use_pretained_embedding: bool = False) -> Tuple[gDataset, gDataset, gDataset]:
     # dataset_mapping = {"train":{"vid":{}, "sample":{}},
     #                    "test":{"vid":{}, "sample":{}},
     #                    "val":{"vid":{}, "sample":{}}}
     
     # path_mapping = {"train": {}, "test": {}, "val": {}} # [split]: idx -> path, global_idx
 
-    processed_dir = get_processing_dir(root, temporal_length, downsample, use_vf, filtered_data, monograph)
+    processed_dir = get_processing_dir(root, temporal_length, downsample, use_vf, filtered_data, monograph, use_pretained_embedding)
 
     
     assert os.path.isfile(opj(processed_dir, "dataset_mapping_master.pickle")), f"In {processed_dir}, dataset is not preprocessed yet"
@@ -1091,9 +1124,9 @@ def get_coax_dataset_splits(*, root: str, process_it_anyway: bool, test_subject:
             distibution[a] += c
 
 
-    train_set=CoaxDataset(root, temporal_length, downsample, path_mapping["train"], use_vf, filtered_data, monograph)
-    test_set=CoaxDataset(root, temporal_length, downsample, path_mapping["test"], use_vf, filtered_data, monograph)
-    val_set=CoaxDataset(root, temporal_length, downsample, path_mapping["val"], use_vf, filtered_data, monograph)
+    train_set=CoaxDataset(root, temporal_length, downsample, path_mapping["train"], use_vf, filtered_data, monograph, use_pretained_embedding)
+    test_set=CoaxDataset(root, temporal_length, downsample, path_mapping["test"], use_vf, filtered_data, monograph, use_pretained_embedding)
+    val_set=CoaxDataset(root, temporal_length, downsample, path_mapping["val"], use_vf, filtered_data, monograph, use_pretained_embedding)
     
     train_set.distribution = distibution
 
@@ -1101,37 +1134,14 @@ def get_coax_dataset_splits(*, root: str, process_it_anyway: bool, test_subject:
 
 if __name__ == "__main__":
 
-    # a, b, c=get_coax_dataset_splits(root=".", 
-    #                                     process_it_anyway=False, 
-    #                                     test_subject=6, 
-    #                                     validation_take=7, 
-    #                                     temporal_length=10, 
-    #                                     downsample=3, 
-    #                                     use_vf=False,
-    #                                     filtered_data=True,
-    #                                     monograph=False)   
-    # print(len(a), len(b), len(c))
-    # if not os.path.exists("raw_coax"):
-    #     os.makedirs("raw_coax")
-    # download_coax_dataset(root="./coax", download_anyway=True)
-
-    # create_relation_files(raw_dir="./coax/raw")
-
-    gt_dir = "./coax/raw/action_ground_truth"
-    counter = Counter()
-    for subject, task, take in crawl_dataset_FULL():
-        relation_json_list = glob.glob(opj(gt_dir, subject, task, f"{take}*.json"))
-
-        gt_action_json = opj(gt_dir, subject, task, f"{take}.json")
-        act_list_full=_get_actions_list(gt_action_json, len(relation_json_list), counter)
-
-    actions=[]
-    for pairs, _ in counter.items():
-        act, obj = pairs
-        if obj is None:
-            actions.append(_ACTIONS[act])
-        else:
-            actions.append(_ACTIONS[act]+f"_{OBJECTS[obj]}")
-
-    print(counter)
-    print(actions)
+    a, b, c=get_coax_dataset_splits(root=".", 
+                                        process_it_anyway=False, 
+                                        test_subject=6, 
+                                        validation_take=7, 
+                                        temporal_length=10, 
+                                        downsample=3, 
+                                        use_vf=False,
+                                        filtered_data=True,
+                                        monograph=False,
+                                        use_pretained_embedding=False)   
+    print(len(a), len(b), len(c))
