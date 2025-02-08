@@ -71,7 +71,7 @@ def arg_parser_base():
     ap.add_argument("--use_embedding_edge", action="store_true", help="Instead of one-hot encoded edge features, use embedding layer")
     ap.add_argument("--dist_threshold", type=float, default=None, help="...")
     
-    ap.add_argument("--use_pretained_embedding", action="store_true", help="Use pretained embeddings")
+    ap.add_argument("--use_pretrained_embedding", action="store_true", help="Use pretained embeddings")
     
 
     # Model - Temporal part

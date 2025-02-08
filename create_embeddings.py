@@ -58,14 +58,16 @@ def main():
     model = SentenceTransformer(model_name)
     ref_embeddings = model.encode(list(item_mapping.values()))
 
-    # save as named numpy array, with keys as the item names
-    np.savez("embeddings.npz", **{item: ref_embeddings[i] for i, item in enumerate(item_mapping.keys())})
 
     print(f"PCA {n_components=}")
     pca = PCA(n_components=n_components)
     pca.fit(ref_embeddings)
 
     ref_embeddings_pca = pca.transform(ref_embeddings)
+
+    # save as named numpy array, with keys as the item names
+    np.savez("embeddings.npz", **{item: ref_embeddings_pca[i] for i, item in enumerate(item_mapping.keys())})
+
     recovered_embeddings = pca.inverse_transform(ref_embeddings_pca)
     error = np.mean((ref_embeddings - recovered_embeddings)**2)
     exp_var = pca.explained_variance_.sum()

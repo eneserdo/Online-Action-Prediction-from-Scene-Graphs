@@ -484,26 +484,29 @@ def _get_graph(relation_json, object_json, vf_path, gt_actions, frame, subject, 
     return data, data_mirrored
 
 def _transform_to_pretained_embedding(graph: gData, embedding_map) -> gData:
-
+    if graph is None:
+        return None
+    assert (torch.unique(graph.x).numel() == 2) and (1 in graph.x) and (0 in graph.x), f"graph.x must be one-hot encoded, x: {graph.x}"
+    assert (torch.unique(graph.edge_attr).numel() == 2) and (1 in graph.edge_attr) and (0 in graph.edge_attr), f"graph.edge_attr must be one-hot encoded, edge_attr: {graph.edge_attr}"
     x = graph.x.argmax(1)
     edge_attr = graph.edge_attr
 
-    new_x = torch.zeros((graph.x.shape[0], 16), dtype=torch.float)
+    new_x = torch.zeros((graph.x.shape[0], 16), dtype=graph.x.dtype)
 
     for i, idx in enumerate(x):
         obj_name = OBJECTS[idx]
-        new_x[i] = embedding_map[obj_name]
+        new_x[i] = torch.tensor(embedding_map[obj_name], dtype=graph.x.dtype)
 
     new_edge_attr = torch.zeros((graph.edge_attr.shape[0], 16), dtype=torch.float)
 
-    for i, rels in enumerate(edge_attr):
-        count = 0
-        for j, rel in enumerate(rels):
-            obj_name = RELATIONS[j]
-            new_edge_attr[i] += embedding_map[obj_name]
-            count += 1
-
-        new_edge_attr[i] = new_edge_attr[i] / count
+    for i, relation_vector in enumerate(edge_attr):
+        relations = torch.nonzero(relation_vector)
+        
+        for rel in relations:
+            relation_name = RELATIONS[rel]
+            new_edge_attr[i] += embedding_map[relation_name]
+        
+        new_edge_attr[i] = new_edge_attr[i] / len(relations)
 
     graph.x = new_x
     graph.edge_attr = new_edge_attr
@@ -721,7 +724,7 @@ def _pad_sequence(data_list: List[gData], target_length: int) -> List[gData]:
             data_list.append(__get_padding_graph())
 
 
-def get_processing_dir(root: str, temporal_length: int, downsample: int, use_vf: bool, filtered_data: bool, monograph: bool, use_pretained_embedding: bool = False) -> str:
+def get_processing_dir(root: str, temporal_length: int, downsample: int, use_vf: bool, filtered_data: bool, monograph: bool, use_pretrained_embedding: bool = False) -> str:
     # Naming convention for the processed directory
 
     f_name = "processed"
@@ -730,7 +733,7 @@ def get_processing_dir(root: str, temporal_length: int, downsample: int, use_vf:
     f_name += "_vf" if use_vf else ""
     f_name += "_G" if monograph else ""
     f_name += "_F" if filtered_data else ""
-    f_name += "_E" if use_pretained_embedding else ""
+    f_name += "_E" if use_pretrained_embedding else ""
     return opj(root, f_name)
 
 def get_mask_to_delete_objs(object_json_list):
@@ -768,11 +771,11 @@ def get_mask_to_delete_objs(object_json_list):
 
     return mask
 
-def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, use_vis_feat: bool, filtered_data: bool, use_pretained_embedding: bool = False) -> None:
+def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, use_vis_feat: bool, filtered_data: bool, use_pretrained_embedding: bool = False) -> None:
     global TOTAL_FRAME_COUNT
     # temporal_length defines the number of frames in a sample regardless of the downsampling rate
 
-    processed_dir = get_processing_dir(root, temporal_length, downsample, use_vis_feat, filtered_data, monograph=False, use_embedding=use_pretained_embedding)
+    processed_dir = get_processing_dir(root, temporal_length, downsample, use_vis_feat, filtered_data, monograph=False, use_pretrained_embedding=use_pretrained_embedding)
     os.mkdir(processed_dir)
     
     if temporal_length == -1:
@@ -803,7 +806,7 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
     # To double check
     sample_count = 0
 
-    embedding_map = np.load("pretained_embeddings.npz")
+    embedding_map = np.load("embeddings.npz")
 
     # Progress bar
     progressbar_manager=enlighten.get_manager()
@@ -888,8 +891,9 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
             TOTAL_FRAME_COUNT += 1
 
             graph, graph_mirrored = _get_graph(relation_json, object_json, vf_path, act_list[frame], frame, subject, task, take, pos_normalizer, mask_to_delete_objs)
-
-            if use_pretained_embedding:
+            
+            
+            if use_pretrained_embedding:
                 graph = _transform_to_pretained_embedding(graph, embedding_map)
                 graph_mirrored = _transform_to_pretained_embedding(graph_mirrored, embedding_map)
 
@@ -915,7 +919,8 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
                 # data_list=[]
                 # data_list_mirrored=[]
                 continue
-            
+
+
 
             data_list.append(graph)    
             data_list_mirrored.append(graph_mirrored)
@@ -986,11 +991,11 @@ def process_bimanual_dataset(root: str, temporal_length: int, downsample: int, u
 
 
 class BimanualDataset(gDataset):
-    def __init__(self, root, temporal_length, downsample, mapping, use_vf, filtered_data, monograph, use_pretained_embedding: bool = False):
+    def __init__(self, root, temporal_length, downsample, mapping, use_vf, filtered_data, monograph, use_pretrained_embedding: bool = False):
 
         self.temporal_length = temporal_length
 
-        self.pdir = get_processing_dir(root, temporal_length, downsample, use_vf, filtered_data, monograph, use_pretained_embedding)
+        self.pdir = get_processing_dir(root, temporal_length, downsample, use_vf, filtered_data, monograph, use_pretrained_embedding)
         
         self.mapping = mapping
 
@@ -1119,14 +1124,14 @@ def print_data_point(data: gData):
     print("Graph id: ", data.y[0,-1].item())
 
 
-def get_bimanual_dataset_splits(*, root: str, process_it_anyway: bool, test_subject: int, validation_take: int , temporal_length: int, downsample: int, use_vf: bool, filtered_data:bool, monograph: bool, use_pretained_embedding: bool = False) -> Tuple[gDataset, gDataset, gDataset]:
+def get_bimanual_dataset_splits(*, root: str, process_it_anyway: bool, test_subject: int, validation_take: int , temporal_length: int, downsample: int, use_vf: bool, filtered_data:bool, monograph: bool, use_pretrained_embedding: bool = False) -> Tuple[gDataset, gDataset, gDataset]:
     # dataset_mapping = {"train":{"vid":{}, "sample":{}},
     #                    "test":{"vid":{}, "sample":{}},
     #                    "val":{"vid":{}, "sample":{}}}
     
     # path_mapping = {"train": {}, "test": {}, "val": {}} # [split]: idx -> path, global_idx
 
-    processed_dir = get_processing_dir(root, temporal_length, downsample, use_vf, filtered_data, monograph, use_pretained_embedding)
+    processed_dir = get_processing_dir(root, temporal_length, downsample, use_vf, filtered_data, monograph, use_pretrained_embedding)
 
     
     assert os.path.isfile(opj(processed_dir, "dataset_mapping_master.pickle")), f"In {processed_dir}, dataset is not preprocessed yet"
@@ -1163,9 +1168,9 @@ def get_bimanual_dataset_splits(*, root: str, process_it_anyway: bool, test_subj
             distibution[a] += c
 
 
-    train_set=BimanualDataset(root, temporal_length, downsample, path_mapping["train"], use_vf, filtered_data, monograph, use_pretained_embedding)
-    test_set=BimanualDataset(root, temporal_length, downsample, path_mapping["test"], use_vf, filtered_data, monograph, use_pretained_embedding)
-    val_set=BimanualDataset(root, temporal_length, downsample, path_mapping["val"], use_vf, filtered_data, monograph, use_pretained_embedding)
+    train_set=BimanualDataset(root, temporal_length, downsample, path_mapping["train"], use_vf, filtered_data, monograph, use_pretrained_embedding)
+    test_set=BimanualDataset(root, temporal_length, downsample, path_mapping["test"], use_vf, filtered_data, monograph, use_pretrained_embedding)
+    val_set=BimanualDataset(root, temporal_length, downsample, path_mapping["val"], use_vf, filtered_data, monograph, use_pretrained_embedding)
     
     train_set.distribution = distibution
 
@@ -1182,5 +1187,5 @@ if __name__ == "__main__":
                                         use_vf=False,
                                         filtered_data=True,
                                         monograph=False,
-                                        use_pretained_embedding=False)   
+                                        use_pretrained_embedding=False)   
     print(len(a), len(b), len(c))

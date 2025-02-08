@@ -195,10 +195,10 @@ class GraphModule(nn.Module):
         self.edge_dropout = args.edge_dropout
         self.use_embedding = args.use_embedding
         self.use_pos = args.use_pos
-        self.use_pretained_embedding = args.use_pretained_embedding
+        self.use_pretrained_embedding = args.use_pretrained_embedding
 
-        if self.use_pretained_embedding:
-            emb = np.load("pretained_embeddings.npz")
+        if self.use_pretrained_embedding:
+            emb = np.load("embeddings.npz")
             self.left_hand_embedding = torch.tensor(emb["LeftHand"])
             self.right_hand_embedding = torch.tensor(emb["RightHand"])
         
@@ -266,7 +266,7 @@ class GraphModule(nn.Module):
 
     def _hands_pooling(self, x, embeddings):
         
-        if not self.use_pretained_embedding:
+        if not self.use_pretrained_embedding:
             labels = torch.argmax(x, dim=1)
 
             # Below code is much more optimal, use when data redundancy is fixed.
@@ -274,8 +274,8 @@ class GraphModule(nn.Module):
 
         else:
             # Find closest embedding for each hand, and use it as the embedding
-            l_idx = torch.where(torch.norm(embeddings - self.left_hand_embedding.to(embeddings.device), dim=1) < 1e-6)[0]
-            r_idx = torch.where(torch.norm(embeddings - self.right_hand_embedding.to(embeddings.device), dim=1) < 1e-6)[0]
+            l_idx = torch.where(torch.norm(x - self.left_hand_embedding.to(x.device), dim=1) < 1e-6)[0]
+            r_idx = torch.where(torch.norm(x - self.right_hand_embedding.to(x.device), dim=1) < 1e-6)[0]
 
             l_emb = embeddings[l_idx]
             r_emb = embeddings[r_idx]
@@ -327,6 +327,7 @@ class GraphModule(nn.Module):
 
         if self.use_hand_pooling:
             left_embeddings, right_embeddings = self._hands_pooling(x, H)
+            assert len(left_embeddings) == len(batch.unique())
         else:
             # A bit inefficient implementation
             graph_embedding = g_nn.pool.global_mean_pool(H, batch)
@@ -643,14 +644,14 @@ def make_model(args):
         in_channels = len(OBJECTS) + 3
     elif args.use_vf:
         in_channels = 256
-    elif args.use_pretained_embedding:
+    elif args.use_pretrained_embedding:
         in_channels = 16
     else:
         in_channels = len(OBJECTS)
 
     if args.use_pos_edge:
         num_edge_feat = len(RELATIONS) + 3
-    elif args.use_pretained_embedding:
+    elif args.use_pretrained_embedding:
         num_edge_feat = 16
     else:
         num_edge_feat = len(RELATIONS)
