@@ -365,8 +365,9 @@ def _get_relation_list(curr_objects):
     return relations_dict
 
 
-def create_relation_files(raw_dir: str):
-    assert raw_dir == "./coax/raw"
+def create_relation_files(root: str):
+    assert root == "./coax"
+    raw_dir = opj(root, "raw")
     derived_dir = opj(raw_dir, "derived_data")
     for subject, task, take in crawl_dataset_FULL():
         print(".", end="", flush=True)

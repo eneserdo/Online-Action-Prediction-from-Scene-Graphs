@@ -2,8 +2,8 @@ import argparse
 import os
 import pathlib
 
-from dataset import (download_coax_dataset, get_processing_dir,
-                     process_coax_dataset)
+from dataset import (create_relation_files, download_coax_dataset,
+                     get_processing_dir, process_coax_dataset)
 
 
 def arg_parser_dataset():
@@ -37,12 +37,12 @@ def main():
         raise ValueError(f"The dataset is already processed in {pr_dir}\n, (Remove it manually if necessary)")
 
 
-    raw_dir = os.path.join(args.root, "raw")
-
     if args.unzip_anyway:
-        if not os.path.exists(raw_dir):
-            os.makedirs(raw_dir)
-        download_coax_dataset(raw_dir, args.download_anyway)
+        if not os.path.exists(args.root):
+            os.makedirs(args.root)
+        download_coax_dataset(args.root, args.download_anyway)
+        create_relation_files(args.root)
+
 
     process_coax_dataset(args.root, args.temporal_length, args.downsample, False, args.filtered_data)
     print("Dataset processed!")
