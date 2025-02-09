@@ -212,7 +212,7 @@ class GraphModule(nn.Module):
 
         assert args.norm_layer != "none", "norm_layer should not be none"
         assert args.norm_layer != "PairNorm", "PairNorm is not implemented yet"
-        assert args.num_layers >= 2, "num_layers should be at least 2"
+        # assert args.num_layers >= 2, "num_layers should be at least 2"
 
         NormLayerType = getattr(g_nn, args.norm_layer)
 
