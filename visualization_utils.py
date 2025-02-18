@@ -135,6 +135,51 @@ def plot_segmentation_v2(y_true, y_pred, conf, y_pred_M, conf_M, save_file, titl
     fig.savefig(save_file)
     plt.close()
 
+def plot_segmentation_v3(y_true_L, y_pred_L, conf_L, y_true_R, y_pred_R, conf_R, save_file, title):
+    # This is a very custom function to plot the segmentation of the video.
+
+    bar_width = 1
+    bar_height = 300
+
+    # y_true = np.repeat(np.repeat(y_true.reshape(1, -1), bar_height, axis=0), bar_width, axis=1)
+    # y_pred = np.repeat(np.repeat(y_pred.reshape(1, -1), bar_height, axis=0), bar_width, axis=1)
+    # y_pred_M = np.repeat(np.repeat(y_pred_M.reshape(1, -1), bar_height, axis=0), bar_width, axis=1)
+
+    y_true_L = create_label_bar(y_true_L, bar_height=bar_height, bar_width=bar_width).astype(np.uint8)
+    y_pred_L = create_label_bar(y_pred_L, bar_height=bar_height, bar_width=bar_width).astype(np.uint8)
+    y_true_R = create_label_bar(y_true_R, bar_height=bar_height, bar_width=bar_width).astype(np.uint8)
+    y_pred_R = create_label_bar(y_pred_R, bar_height=bar_height, bar_width=bar_width).astype(np.uint8)
+
+
+    # Plot the segmentation
+    # plt.figure(figsize=(30, 10))
+    fig, axs = plt.subplots(6, 1, sharex=True, figsize=(30, 10))
+    plt.suptitle(title)
+
+    # Plot the ground truth
+    axs[0].set_title(f'Left Hand: Ground Truth')
+    axs[0].imshow(y_true_L, cmap=plt.get_cmap('tab20'), vmin=0, vmax=20, aspect='auto')
+    
+    axs[1].set_title('Left Hand: Prediction')
+    axs[1].imshow(y_pred_L, cmap=plt.get_cmap('tab20'), vmin=0, vmax=20, aspect='auto')
+    
+    axs[2].set_title('Left Hand: Confidence')
+    axs[2].plot(conf_L, color='black', linewidth=0.7)
+    
+    axs[3].set_title('Right Hand: Ground Truth')
+    axs[3].imshow(y_true_R, cmap=plt.get_cmap('tab20'), vmin=0, vmax=20, aspect='auto')
+    
+    axs[4].set_title('Right Hand: Prediction')
+    axs[4].imshow(y_pred_R, cmap=plt.get_cmap('tab20'), vmin=0, vmax=20, aspect='auto')
+    
+    axs[5].set_title('Right Hand: Confidence')
+    axs[5].plot(conf_R, color='black', linewidth=0.7)
+
+    
+    fig.tight_layout()
+    fig.savefig(save_file)
+    plt.close()
+
 
 def plot_segmentation_partial(y_pred_dict, y_true, save_dir, title):
     # This is a very custom function to plot the partial segments, and save it the temp folder.

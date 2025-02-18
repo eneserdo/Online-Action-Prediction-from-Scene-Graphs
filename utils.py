@@ -31,7 +31,7 @@ from scipy.optimize import linear_sum_assignment
 from dataset import ACTIONS
 from metrics import f1_at_k_single_example
 from visualization_utils import (plot_segmentation, plot_segmentation_partial,
-                                 plot_segmentation_v2)
+                                 plot_segmentation_v2, plot_segmentation_v3)
 
 plt.ioff()
 
@@ -820,6 +820,11 @@ def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, downsam
         y_pred_ML = y_pred_ML.repeat(downsample)
         y_pred_MR = y_pred_MR.repeat(downsample)
 
+        conf_L = conf_L.repeat(downsample)
+        conf_R = conf_R.repeat(downsample)
+        conf_ML = conf_ML.repeat(downsample)
+        conf_MR = conf_MR.repeat(downsample)
+
         pred_len = y_pred__L.shape[0]
         gt_len = y_true_L.shape[0]
 
@@ -828,6 +833,10 @@ def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, downsam
             y_pred__R = y_pred__R[:gt_len]
             y_pred_ML = y_pred_ML[:gt_len]
             y_pred_MR = y_pred_MR[:gt_len]
+            conf_L = conf_L[:gt_len]
+            conf_R = conf_R[:gt_len]
+            conf_ML = conf_ML[:gt_len]
+            conf_MR = conf_MR[:gt_len]
         elif gt_len - pred_len < downsample:
             y_true_L = y_true_L[:pred_len]
             y_true_R = y_true_R[:pred_len]
@@ -871,8 +880,7 @@ def calc_metrics_at_once(all_arr, mapping, num_classes, temporal_length, downsam
         
         # Visualization
         if save_dir is not None:
-            plot_segmentation_v2(y_true_L, y_pred__L, conf_L, y_pred_MR, conf_MR, save_file=opj(save_dir, video_id+"_L" + ".png"), title=video_id+"_L")
-            plot_segmentation_v2(y_true_R, y_pred__R, conf_R, y_pred_ML, conf_ML, save_file=opj(save_dir, video_id+"_R" + ".png"), title=video_id+"_R")
+            plot_segmentation_v3(y_true_L, y_pred__L, conf_L, y_true_R, y_pred__R, conf_R, save_file=opj(save_dir, video_id + ".png"), title=f"Overall Output for subject {video_id[0]}, task {video_id[1]}, take {video_id[2]}")
 
     # f1_at_10, f1_at_25, f1_at_50, f1_top1_mv, cm_top1_mv
     f1_at_10, f1_at_25, f1_at_50 = f1_at_k.compute()
