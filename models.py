@@ -255,6 +255,8 @@ class GraphModule(nn.Module):
                                 (NormLayerType(next_ch), bn_transfer_string)])
             prev_ch = next_ch
 
+        module_list.append((g_nn.SAGPooling(next_ch, ratio=2), "x, edge_index, edge_attr, batch -> x, edge_index, edge_attr, batch, unk1, unk2"))
+
         self.gnn = g_nn.Sequential(module_str, module_list)
 
     def _hands_pooling(self, x, embeddings):
@@ -303,20 +305,26 @@ class GraphModule(nn.Module):
         if self.use_pos_edge:
             edge_attr = torch.cat([edge_attr, pos_3d[edge_index[0]] - pos_3d[edge_index[1]]], dim=-1)
 
+        # if self.return_attention:
+        #     H = self.gnn(x_, edge_index, edge_attr, batch, True)
+        # else:
+        #     H = self.gnn(x_, edge_index, edge_attr, batch)
 
-        if self.return_attention:
-            H = self.gnn(x_, edge_index, edge_attr, batch, True)
-        else:
-            H = self.gnn(x_, edge_index, edge_attr, batch)
-
-        if self.use_hand_pooling:
-            left_embeddings, right_embeddings = self._hands_pooling(x, H)
-        else:
-            # A bit inefficient implementation
-            graph_embedding = g_nn.pool.global_mean_pool(H, batch)
-            left_embeddings = graph_embedding
-            right_embeddings = graph_embedding
+        # if self.use_hand_pooling:
+        #     left_embeddings, right_embeddings = self._hands_pooling(x, H)
+        # else:
+        #     # A bit inefficient implementation
+        #     graph_embedding = g_nn.pool.global_mean_pool(H, batch)
+        #     left_embeddings = graph_embedding
+        #     right_embeddings = graph_embedding
         
+        # return left_embeddings, right_embeddings
+        
+        H, *_ = self.gnn(x_, edge_index, edge_attr, batch)
+        
+        left_embeddings = H[::2]
+        right_embeddings = H[1::2]
+
         return left_embeddings, right_embeddings
 
 
