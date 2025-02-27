@@ -13,15 +13,16 @@ from typing import List
 import torch
 import torch.nn as nn
 import torch_geometric.nn as g_nn
-from positional_encodings.torch_encodings import (PositionalEncoding1D,
-                                                  PositionalEncoding2D)
+from positional_encodings.torch_encodings import (
+    PositionalEncoding1D,
+    PositionalEncoding2D,
+)
 from torch.nn import functional as F
 from torch_geometric.data import Batch, Data
 from torch_geometric.utils import dropout_edge
 
 from dataset import ACTIONS, OBJECTS, RELATIONS
-from utils import (align_embeddings_to_right, get_filters_for_imbalance,
-                   print_warning)
+from utils import align_embeddings_to_right, get_filters_for_imbalance, print_warning
 
 
 # Borrowed from https://github.com/pytorch/examples/blob/main/word_language_model/model.py
@@ -502,7 +503,8 @@ class ActionRecognition(nn.Module):
 
                 both_out_ml = torch.cat([both_out_left, both_out_right], dim=-1)
                 
-                action_prediction = torch.cat((self.left_mlp(both_out_ml), self.right_mlp(both_out_ml)), dim=1)
+                both_out_ml = both_out_ml.mean(dim=0)
+                action_prediction = torch.cat((self.left_mlp(both_out_ml), self.right_mlp(both_out_ml)), dim=0)
                 
 
             elif self.merged_pred == "early":

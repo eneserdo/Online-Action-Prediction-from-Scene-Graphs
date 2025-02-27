@@ -11,14 +11,27 @@ import numpy as np
 import torch
 from rich import print as rprint
 from torch_geometric.loader import DataLoader
+from torchmetrics.classification import MulticlassF1Score
 
 import wandb
-from dataset import (ACTIONS, _get_max_length, get_bimanual_dataset_splits,
-                     get_processing_dir)
+from dataset import (
+    ACTIONS,
+    _get_max_length,
+    get_bimanual_dataset_splits,
+    get_processing_dir,
+)
 from models import make_model
-from utils import (Metrics, VisIndividualPreds, arg_parser, get_loss_weights,
-                   get_minutes, metrics_to_str, seed_worker,
-                   visualize_incorrect_preds, wandb_logging)
+from utils import (
+    Metrics,
+    VisIndividualPreds,
+    arg_parser,
+    get_loss_weights,
+    get_minutes,
+    metrics_to_str,
+    seed_worker,
+    visualize_incorrect_preds,
+    wandb_logging,
+)
 
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
@@ -46,9 +59,10 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
     loss_cumulative = 0
 
-    seg_save_dir = opj(save_dir, f"test_results_{epoch}") if (mode == "test" and args.save_segments) else None
-    metrics = Metrics(len(ACTIONS), args.temporal_length, args.downsample, device, dataset_mapping, mode, seg_save_dir, args.weighted_mv)
-    
+    # seg_save_dir = opj(save_dir, f"test_results_{epoch}") if (mode == "test" and args.save_segments) else None
+    # metrics = Metrics(len(ACTIONS), args.temporal_length, args.downsample, device, dataset_mapping, mode, seg_save_dir, args.weighted_mv)
+    f1_micro = MulticlassF1Score(num_classes=len(ACTIONS), average="micro").to(device=device)
+    f1_macro = MulticlassF1Score(num_classes=len(ACTIONS), average="macro").to(device=device)
 
     for step, unpackable in enumerate(loader):
         idxes, data = unpackable
@@ -63,12 +77,14 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                                       data.y[:,1,:].reshape(batch_size, args.temporal_length, len(ACTIONS)).permute(1, 0, 2)], dim=1)
 
         # gt_reordered: [temporal_length, 2*batch_size(left, ..., left, right, ..., right) , num_classes]
+        # last graph
+        gt_reordered = gt_reordered[-1]
 
         with torch.cuda.amp.autocast(enabled=not args.no_amp):
             pred = model(data)
 
-            pred_flattened = pred.flatten(0, 1)
-            gt_flattened = gt_reordered.flatten(0, 1)
+            pred_flattened = pred
+            gt_flattened = gt_reordered
             
             loss = loss_criterion(pred_flattened, gt_flattened)
             loss = loss / args.num_acc
@@ -94,11 +110,13 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
             VIP.pick_samples(y_true=gt_reordered.cpu().argmax(2), y_pred=pred.detach().cpu(), idx=idxes, epoch=epoch, mode=mode)
 
 
-        step_f1_top1, step_f1_top3 = metrics.update(pred.detach(), gt_reordered, idxes)
+        # step_f1_top1, step_f1_top3 = metrics.update(pred.detach(), gt_reordered, idxes)
+        step_f1_micro = f1_micro(pred.detach(), gt_reordered.argmax(1))
+        step_f1_macro = f1_macro(pred.detach(), gt_reordered.argmax(1))
 
 
-        if mode != "test":
-            wandb.log({f"{mode}/batch": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()}, 'batch': step})
+        # if mode != "test":
+        #     wandb.log({f"{mode}/batch": {'top1_F1': step_f1_top1, 'top3_F1': step_f1_top3, "Loss": loss.item()}, 'batch': step})
 
         if mode == "test" and args.save_incorrects:
             raise NotImplementedError("save_incorrects may be broken, please check it")
@@ -110,9 +128,26 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
 
     # End of for loop
     
-    metric_dict = metrics.compute()
+    # metric_dict = metrics.compute()
 
     loss_cumulative = loss_cumulative / (len(loader.dataset) / args.batch_size)
+
+    metric_dict = {
+                "f1_top1": 0,
+                "f1_top3": 0,
+                # "cm_top1": self.conf_mat_top1.compute().cpu(),
+                # "cm_top3": self.conf_mat_top3.compute().cpu(),
+                "f1_top1_once": f1_macro.compute().item(),
+                "f1_top3_once": 0,
+                "f1_micro_once": f1_micro.compute().item(),
+                "cm_top1_once": 0,
+                "cm_top3_once": 0,
+                "f1@10": 0,
+                "f1@25": 0,
+                "f1@50": 0,
+                "win_f1_top1": 0,
+                "win_f1_top3": 0,
+            }
 
 
 
