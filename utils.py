@@ -1015,6 +1015,7 @@ class Metrics:
         # Window-location-sensitive
         if temporal_length != -1:
             self.win_f1_calc_top1 = [MulticlassF1Score(num_classes=num_classes, top_k=1, average="macro").to(device) for _ in range(temporal_length)]
+            self.win_f1_calc_top1_micro = [MulticlassF1Score(num_classes=num_classes, top_k=1, average="micro").to(device) for _ in range(temporal_length)]
             self.win_f1_calc_top3 = [MulticlassF1Score(num_classes=num_classes, top_k=1, average="macro").to(device) for _ in range(temporal_length)]
 
 
@@ -1068,7 +1069,7 @@ class Metrics:
             for i in range(self.temporal_length):
                 self.win_f1_calc_top1[i](pred_top_1_unf[i, :], gt[i])
                 self.win_f1_calc_top3[i](pred_top_3_unf[i, :], gt[i])
-
+                self.win_f1_calc_top1_micro[i](pred_top_1_unf[i, :], gt[i])
             # These are expects non-flattened tensors
             combine_predictions(self.all_predictions_combined_top1, idxes.numpy(), pred_top_1_unf.cpu(), self.dataset_mapping[self.mode]["sample"])
             combine_predictions(self.all_predictions_combined_top3, idxes.numpy(), pred_top_3_unf.cpu(), self.dataset_mapping[self.mode]["sample"])
@@ -1099,6 +1100,7 @@ class Metrics:
 
             self.win_f1_calc_top1_results = [f1_calc.compute().item() for f1_calc in self.win_f1_calc_top1]
             self.win_f1_calc_top3_results = [f1_calc.compute().item() for f1_calc in self.win_f1_calc_top3]
+            self.win_f1_calc_top1_micro_results = [f1_calc.compute().item() for f1_calc in self.win_f1_calc_top1_micro]
 
             ret = {
                 "f1_top1": self.f1_top1.compute().item(),
@@ -1115,6 +1117,7 @@ class Metrics:
                 "f1@50": metrics_top1["f1_at_50"],
                 "win_f1_top1": self.win_f1_calc_top1_results,
                 "win_f1_top3": self.win_f1_calc_top3_results,
+                "win_f1_top1_micro": self.win_f1_calc_top1_micro_results,
             }
         else:
             ret = {
