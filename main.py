@@ -63,6 +63,7 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
     # metrics = Metrics(len(ACTIONS), args.temporal_length, args.downsample, device, dataset_mapping, mode, seg_save_dir, args.weighted_mv)
     f1_micro = MulticlassF1Score(num_classes=len(ACTIONS), average="micro").to(device=device)
     f1_macro = MulticlassF1Score(num_classes=len(ACTIONS), average="macro").to(device=device)
+    cm_top1 = torch.zeros(len(ACTIONS), len(ACTIONS)).to(device=device)
 
     for step, unpackable in enumerate(loader):
         idxes, data = unpackable
@@ -140,13 +141,13 @@ def run_one_epoch(model: torch.nn.Module, loader: DataLoader, mode: str, epoch: 
                 "f1_top1_once": f1_macro.compute().item(),
                 "f1_top3_once": 0,
                 "f1_micro_once": f1_micro.compute().item(),
-                "cm_top1_once": 0,
-                "cm_top3_once": 0,
+                "cm_top1_once": cm_top1.cpu(),
+                "cm_top3_once": cm_top1.cpu(),
                 "f1@10": 0,
                 "f1@25": 0,
                 "f1@50": 0,
-                "win_f1_top1": 0,
-                "win_f1_top3": 0,
+                "win_f1_top1": [0 for _ in range(args.temporal_length)],
+                "win_f1_top3": [0 for _ in range(args.temporal_length)],
             }
 
 
